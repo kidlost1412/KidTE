@@ -27,24 +27,13 @@ def _start_monitor(data_dir: Path):
     threading.Thread(target=upload_worker, args=(data_dir,), name='captcha-upload', daemon=True).start()
     if not has_telegram(data_dir):
         return
-    configured_ffmpeg = os.environ.get("KIDTE_FFMPEG", "").strip()
-    ffmpeg = Path(configured_ffmpeg) if configured_ffmpeg else None
-    if ffmpeg is not None and not ffmpeg.is_file():
-        ffmpeg = None
+    ffmpeg = _ffmpeg_binary()
     if getattr(sys, "frozen", False):
         script_dir = Path(sys._MEIPASS) / "captcha-monitor"
-        legacy_ffmpeg = Path(sys.executable).resolve().parent.parent / "tools" / "ffmpeg.exe"
     else:
         script_dir = Path(__file__).resolve().parent / "captcha-monitor"
-        project = Path(__file__).resolve().parents[1]
-        legacy_ffmpeg = project / "tools" / "ffmpeg" / "ffmpeg.exe"
-    if ffmpeg is None:
-        ffmpeg = legacy_ffmpeg
-        if not ffmpeg.is_file():
-            found = shutil.which("ffmpeg.exe")
-            ffmpeg = Path(found) if found else ffmpeg
     script = script_dir / "monitor.ps1"
-    if not script.is_file() or not ffmpeg.is_file():
+    if not script.is_file() or ffmpeg is None:
         (data_dir / "monitor-error.txt").write_text(
             "Telegram monitor or FFmpeg is missing.", encoding="utf-8")
         return
@@ -55,6 +44,100 @@ def _start_monitor(data_dir: Path):
                       "-File", str(script), "-DataDir", str(data_dir),
                       "-Ffmpeg", str(ffmpeg), "-SolverPid", str(os.getpid())], cwd=data_dir,
                      creationflags=flags, close_fds=True)
+
+
+def _derive_app_root(executable: Path) -> Path | None:
+    """Return the install root only for a recognized exact solver layout."""
+    resolved = executable.resolve()
+    parts = resolved.parts
+    expected_prefix = ("packages", "captcha-solver")
+    if len(parts) >= 5:
+        # Versioned optional package: App/packages/captcha-solver/<version>/Captcha/KidTECaptcha.exe
+        actual_prefix = tuple(part.casefold() for part in parts[-5:-3])
+        actual_suffix = tuple(part.casefold() for part in parts[-2:])
+        if (actual_prefix == expected_prefix and parts[-3]
+                and actual_suffix == ("captcha", "kidtecaptcha.exe")):
+            return Path(*parts[:-5])
+    if len(parts) >= 2 and tuple(part.casefold() for part in parts[-2:]) == (
+            "captcha", "kidtecaptcha.exe"):
+        # Legacy install: App/Captcha/KidTECaptcha.exe.
+        return Path(*parts[:-2])
+    return None
+
+
+def _initialize_app_root() -> Path | None:
+    """Recover the install root after UAC drops the parent process environment."""
+    if not getattr(sys, "frozen", False):
+        configured = os.environ.get("KIDTE_APP_ROOT", "").strip()
+        return Path(configured).resolve() if configured else None
+    derived = _derive_app_root(Path(sys.executable))
+    configured = os.environ.get("KIDTE_APP_ROOT", "").strip()
+    if derived is None:
+        return Path(configured).resolve() if configured else None
+    if configured and Path(configured).resolve() != derived:
+        raise RuntimeError("captcha_app_root_mismatch")
+    os.environ["KIDTE_APP_ROOT"] = str(derived)
+    return derived
+
+
+def _selected_media_ffmpeg() -> Path | None:
+    """Resolve the active signed media package; corruption must remain visible."""
+    if not getattr(sys, "frozen", False) and not os.environ.get("KIDTE_APP_ROOT", "").strip():
+        return None
+    from component_runtime import component_path
+    selected = component_path("media-tools", "tools/ffmpeg.exe")
+    return Path(selected) if selected is not None else None
+
+
+def _ffmpeg_binary() -> Path | None:
+    _initialize_app_root()
+    # Validate the selected package before honoring an explicit path: a stale or
+    # damaged active package must not be masked by a legacy copy or PATH install.
+    selected = _selected_media_ffmpeg()
+    configured = os.environ.get("KIDTE_FFMPEG", "").strip()
+    if configured:
+        explicit = Path(configured)
+        if not explicit.is_file():
+            raise RuntimeError("selected_media_tool_missing:ffmpeg")
+        return explicit
+    if selected is not None:
+        return selected
+    if getattr(sys, "frozen", False):
+        app_root = _initialize_app_root()
+        legacy = (app_root / "tools" / "ffmpeg.exe") if app_root else None
+    else:
+        project = Path(__file__).resolve().parents[1]
+        legacy = project / "tools" / "ffmpeg" / "ffmpeg.exe"
+    if legacy is not None and legacy.is_file():
+        return legacy
+    found = shutil.which("ffmpeg.exe")
+    return Path(found) if found else None
+
+
+def _resource_count() -> int:
+    import importlib.util
+    spec = importlib.util.find_spec("tiktok_live_studio_captcha_solver")
+    if spec is None or not spec.submodule_search_locations:
+        return 0
+    root = Path(next(iter(spec.submodule_search_locations))) / "resources"
+    return sum(1 for item in root.rglob("*") if item.is_file()) if root.is_dir() else 0
+
+
+def package_probe() -> dict:
+    """Check packaged resources without touching data, keys, capture, or solver APIs."""
+    count = 0
+    app_root = None
+    try:
+        app_root = _initialize_app_root()
+        count = _resource_count()
+        ffmpeg = _ffmpeg_binary()
+        return {"ok": count > 0 and ffmpeg is not None,
+                "resource_count": count, "ffmpeg": str(ffmpeg) if ffmpeg else None,
+                "app_root": str(app_root) if app_root else None}
+    except Exception as error:  # noqa: BLE001 - the offline diagnostic must return structured failure.
+        return {"ok": False, "resource_count": count, "ffmpeg": None,
+                "app_root": str(app_root) if app_root else None,
+                "error": f"{type(error).__name__}: {error}"[:200]}
 
 
 def _single_instance():
@@ -134,7 +217,12 @@ def main() -> int:
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--owner-pid", type=int, default=0)
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--package-probe", action="store_true")
     args = parser.parse_args()
+    if args.package_probe:
+        report = package_probe()
+        print(json.dumps(report))
+        return 0 if report["ok"] else 1
     if args.selftest:
         report = selftest(args.data_dir.resolve() if args.data_dir else None)
         print(json.dumps(report))

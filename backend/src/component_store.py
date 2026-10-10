@@ -260,10 +260,11 @@ class ComponentStore:
 
     def _discard_pending_if_generation(self, generation: str) -> None:
         pending = self._read_mapping(self.pending_path)
-        if pending is not None:
-            self._validate_mapping(pending)
-            if pending.get("generation") == generation:
-                self.pending_path.unlink(missing_ok=True)
+        # Recovery owns only the generation named by its journal. A newer
+        # pending generation is validated by load/activation, where the
+        # launcher can reject it while retaining the healthy active core.
+        if pending is not None and pending.get("generation") == generation:
+            self.pending_path.unlink(missing_ok=True)
 
     def load_active(self) -> dict | None:
         with self._locked():

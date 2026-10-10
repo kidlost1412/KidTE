@@ -527,7 +527,11 @@ def _run_step(index: int, step: dict, base_dir: Path, app_root: Path,
             raise SmokeFailure("running_core_path_mismatch")
         if ready.get("launcher_generation") != expected_generation:
             raise SmokeFailure("ready_generation_mismatch")
-        version_file = app_root / "VERSION"
+        # An older installer baseline may coexist with a newer managed core.
+        # Check the executable actually selected after activation/rollback.
+        version_file = expected_executable.parent / "VERSION"
+        if not version_file.is_file():
+            version_file = app_root / "VERSION"
         expected_app_version = version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else ""
         if expected_app_version and ready.get("version") != expected_app_version:
             raise SmokeFailure("ready_app_version_mismatch")

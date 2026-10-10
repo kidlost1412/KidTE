@@ -76,3 +76,26 @@ def test_empty_mapping_remains_valid_for_rollback_baseline(tmp_path):
                "catalog_sequence": 1, "components": {}}
 
     store._validate_mapping(mapping)
+
+
+@pytest.mark.parametrize("journal_state", ["committed", "rolled_back"])
+def test_recovery_preserves_active_before_rejecting_new_incomplete_pending(tmp_path, journal_state):
+    store, records = _stage_records(tmp_path, ["core", "media-tools", "captcha-solver"])
+    pending = store.prepare(records, catalog_sequence=1)
+    active = store.activate_pending()
+    store.confirm_active(active["generation"])
+    journal = json.loads(store.journal_path.read_text(encoding="utf-8"))
+    journal["state"] = journal_state
+    store.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    corrupt_pending = json.loads(json.dumps(pending))
+    corrupt_pending["generation"] = str(uuid.uuid4())
+    del corrupt_pending["components"]["media-tools"]
+    store.pending_path.write_text(json.dumps(corrupt_pending), encoding="utf-8")
+
+    restarted = ComponentStore(store.app_root)
+    assert restarted.recover()["generation"] == active["generation"]
+    assert restarted.pending_path.exists()
+    with pytest.raises(ComponentStoreError, match="dependency is missing"):
+        restarted.activate_pending()
+    assert restarted.load_pending() is None
+    assert restarted.load_active()["generation"] == active["generation"]

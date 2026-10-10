@@ -10,7 +10,7 @@ const phases = {check: 'Đang kiểm tra bản phát hành…', install: 'Đang 
 export async function updates(ctx, host, owner) {
   let disposed = false;
   let polling = false;
-  let channel = 'stable';
+  let channel = null;
   owner.add(() => { disposed = true; });
 
   const act = async (action, body = {}) => {
@@ -25,10 +25,11 @@ export async function updates(ctx, host, owner) {
     try {
       const state = await request('/api/updates');
       if (disposed) return;
+      if (channel === null) channel = state.channel || 'stable';
       const selectChannel = select([['stable', 'Ổn định'], ['beta', 'Thử nghiệm']], channel);
       selectChannel.disabled = Boolean(state.busy);
-      selectChannel.addEventListener('change', () => { channel = selectChannel.value; });
-      const rows = (state.available || []).map(pkg => card(names[pkg.id] || pkg.id,
+      selectChannel.addEventListener('change', () => { channel = selectChannel.value; render(); });
+      const rows = (state.channel === channel ? state.available || [] : []).map(pkg => card(names[pkg.id] || pkg.id,
         h('div', {class: 'col gap-3'},
           h('p', {}, `Phiên bản ${pkg.version} · tải ${bytes(pkg.download_bytes)} · đã cài ${state.installed?.[pkg.id] || 'chưa có gói riêng'}`),
           btn(pkg.id === 'core' ? 'Chuẩn bị cập nhật' : 'Cài / cập nhật tăng tốc NVIDIA', {

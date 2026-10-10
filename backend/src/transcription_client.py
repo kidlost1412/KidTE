@@ -92,7 +92,7 @@ def _validate_response(raw):
     return rows, clean_info
 
 
-def _run_worker(worker, request, env, args=()):
+def _run_worker(worker, request, env, args=(), timeout=6 * 60 * 60):
     """Drain both pipes concurrently while retaining bounded output only."""
     process = subprocess.Popen(
         [str(worker), *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -134,7 +134,7 @@ def _run_worker(worker, request, env, args=()):
         finally:
             process.stdin.close()
         try:
-            return_code = process.wait(timeout=6 * 60 * 60)
+            return_code = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
@@ -205,7 +205,9 @@ def gpu_available():
     from config import ROOT
     env["KID_TE_ROOT"] = str(Path(ROOT).resolve())
     try:
-        return_code, stdout = _run_worker(Path(worker), b"", env, ("--probe-gpu",))
+        return_code, stdout = _run_worker(
+            Path(worker), b"", env, ("--probe-gpu",), timeout=30,
+        )
         if return_code != 0 or len(stdout) > MAX_RESPONSE_BYTES:
             return False
         payload = json.loads(stdout.decode("utf-8"), object_pairs_hook=_unique_object)

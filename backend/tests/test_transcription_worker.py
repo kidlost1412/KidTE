@@ -58,6 +58,23 @@ def test_client_reports_missing_component_and_failed_process(tmp_path, monkeypat
         transcription_client.transcribe(wav, model)
 
 
+def test_gpu_probe_uses_short_timeout(tmp_path, monkeypatch):
+    worker = tmp_path / "KidTETranscription.exe"
+    worker.write_bytes(b"stub")
+    monkeypatch.setitem(sys.modules, "component_runtime", types.SimpleNamespace(
+        component_path=lambda *_: worker,
+    ))
+    calls = {}
+
+    def run_worker(*args, **kwargs):
+        calls.update(kwargs)
+        return 0, b'{"protocol":1,"ok":true,"gpu_available":false}'
+
+    monkeypatch.setattr(transcription_client, "_run_worker", run_worker)
+    assert transcription_client.gpu_available() is False
+    assert calls["timeout"] == 30
+
+
 def test_worker_requires_explicit_local_model_and_disables_download(tmp_path, monkeypatch):
     audio, model = _worker_setup(tmp_path, monkeypatch)
     calls = {}

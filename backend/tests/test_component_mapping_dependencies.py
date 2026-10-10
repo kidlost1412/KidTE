@@ -99,3 +99,24 @@ def test_recovery_preserves_active_before_rejecting_new_incomplete_pending(tmp_p
         restarted.activate_pending()
     assert restarted.load_pending() is None
     assert restarted.load_active()["generation"] == active["generation"]
+
+
+@pytest.mark.parametrize("journal_state", ["committed", "rolled_back"])
+@pytest.mark.parametrize("content", [b'{"generation":', b'[]'])
+def test_recovery_leaves_unreadable_pending_for_explicit_rejection(tmp_path, journal_state, content):
+    store, records = _stage_records(tmp_path, ["core", "media-tools", "captcha-solver"])
+    store.prepare(records, catalog_sequence=1)
+    active = store.activate_pending()
+    store.confirm_active(active["generation"])
+    journal = json.loads(store.journal_path.read_text(encoding="utf-8"))
+    journal["state"] = journal_state
+    store.journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    store.pending_path.write_bytes(content)
+
+    restarted = ComponentStore(store.app_root)
+    assert restarted.recover()["generation"] == active["generation"]
+    assert restarted.pending_path.read_bytes() == content
+    with pytest.raises(ComponentStoreError):
+        restarted.load_pending()
+    restarted.cancel_pending()
+    assert restarted.load_active()["generation"] == active["generation"]

@@ -259,7 +259,12 @@ class ComponentStore:
             self._validate_mapping(journal["old_active"])
 
     def _discard_pending_if_generation(self, generation: str) -> None:
-        pending = self._read_mapping(self.pending_path)
+        try:
+            pending = self._read_mapping(self.pending_path)
+        except ComponentStoreError:
+            # Ownership cannot be inferred from damaged metadata. Leave it for
+            # the launcher's explicit pending rejection, never retire active.
+            return
         # Recovery owns only the generation named by its journal. A newer
         # pending generation is validated by load/activation, where the
         # launcher can reject it while retaining the healthy active core.

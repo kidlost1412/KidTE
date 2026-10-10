@@ -10,7 +10,7 @@
   Không chạy thêm BAT/PowerShell standalone cũ trong lúc solver Kid TE đang chạy;
   hai chương trình cùng điều khiển chuột sẽ xung đột.
 - Mã nguồn dùng venv riêng của solver. Bản phát hành đóng gói một EXE solver
-  riêng trong `App\Captcha`; không dùng runtime của EXE Kid TE.
+  riêng trong package tùy chọn `App\packages\captcha-solver\<phiên bản>\Captcha`; không dùng runtime của EXE Kid TE. Vào Cài đặt → Cập nhật để tải gói CAPTCHA và công cụ video dùng chung. Monitor và hàng chờ upload vẫn thuộc sidecar; key/hàng chờ giữ tại `DuLieu\captcha`.
 - Key chỉ lưu dưới dạng DPAPI của người dùng Windows trong `DuLieu\captcha`.
   API không trả key; log không chứa key. HTTP 401/403 dừng solver cho tới khi
   người dùng lưu key mới. Chuyển sang máy hoặc tài khoản Windows khác phải nhập

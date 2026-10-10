@@ -1,5 +1,7 @@
 # Bộ cài CPU và gói GPU tùy chọn — P1
 
+**Ghi chú P3:** phần dưới lưu mô tả/provenance đợt P1. Bản hiện tại tách cả Whisper CPU, CAPTCHA, FFmpeg và đồng bộ video thành package; xem [hướng dẫn cập nhật hiện tại](CAP-NHAT-GITHUB.md). Build phát hành hiện tại dùng profile CPU và số `ReleaseVersion` rõ ràng. GPU được tải ở Cập nhật, giữ cùng pack đã ký; không build installer GPU gộp kiểu P1.
+
 Phạm vi đợt này: đưa NVIDIA CUDA/cuDNN ra khỏi bộ cài mặc định. Core vẫn chứa runtime Whisper CPU, đồng bộ video, CAPTCHA và FFmpeg như trước. Model và dữ liệu người dùng tiếp tục ở ngoài chương trình. Updater GitHub và nút cài addon trong giao diện thuộc đợt P2; P1 dùng lựa chọn gói GPU rõ ràng qua môi trường của tiến trình.
 
 ## Build

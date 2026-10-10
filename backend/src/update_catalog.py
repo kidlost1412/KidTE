@@ -12,6 +12,14 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 REPOSITORY = "kidlost1412/KidTE"
+COMPONENT_POLICIES = {
+    "core": ("core", "KidTE.exe"),
+    "gpu-cuda12": ("gpu-runtime", "gpu-runtime.json"),
+    "media-tools": ("media-tools", "tools/ffmpeg.exe"),
+    "captcha-solver": ("service", "Captcha/KidTECaptcha.exe"),
+    "video-sync": ("service", "KidTEVideo.exe"),
+    "video-analysis-cpu": ("worker", "KidTETranscription.exe"),
+}
 CORE_DATA_SCHEMA = "b9a391a4195837dde253fc772fba0f9b5d18346b04eb634a86106c1c3b8389a3"
 _SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -97,7 +105,7 @@ def _safe_path(path):
 def _validate_package(p, repository):
     if not isinstance(p, dict) or set(p) != _PACKAGE_FIELDS:
         raise CatalogError("invalid_package_fields")
-    if not isinstance(p["id"], str) or p["id"] not in {"core", "gpu-cuda12"} or p["kind"] != ("core" if p["id"] == "core" else "gpu-runtime"):
+    if not isinstance(p["id"], str) or p["id"] not in COMPONENT_POLICIES or p["kind"] != COMPONENT_POLICIES[p["id"]][0]:
         raise CatalogError("unsupported_component")
     _semver(p["version"])
     if p["platform"] != "windows" or p["architecture"] != "x86_64":
@@ -106,7 +114,7 @@ def _validate_package(p, repository):
         raise CatalogError("unsupported_core_api")
     deps = p["dependencies"]
     if (not isinstance(deps, dict) or len(deps) > 10
-            or any(k not in {"core", "gpu-cuda12"} or k == p["id"] or not _valid_range(v)
+            or any(k not in COMPONENT_POLICIES or k == p["id"] or not _valid_range(v)
                    for k, v in deps.items())):
         raise CatalogError("invalid_dependencies")
     parsed = urlparse(p["url"] if isinstance(p["url"], str) else "")
@@ -129,13 +137,23 @@ def _validate_package(p, repository):
     if p["id"] == "core":
         if p["entrypoint"] != "KidTE.exe" or p["dependencies"] or p["compatibility"] != {"data_schema": CORE_DATA_SCHEMA}:
             raise CatalogError("invalid_core_package")
-    else:
+    elif p["id"] == "gpu-cuda12":
         c = p["compatibility"]
         if (not isinstance(c, dict) or p["entrypoint"] != "gpu-runtime.json"
                 or set(c) != {"python_abi", "ctranslate2_version", "cuda_major", "cudnn_major"}
                 or c["python_abi"] != "cp311" or c["ctranslate2_version"] != "4.8.2"
                 or c["cuda_major"] != 12 or c["cudnn_major"] != 9):
             raise CatalogError("invalid_gpu_compatibility")
+    else:
+        expected_compatibility = ({"protocol": 1, "python_abi": "cp311", "ctranslate2_version": "4.8.2"}
+                                  if p["id"] == "video-analysis-cpu" else {"component_api": 1})
+        if (p["entrypoint"] != COMPONENT_POLICIES[p["id"]][1]
+                or p["compatibility"] != expected_compatibility
+                or type(p["compatibility"].get("protocol" if p["id"] == "video-analysis-cpu" else "component_api")) is not int
+                or p["dependencies"].get("core") != ">=1.14.255,<2.0.0"
+                or (p["id"] in {"captcha-solver", "video-analysis-cpu"}
+                    and p["dependencies"].get("media-tools") != ">=1.0.0,<2.0.0")):
+            raise CatalogError("invalid_optional_component")
     files = p["files"]
     if not isinstance(files, list) or not files or len(files) > 100_000:
         raise CatalogError("invalid_file_inventory")
@@ -154,6 +172,8 @@ def _validate_package(p, repository):
         total += f["size"]
     if total != p["unpacked_bytes"] or p["entrypoint"].casefold() not in names:
         raise CatalogError("invalid_inventory_entrypoint")
+    if p["id"] == "media-tools" and not {"tools/ffmpeg.exe", "tools/ffprobe.exe"}.issubset(names):
+        raise CatalogError("missing_media_tools")
 
 
 def _contains_user_data(path):
@@ -252,7 +272,7 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
     only when a requested change would otherwise leave the combination invalid.
     """
     installed = installed or {}
-    allowed = {"core", "gpu-cuda12"}
+    allowed = set(COMPONENT_POLICIES)
     if not isinstance(requested, dict) or any(k not in allowed for k in requested):
         raise CatalogError("unsupported_component")
     if not isinstance(installed, dict) or any(k not in allowed for k in installed):
@@ -366,5 +386,5 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
             changed = True
             break
         if not changed:
-            return selected
+            return {key: record for key, record in selected.items() if installed_records.get(key) != record}
     raise CatalogError("dependency_conflict")

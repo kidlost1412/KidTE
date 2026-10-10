@@ -2,8 +2,11 @@ import os
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
+
+import pytest
 
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -117,3 +120,88 @@ def test_frozen_runtime_creates_portable_data_root_instead_of_appdata(tmp_path):
     assert ket_qua == install.parent / "DuLieu"
     assert ket_qua.is_dir(), "phai tao that su, khong chi tra ve duong dan"
     assert not (local / "KidTE").exists(), "khong duoc dung toi AppData"
+
+
+def test_frozen_find_tool_prefers_selected_media_tools_package(tmp_path):
+    install = tmp_path / "KidTE"
+    selected = tmp_path / "App" / "packages" / "media-tools" / "1.0.0" / "tools" / "ffmpeg.exe"
+    selected.parent.mkdir(parents=True)
+    selected.write_bytes(b"package")
+    legacy = install / "tools" / "ffmpeg.exe"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"legacy")
+    calls = []
+    runtime = SimpleNamespace(component_path=lambda component, relative: (
+        calls.append((component, relative)) or selected))
+
+    with (
+        mock.patch.object(config, "IS_FROZEN", True),
+        mock.patch.object(config, "INSTALL_ROOT", install),
+        mock.patch.object(config, "PROJECT_ROOT", tmp_path / "project"),
+        mock.patch.dict(sys.modules, {"component_runtime": runtime}),
+    ):
+        assert config.find_tool("ffmpeg") == str(selected)
+
+    assert calls == [("media-tools", "tools/ffmpeg.exe")]
+
+
+def test_frozen_find_tool_falls_back_only_when_media_package_is_unselected(tmp_path):
+    install = tmp_path / "KidTE"
+    legacy = install / "tools" / "ffprobe.exe"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"legacy")
+    calls = []
+    runtime = SimpleNamespace(component_path=lambda component, relative: (
+        calls.append((component, relative)) or None))
+
+    with (
+        mock.patch.object(config, "IS_FROZEN", True),
+        mock.patch.object(config, "INSTALL_ROOT", install),
+        mock.patch.object(config, "PROJECT_ROOT", tmp_path / "project"),
+        mock.patch.dict(sys.modules, {"component_runtime": runtime}),
+    ):
+        assert config.find_tool("ffprobe") == str(legacy)
+
+    assert calls == [("media-tools", "tools/ffprobe.exe")]
+
+
+def test_frozen_find_tool_propagates_broken_active_package_without_fallback(tmp_path):
+    install = tmp_path / "KidTE"
+    legacy = install / "tools" / "ffmpeg.exe"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"legacy")
+
+    def broken_active(*_args):
+        raise RuntimeError("active_component_invalid")
+
+    with (
+        mock.patch.object(config, "IS_FROZEN", True),
+        mock.patch.object(config, "INSTALL_ROOT", install),
+        mock.patch.object(config, "PROJECT_ROOT", tmp_path / "project"),
+        mock.patch.dict(sys.modules, {"component_runtime": SimpleNamespace(component_path=broken_active)}),
+    ):
+        with pytest.raises(RuntimeError, match="active_component_invalid"):
+            config.find_tool("ffmpeg")
+
+
+def test_frozen_find_tool_raises_when_selected_binary_is_missing(tmp_path):
+    install = tmp_path / "KidTE"
+    legacy = install / "tools" / "ffmpeg.exe"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"legacy")
+    selected = tmp_path / "packages" / "media-tools" / "1.0.0" / "tools" / "ffmpeg.exe"
+
+    with (
+        mock.patch.object(config, "IS_FROZEN", True),
+        mock.patch.object(config, "INSTALL_ROOT", install),
+        mock.patch.object(config, "PROJECT_ROOT", tmp_path / "project"),
+        mock.patch.dict(sys.modules, {"component_runtime": SimpleNamespace(
+            component_path=lambda *_args: selected)}),
+    ):
+        with pytest.raises(RuntimeError, match="selected_media_tool_missing:ffmpeg"):
+            config.find_tool("ffmpeg")
+
+
+def test_find_tool_only_accepts_ffmpeg_and_ffprobe():
+    with pytest.raises(ValueError, match="unsupported_media_tool"):
+        config.find_tool("other")

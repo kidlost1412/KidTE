@@ -64,9 +64,10 @@ export function stubResponse(url) {
   if (p === '/api/settings') return {ok: true, deepseek_model: 'deepseek-chat', has_api_key: true, selected_audio_device: 'auto', shop: {name: 'Kid TE', hotline: '0900000000'},
     audio_devices: [{id: 'loop-1', name: 'Loa (Realtek Audio) - loopback', loopback: true}, {id: 'mic-1', name: 'Micro mảng (Realtek)', loopback: false}]};
   if (p === '/api/updates') return {ok: true, enabled: true, trusted: true, busy: false, error: '',
-    channel: 'stable', installed: {core: '1.14.253'}, pending: {}, restart_required: false,
+    channel: 'stable', installed: {core: '1.14.255', 'media-tools': '1.0.0', 'captcha-solver': '1.0.0'}, pending: {}, restart_required: false,
     available: [{id: 'core', version: '1.14.254', download_bytes: 265000000, unpacked_bytes: 955000000, dependencies: {}},
-      {id: 'gpu-cuda12', version: '1.0.0', download_bytes: 1375876639, unpacked_bytes: 2102925408, dependencies: {core: '>=1.14.254,<2.0.0'}}]};
+      {id: 'gpu-cuda12', version: '1.0.0', download_bytes: 1375876639, unpacked_bytes: 2102925408, dependencies: {core: '>=1.14.254,<2.0.0'}},
+      ...['media-tools', 'captcha-solver', 'video-sync', 'video-analysis-cpu'].map(id => ({id, version: '1.0.0', download_bytes: 100000000, unpacked_bytes: 200000000, dependencies: {core: '>=1.14.255,<2.0.0'}}))]};
   if (p.startsWith('/api/workspace/videos')) return {ok: true, items: [video], total: 1};
   if (p.startsWith('/api/workspace/conversations')) return {ok: true, items: comments, total: comments.length};
   if (p.startsWith('/api/workspace/products') || p === '/api/video/catalog') return {ok: true, items: products, products, total: products.length};

@@ -32,6 +32,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
 )
 from update_catalog import (
+    COMPONENT_POLICIES,
     _contains_user_data,
     _parse,
     _safe_path,
@@ -170,7 +171,7 @@ def sign_catalog(payload_path: Path, private_path: Path, output_path: Path):
 
 
 def package_directory(source: Path, output: Path, component="core"):
-    if component not in {"core", "gpu-cuda12"}:
+    if component not in COMPONENT_POLICIES:
         raise ValueError("unsupported component")
     source = Path(source).absolute()
     _check_local_path(source)
@@ -186,14 +187,14 @@ def package_directory(source: Path, output: Path, component="core"):
         if any(path.name.casefold() in state_names or {part.casefold() for part in path.relative_to(source).parts}.intersection({".staging", "packages"})
                for path in source.rglob("*")):
             raise ValueError("dirty_package_source_contains_update_state")
-        stage_runtime.validate(source, profile="cpu")
+        stage_runtime.validate(source, profile="cpu", minimal=True)
     files = []
     for path in sorted(source.rglob("*"), key=lambda p: p.relative_to(source).as_posix().casefold()):
         _check_local_path(path)
         if not path.is_file():
             continue
         rel = path.relative_to(source).as_posix()
-        if component == "core" and rel.casefold() in {"kidtelauncher.exe", "release-manifest.json"}:
+        if component == "core" and rel.casefold() in {"kidtelauncher.exe", "release-manifest.json", "bootstrap-request.json"}:
             continue
         if not _safe_path(rel) or _contains_user_data(rel):
             raise ValueError("unsafe_windows_path")
@@ -280,7 +281,7 @@ def main(argv=None):
     pk = sub.add_parser("package")
     pk.add_argument("source", type=Path)
     pk.add_argument("--out", required=True, type=Path)
-    pk.add_argument("--component", choices=("core", "gpu-cuda12"), required=True)
+    pk.add_argument("--component", choices=tuple(COMPONENT_POLICIES), required=True)
     args = parser.parse_args(argv)
     if args.command == "keygen":
         print(json.dumps({"key_id": keygen(args.private_key, args.public_key), "public_metadata": str(args.public_key)}))

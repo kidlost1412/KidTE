@@ -84,8 +84,8 @@ openai_datas, openai_binaries, openai_hidden = collect_all("openai")
 certifi_datas, certifi_binaries, certifi_hidden = collect_data_files("certifi"), [], []
 truststore_datas, truststore_binaries, truststore_hidden = collect_all("truststore")
 httpx_datas, httpx_binaries, httpx_hidden = collect_all("httpx")
-whisper_datas, whisper_binaries, whisper_hidden = collect_all("faster_whisper")
-ctranslate_datas, ctranslate_binaries, ctranslate_hidden = collect_all("ctranslate2")
+whisper_datas, whisper_binaries, whisper_hidden = [], [], []
+ctranslate_datas, ctranslate_binaries, ctranslate_hidden = [], [], []
 common_pathex = [str(BACKEND / "src")]
 
 # Legacy GPU profile bundles CUDA DLLs. The default CPU profile leaves NVIDIA
@@ -121,7 +121,8 @@ def analysis(script, *, pathex=None, datas=None, hiddenimports=None):
                                              "backup_v2", "backup_inventory", "backup_secret_stage", "backup_service", "backup_io",
                            "cryptography.hazmat.primitives.ciphers.aead", "cryptography.hazmat.primitives.kdf.scrypt"]
                        if script.name == "app_entry.py" else list(hiddenimports or [])),
-        hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False,
+        hookspath=[], hooksconfig={}, runtime_hooks=[],
+        excludes=["faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "torch", "nvidia"], noarchive=False,
     )
 
 
@@ -146,11 +147,13 @@ video_exe = EXE(video_pyz, video.scripts, [], exclude_binaries=True,
 
 # Filter once more at the shared COLLECT boundary so neither analysis can
 # contribute NVIDIA DLLs to the final CPU one-folder package.
-collect_binaries = _filter_nvidia_entries(core.binaries + video.binaries)
+collect_binaries = _filter_nvidia_entries(core.binaries)
 
 dist = COLLECT(
-    core_exe, video_exe,
-    collect_binaries, core.datas, video.datas,
+    core_exe,
+    collect_binaries, core.datas,
     strip=False, upx=True, upx_exclude=["cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll"],
     name="KidTE",
 )
+video_dist = COLLECT(video_exe, video.binaries, video.datas,
+                     strip=False, upx=True, name="KidTEVideo")

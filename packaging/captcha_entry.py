@@ -27,13 +27,19 @@ def _start_monitor(data_dir: Path):
     threading.Thread(target=upload_worker, args=(data_dir,), name='captcha-upload', daemon=True).start()
     if not has_telegram(data_dir):
         return
+    configured_ffmpeg = os.environ.get("KIDTE_FFMPEG", "").strip()
+    ffmpeg = Path(configured_ffmpeg) if configured_ffmpeg else None
+    if ffmpeg is not None and not ffmpeg.is_file():
+        ffmpeg = None
     if getattr(sys, "frozen", False):
         script_dir = Path(sys._MEIPASS) / "captcha-monitor"
-        ffmpeg = Path(sys.executable).resolve().parent.parent / "tools" / "ffmpeg.exe"
+        legacy_ffmpeg = Path(sys.executable).resolve().parent.parent / "tools" / "ffmpeg.exe"
     else:
         script_dir = Path(__file__).resolve().parent / "captcha-monitor"
         project = Path(__file__).resolve().parents[1]
-        ffmpeg = project / "tools" / "ffmpeg" / "ffmpeg.exe"
+        legacy_ffmpeg = project / "tools" / "ffmpeg" / "ffmpeg.exe"
+    if ffmpeg is None:
+        ffmpeg = legacy_ffmpeg
         if not ffmpeg.is_file():
             found = shutil.which("ffmpeg.exe")
             ffmpeg = Path(found) if found else ffmpeg
@@ -88,6 +94,10 @@ def selftest(data_dir: Path | None) -> dict:
         return count > 0, f"{count} tệp tài nguyên", "Cài lại Kid TE: thiếu tài nguyên nhận dạng."
 
     def ffmpeg():
+        configured = os.environ.get("KIDTE_FFMPEG", "").strip()
+        path = Path(configured) if configured else None
+        if path is not None and path.is_file():
+            return True, str(path), ""
         if getattr(sys, "frozen", False):
             path = Path(sys.executable).resolve().parent.parent / "tools" / "ffmpeg.exe"
         else:

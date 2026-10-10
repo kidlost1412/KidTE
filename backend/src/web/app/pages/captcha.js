@@ -111,11 +111,16 @@ export default {
         const model = healthModel(state);
         clear(status,
           healthCard(model),
+          !state.available ? notice('warn', state.package_error ? 'Gói CAPTCHA cần được cài lại' : 'Gói CAPTCHA chưa được cài',
+            h('div', {class: 'col gap-2'},
+              h('div', {}, state.package_error ? friendlyError({code: state.package_error}) :
+                'Vào Cài đặt → Cập nhật, chọn gói CAPTCHA rồi cài để bật solver, giám sát Telegram và quay video.'),
+              btn('Mở Cài đặt → Cập nhật', {kind: 'primary', onClick: () => ctx.navigate('system', 'updates')}))) : null,
           notice(state.running ? 'ok' : 'warn', state.running ? 'Tiến trình đang chạy' : 'Tiến trình chưa chạy',
           state.running ? `PID ${state.pid} · ${state.admin ? 'quyền Administrator' : 'đang xác minh quyền Admin'}` :
               state.key_rejected ? 'SadCaptcha đã từ chối key; cần lưu key mới.' :
               !state.configured ? 'Chưa có API key.' :
-              !state.available ? 'Chưa tìm thấy chương trình solver riêng.' :
+              !state.available ? 'Cần cài gói CAPTCHA để khởi chạy solver.' :
               state.error || 'Đã sẵn sàng để khởi chạy.'),
           state.external_solver_running ? notice('warn', 'Có solver khác đang chạy',
             `PID ${state.external_pid}. Kid TE sẽ không tạo tiến trình thứ hai.`) : null,

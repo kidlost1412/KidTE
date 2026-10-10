@@ -2,7 +2,9 @@
 
 Cần Windows 10/11 64-bit. Không cần quyền quản trị.
 
-Trình giải CAPTCHA được cài thành một chương trình riêng trong `App\Captcha`.
+P3 cài lõi nhỏ trước. Công cụ video, giải CAPTCHA/monitor, đồng bộ video và bộ chép lời được tải riêng ở **Cài đặt → Cập nhật**; NVIDIA và model cũng tải riêng. Bản thử dùng kênh **Thử nghiệm**. Khi nâng từ P2, cài installer P3 một lần để nâng launcher rồi mới tải các tính năng này.
+
+Trình giải CAPTCHA nằm trong `App\packages\captcha-solver\<phiên bản>\Captcha`.
 Mở Kid TE → **Giải CAPTCHA** để nhập SadCaptcha key. Windows sẽ hỏi quyền
 Administrator khi khởi chạy solver; Kid TE không lấy quyền đó cho các chức năng
 khác. Chỉ một solver được chạy trong mỗi phiên Windows. Nếu key hết lượt,

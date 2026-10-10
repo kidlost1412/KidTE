@@ -42,14 +42,17 @@ def _allowed_url(url, package=False):
     if p.scheme != "https" or p.hostname != "github.com" or p.port is not None or p.query or p.fragment or p.username or p.password or not p.path.startswith(prefix):
         return False
     rest = p.path[len(prefix):]
-    return bool(re.fullmatch(r"updates-(?:stable|beta)/kidte-catalog-v2\.json", rest)) if not package else bool(re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", rest))
+    return bool(re.fullmatch(r"updates-(?:stable|beta)(?:-p3)?/kidte-catalog-v2\.json", rest)) if not package else bool(re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", rest))
 
 
 class GitHubTransport:
-    def __init__(self, repository=REPOSITORY, opener=None, timeout=20, clock=time.monotonic):
+    def __init__(self, repository=REPOSITORY, opener=None, timeout=20, clock=time.monotonic, *, series="p2"):
         if repository != REPOSITORY:
             raise ValueError("unsupported_repository")
         self.repository = repository
+        if series not in {"p2", "p3"}:
+            raise ValueError("unsupported_catalog_series")
+        self.series = series
         self.opener = opener or urllib.request.build_opener(_SafeRedirectHandler())
         self.timeout = timeout
         self.clock = clock
@@ -62,7 +65,8 @@ class GitHubTransport:
             raise ValueError("unsupported_channel")
         if self.retry_delay(channel) > 0:
             raise TransportError("catalog_backoff")
-        url = f"https://github.com/{self.repository}/releases/download/updates-{channel}/kidte-catalog-v2.json"
+        suffix = "-p3" if self.series == "p3" else ""
+        url = f"https://github.com/{self.repository}/releases/download/updates-{channel}{suffix}/kidte-catalog-v2.json"
         headers = {"User-Agent": "KidTE-Updater/2", "Accept": "application/octet-stream"}
         if self._etag.get(channel):
             headers["If-None-Match"] = self._etag[channel]

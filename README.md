@@ -10,7 +10,7 @@ Nhận installer ở [GitHub Releases](https://github.com/kidlost1412/KidTE/rele
 
 Mở bằng biểu tượng Kid TE để launcher chọn đúng phiên bản. **Cài đặt và hệ thống → Cập nhật** kiểm catalog ký số, báo tổng tải và chuẩn bị gói cho lần mở tiếp theo. Kết thúc LIVE, đóng và mở lại để áp dụng. Dữ liệu tiếp tục nằm trong `DuLieu` cạnh `App`.
 
-Updater hiện hỗ trợ lõi cùng schema dữ liệu và GPU CUDA 12 tương thích runtime đã ghim. Các tính năng nặng khác và processor còn phát hành cùng lõi. [Cơ chế cập nhật và phát hành](docs/CAP-NHAT-GITHUB.md).
+Từ P3, bộ cài chỉ mang lõi và các processor nhỏ. Công cụ video, CAPTCHA/monitor, đồng bộ video, worker chép lời và GPU là các gói tải theo nhu cầu. Model và dữ liệu giữ riêng. Processor nghiệp vụ vẫn cập nhật cùng lõi cho tới đợt hợp đồng plugin tiếp theo. [Cơ chế cập nhật và phát hành](docs/CAP-NHAT-GITHUB.md).
 
 ## Phát triển
 
@@ -30,7 +30,7 @@ Kiểm dựa vào dữ liệu của máy vận hành sẽ skip khi dữ liệu �
 
 Build cần PyInstaller, Inno Setup và FFmpeg/FFprobe. Core dùng môi trường CPU riêng; CAPTCHA dùng môi trường và nguồn solver đã kiểm toán riêng. Bundle guard trong `packaging/solver-patches` giữ hash/provenance và kiểm mã solver; không bỏ guard để build với nguồn khác. [Ranh giới CAPTCHA](docs/TICH-HOP-CAPTCHA.md).
 
-Dùng `packaging/build.ps1 -Profile CPU -ReleaseVersion <x.y.z> -Python <CPU Python> -CaptchaPython <solver Python>`. Số phát hành rõ ràng giúp giữ thứ tự phiên bản khi lịch sử kho bắt đầu lại; không dùng số commit mới để hạ phiên bản. [Build CPU và gói GPU](docs/GOI-GPU-TUY-CHON.md), [ký catalog và phát hành](docs/CAP-NHAT-GITHUB.md).
+Dùng `packaging/build.ps1 -Profile CPU -ReleaseVersion <x.y.z> -Python <CPU Python>` để tạo lõi. Thêm `-BuildComponents -CaptchaPython <solver Python>` để tạo các cây package riêng trong build. Số phát hành rõ ràng giúp giữ thứ tự phiên bản khi lịch sử kho bắt đầu lại; không dùng số commit mới để hạ phiên bản. [Build CPU và gói GPU](docs/GOI-GPU-TUY-CHON.md), [ký catalog và phát hành](docs/CAP-NHAT-GITHUB.md).
 
 ## Thư mục
 

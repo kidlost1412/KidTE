@@ -7,7 +7,6 @@ import json
 import os
 import psutil
 import requests
-import shutil
 import sqlite3
 from contextlib import closing
 import subprocess
@@ -18,7 +17,7 @@ from pathlib import Path
 
 import captcha_health
 from captcha_secret import has_key, has_telegram, load_key, load_telegram, save_key, save_telegram
-from config import INSTALL_ROOT, IS_FROZEN, PROJECT_ROOT, ROOT
+from config import INSTALL_ROOT, IS_FROZEN, PROJECT_ROOT, ROOT, find_tool
 
 
 class CaptchaBridge:
@@ -29,13 +28,49 @@ class CaptchaBridge:
 
     def _command(self):
         if IS_FROZEN:
-            exe = INSTALL_ROOT / "Captcha" / "KidTECaptcha.exe"
+            exe = self._solver_executable()
             return [str(exe), "--data-dir", str(self.data_dir)]
         solver_root = Path(os.environ.get("KIDTE_CAPTCHA_SOLVER_ROOT", "").strip()
                            or PROJECT_ROOT.parent.parent / "TikTokCaptchaSolver-clean-20260926")
         python = solver_root / "venv" / "Scripts" / "pythonw.exe"
         entry = PROJECT_ROOT / "packaging" / "captcha_entry.py"
         return [str(python), str(entry), "--data-dir", str(self.data_dir)]
+
+    @staticmethod
+    def _selected_solver_executable():
+        if not IS_FROZEN:
+            return None
+        # A selected optional package is authoritative. The resolver raises
+        # for a corrupt selected package; only a genuinely absent package may
+        # fall back to the legacy App\Captcha location.
+        from component_runtime import component_path
+        return component_path("captcha-solver", "Captcha/KidTECaptcha.exe")
+
+    def _solver_executable(self):
+        selected = self._selected_solver_executable()
+        if selected is not None:
+            return Path(selected)
+        return INSTALL_ROOT / "Captcha" / "KidTECaptcha.exe"
+
+    def _solver_package_root(self):
+        selected = self._selected_solver_executable()
+        if selected is not None:
+            return Path(selected).parent
+        return INSTALL_ROOT / "Captcha"
+
+    @staticmethod
+    def _ffmpeg_path():
+        found = find_tool("ffmpeg")
+        return Path(found) if found else None
+
+    def _solver_environment(self):
+        env = {**os.environ, "PYTHONUTF8": "1"}
+        ffmpeg = self._ffmpeg_path()
+        if ffmpeg is not None:
+            env["KIDTE_FFMPEG"] = str(ffmpeg.resolve())
+        else:
+            env.pop("KIDTE_FFMPEG", None)
+        return env
 
     def _processes(self):
         own = []
@@ -124,7 +159,17 @@ class CaptchaBridge:
         return entries[-limit:]
 
     def status(self):
-        command = self._command()
+        package_error = None
+        try:
+            command = self._command()
+            available = Path(command[0]).is_file()
+        except Exception:
+            # A corrupt selected package is not treated as absent for path
+            # resolution, but status endpoints must remain usable so the UI
+            # can explain how to repair it.
+            command = None
+            available = False
+            package_error = "captcha_solver_package_invalid"
         own, external = self._processes()
         session = self._active_session()
         events = self._events()
@@ -150,7 +195,8 @@ class CaptchaBridge:
             except (OSError, ValueError, KeyError, TypeError, UnicodeError):
                 telegram_error = "captcha_telegram_unreadable"
         return {
-            "available": Path(command[0]).is_file(),
+            "available": available,
+            "package_error": package_error,
             "configured": has_key(self.data_dir),
             "telegram_configured": telegram_configured,
             "telegram_chat_hint": chat_hint,
@@ -165,11 +211,11 @@ class CaptchaBridge:
             "external_pid": external[0].pid if external else None,
             "admin": bool(session and session["admin"]),
             "key_rejected": self._key_rejected(),
-            "error": error,
+            "error": package_error or error,
             "events": events,
             "log_age_seconds": log_age_seconds,
             "health": self.health(running=bool(own) or session is not None,
-                                  available=Path(command[0]).is_file()),
+                                  available=available),
         }
 
     def _read_start_error(self):
@@ -199,7 +245,10 @@ class CaptchaBridge:
         if running is None or available is None:
             own, _ = self._processes()
             running = bool(own) or self._active_session() is not None
-            available = Path(self._command()[0]).is_file()
+            try:
+                available = Path(self._command()[0]).is_file()
+            except Exception:
+                available = False
         folder = self.data_dir / "tiktok-captcha-solver-logs"
         info = captcha_health.parse_log(
             self._tail_text(folder / "ttls-captcha-solver.log", 96_000), now.strftime("%Y-%m-%d"))
@@ -280,25 +329,28 @@ class CaptchaBridge:
 
     def _monitor_command(self, solver_pid):
         if IS_FROZEN:
-            script = INSTALL_ROOT / "Captcha" / "_internal" / "captcha-monitor" / "monitor.ps1"
-            ffmpeg = INSTALL_ROOT / "tools" / "ffmpeg.exe"
+            script = self._solver_package_root() / "_internal" / "captcha-monitor" / "monitor.ps1"
         else:
             script = PROJECT_ROOT / "packaging" / "captcha-monitor" / "monitor.ps1"
-            ffmpeg = PROJECT_ROOT / "tools" / "ffmpeg" / "ffmpeg.exe"
-            if not ffmpeg.is_file():
-                found = shutil.which("ffmpeg.exe")
-                ffmpeg = Path(found) if found else ffmpeg
-        if not script.is_file() or not ffmpeg.is_file():
+        ffmpeg = self._ffmpeg_path()
+        if not script.is_file() or ffmpeg is None or not ffmpeg.is_file():
             return None
         return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", str(script), "-DataDir", str(self.data_dir),
                 "-Ffmpeg", str(ffmpeg), "-SolverPid", str(solver_pid)]
 
     def _ensure_monitor(self, state):
+        if state.get("package_error"):
+            return {"monitor_start_requested": False,
+                    "monitor_error": state["package_error"]}
         if (not state["running"] or not state["telegram_configured"]
                 or state.get("telegram_error") or state["monitor_pid"]):
             return {"monitor_start_requested": False}
-        command = self._monitor_command(state["pid"])
+        try:
+            command = self._monitor_command(state["pid"])
+        except Exception:
+            return {"monitor_start_requested": False,
+                    "monitor_error": "captcha_solver_package_invalid"}
         if command is None:
             return {"monitor_start_requested": False, "monitor_error": "captcha_monitor_missing"}
         # Windows PowerShell exits before running -File under DETACHED_PROCESS.
@@ -308,7 +360,7 @@ class CaptchaBridge:
                  getattr(subprocess, "CREATE_NO_WINDOW", 0))
         try:
             subprocess.Popen(command, cwd=self.data_dir, creationflags=flags,
-                             close_fds=True)
+                             close_fds=True, env=self._solver_environment())
         except OSError:
             return {"monitor_start_requested": False, "monitor_error": "captcha_monitor_start_failed"}
         return {"monitor_start_requested": True}
@@ -327,6 +379,8 @@ class CaptchaBridge:
             if self._closing:
                 return {"ok": False, "error": "captcha_app_closing"}
             state = self.status()
+            if state.get("package_error"):
+                return {**state, "ok": False, "error": state["package_error"]}
             if state["running"]:
                 return {**state, "ok": True, "already_running": True,
                         **self._ensure_monitor(state)}
@@ -346,7 +400,7 @@ class CaptchaBridge:
                          getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) |
                          getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 subprocess.Popen(command, cwd=self.data_dir, creationflags=flags,
-                                 close_fds=True, env={**os.environ, "PYTHONUTF8": "1"})
+                                 close_fds=True, env=self._solver_environment())
             else:
                 shell_execute = ctypes.windll.shell32.ShellExecuteW
                 shell_execute.restype = ctypes.c_void_p
@@ -359,20 +413,27 @@ class CaptchaBridge:
 
     def selftest(self, timeout=45):
         """Run the solver executable's --selftest and return its parsed JSON."""
-        if IS_FROZEN:
-            command = self._command()[:1]
-        else:
-            python = Path(self._command()[0]).with_name("python.exe")   # console build, has solver deps
-            command = [str(python), str(PROJECT_ROOT / "packaging" / "captcha_entry.py")]
+        try:
+            if IS_FROZEN:
+                command = self._command()[:1]
+            else:
+                python = Path(self._command()[0]).with_name("python.exe")   # console build, has solver deps
+                command = [str(python), str(PROJECT_ROOT / "packaging" / "captcha_entry.py")]
+        except Exception:
+            return {"ok": False, "error": "captcha_solver_package_invalid", "checks": []}
         command += ["--selftest", "--data-dir", str(self.data_dir)]
         try:
             done = subprocess.run(command, capture_output=True, text=True, timeout=timeout,
                                   encoding="utf-8", errors="replace",
+                                  env=self._solver_environment(),
                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "captcha_selftest_timeout", "checks": []}
         except OSError:
-            return {"ok": False, "error": "captcha_selftest_unavailable", "checks": []}
+            error = ("captcha_solver_missing"
+                     if IS_FROZEN and not Path(command[0]).is_file()
+                     else "captcha_selftest_unavailable")
+            return {"ok": False, "error": error, "checks": []}
         for line in reversed((done.stdout or "").strip().splitlines()):
             try:
                 data = json.loads(line)

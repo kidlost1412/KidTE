@@ -8,12 +8,12 @@ import threading
 from pathlib import Path
 
 from component_store import ComponentStore
-from update_catalog import resolve_components, verify_catalog
+from update_catalog import COMPONENT_POLICIES, resolve_components, verify_catalog
 from update_transport import GitHubTransport
 from update_trust import TRUSTED_KEYS
 
 REPOSITORY = "kidlost1412/KidTE"
-SUPPORTED_COMPONENTS = {"core", "gpu-cuda12"}
+SUPPORTED_COMPONENTS = set(COMPONENT_POLICIES)
 
 
 class UpdateManager:
@@ -24,7 +24,7 @@ class UpdateManager:
         if not selected and getattr(sys, "frozen", False):
             selected = Path(sys.executable).resolve().parent
         self.app_root = Path(selected).absolute() if selected else None
-        self.transport = transport or GitHubTransport(repository=REPOSITORY)
+        self.transport = transport or GitHubTransport(repository=REPOSITORY, series="p3")
         self.trusted_keys = dict(TRUSTED_KEYS if trusted_keys is None else trusted_keys)
         self._store = store
         self._lock = threading.RLock()
@@ -75,7 +75,7 @@ class UpdateManager:
     def action(self, action, payload):
         if not isinstance(payload, dict):
             raise ValueError("update_payload_invalid")  # noqa: TRY004 - consistent HTTP validation contract
-        if action not in {"check", "plan", "install", "rollback", "cancel"}:
+        if action not in {"check", "plan", "install", "remove", "rollback", "cancel"}:
             raise ValueError("update_action_not_found")
         store = self._get_store()
         with self._lock:
@@ -102,12 +102,27 @@ class UpdateManager:
                     raise ValueError("update_check_required")
                 if action == "plan":
                     _, selection = self._plan(store, requested)
-                    return {"ok": True, "download_bytes": sum(p["archive_bytes"] for p in selection.values()),
+                    local_core = "core" in selection and store.baseline_matches(selection["core"])
+                    return {"ok": True, "download_bytes": sum(p["archive_bytes"] for k, p in selection.items() if k != "core" or not local_core),
                             "packages": [{"id": p["id"], "version": p["version"],
-                                          "download_bytes": p["archive_bytes"]} for p in selection.values()]}
+                                          "download_bytes": 0 if k == "core" and local_core else p["archive_bytes"],
+                                          "local_reuse": k == "core" and local_core} for k, p in selection.items()]}
                 if store.load_pending() is not None:
                     raise ValueError("update_restart_required")
                 target = lambda: self._install(store, requested)
+            elif action == "remove":
+                component = payload.get("component")
+                if component not in SUPPORTED_COMPONENTS - {"core"}:
+                    raise ValueError("update_selection_invalid")
+                if store.load_pending() is not None:
+                    raise ValueError("update_restart_required")
+                current = (store.load_active() or {}).get("components", {})
+                if component not in current:
+                    raise ValueError("component_not_installed")
+                if any(component in row["package"]["dependencies"] for key, row in current.items() if key != component):
+                    raise ValueError("component_in_use")
+                target = lambda: store.prepare({key: row for key, row in current.items() if key != component},
+                                                catalog_sequence=store.read_highwater())
             elif action == "rollback":
                 target = store.request_rollback
             else:
@@ -150,6 +165,10 @@ class UpdateManager:
         components = dict((store.load_active() or {}).get("components", {}))
         download_root = store.download_root()
         for component_id, package in selection.items():
+            if component_id == "core" and store.baseline_matches(package):
+                store.stage_baseline(package)
+                components[component_id] = package
+                continue
             archive = download_root / (package["archive_sha256"] + ".zip")
             self._set(progress={"component": component_id, "received": 0,
                                 "total": package["archive_bytes"]})

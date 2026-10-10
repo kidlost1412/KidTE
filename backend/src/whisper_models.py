@@ -132,6 +132,10 @@ def _cuda_ready():
     tiên lỗi rồi tự lùi về CPU — ước lượng thời gian phải theo CPU.
     """
     try:
+        import sys
+        if getattr(sys, "frozen", False):
+            from transcription_client import gpu_available
+            return gpu_available()
         from video_analysis import _register_cuda_dll_dirs
         _register_cuda_dll_dirs()
         import ctranslate2

@@ -21,6 +21,8 @@ import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
+from update_catalog import COMPONENT_POLICIES
+
 try:  # Windows uses a byte-range lock; POSIX keeps the module testable.
     import msvcrt  # type: ignore
 except ImportError:  # pragma: no cover - exercised on non-Windows CI
@@ -306,7 +308,7 @@ class ComponentStore:
             if (not isinstance(component, dict) or
                     set(component) != {"package", "path", "record_sha256", "manifest_sha256",
                                        "entrypoint", "kind", "version", "files", "compatibility"} or
-                    component_id not in {"core", "gpu-runtime", "gpu-cuda12"}):
+                    component_id not in COMPONENT_POLICIES):
                 raise ComponentStoreError("invalid component mapping")
             record = component.get("package")
             _validate_record(record)
@@ -366,6 +368,60 @@ class ComponentStore:
             if size != row["size"] or digest.hexdigest() != row["sha256"]:
                 return False
         return True
+
+    def baseline_matches(self, package: dict) -> bool:
+        """Verify installer core against a signed catalog without downloading it."""
+        _validate_record(package)
+        if package["id"] != "core":
+            return False
+        try:
+            for row in package["files"]:
+                path = self.app_root / row["path"]
+                _check_ancestry(path)
+                if not path.is_file() or path.stat().st_size != row["size"]:
+                    return False
+                digest = hashlib.sha256()
+                with path.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                if digest.hexdigest() != row["sha256"]:
+                    return False
+            return True
+        except OSError:
+            return False
+
+    def stage_baseline(self, package: dict) -> Path:
+        """Copy verified installer files into an immutable core version; never hardlink."""
+        if not self.baseline_matches(package):
+            raise ComponentStoreError("installer core does not match signed inventory")
+        target = self.packages_dir / "core" / package["version"]
+        stage = self.staging_dir / f"core-local-{uuid.uuid4().hex}"
+        _check_ancestry(stage)
+        if shutil.disk_usage(self.app_root).free < package["unpacked_bytes"] + 1024 * 1024:
+            raise ComponentStoreError("insufficient disk space")
+        stage.mkdir()
+        try:
+            for row in package["files"]:
+                source = self.app_root / row["path"]
+                destination = stage / row["path"]
+                _check_ancestry(source)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            if not self._verify_existing(stage, package):
+                raise ComponentStoreError("installer core changed while staging")
+            with self._locked():
+                _check_ancestry(target)
+                if target.exists():
+                    if not self._verify_existing(target, package):
+                        raise ComponentStoreError("installed version exists with different contents")
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(stage, target)
+            return target
+        finally:
+            if stage.exists():
+                _check_ancestry(stage)
+                shutil.rmtree(stage)
 
     def stage_package(self, package: dict, archive_path: str | os.PathLike) -> Path:
         """Verify and install one archive under its immutable version path."""
@@ -537,7 +593,7 @@ class ComponentStore:
         """Persist a complete pending generation without changing active state."""
         if type(catalog_sequence) is not int or catalog_sequence < 1:
             raise ComponentStoreError("invalid catalog sequence")
-        if not isinstance(packages, dict) or not packages or set(packages) - {"core", "gpu-runtime", "gpu-cuda12"}:
+        if not isinstance(packages, dict) or not packages or set(packages) - set(COMPONENT_POLICIES):
             raise ComponentStoreError("invalid component selection")
         components = {}
         for component_id, supplied in packages.items():

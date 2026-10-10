@@ -32,6 +32,36 @@ class AlreadyRunning(LauncherError):
     """An instance for this data root is already serving the user."""
 
 
+def _prepare_installer_core(app_root, store):
+    """Consume a signed installer bootstrap after LIVE/process preflight succeeds."""
+    request = app_root / "bootstrap-request.json"
+    if not request.is_file():
+        return
+    from component_store import _check_ancestry
+    from update_catalog import resolve_components, verify_catalog
+    from update_trust import TRUSTED_KEYS
+
+    _check_ancestry(request)
+    if request.stat().st_size > 2 * 1024 * 1024:
+        raise LauncherError("Installer bootstrap catalog is too large.")
+    raw = request.read_bytes()
+    # Installer bootstrap uses the same pinned signature policy as network updates.
+    catalog = verify_catalog(raw, TRUSTED_KEYS, channel="beta", minimum_sequence=store.read_highwater())
+    core = next(p for p in catalog["components"] if p["id"] == "core")
+    if not store.baseline_matches(core):
+        raise LauncherError("Installer files do not match the signed bootstrap catalog.")
+    current = (store.load_active() or {}).get("components", {})
+    installed = {key: row["package"] for key, row in current.items()}
+    selection = resolve_components(catalog, {"core": core["version"]}, installed)
+    if set(selection) - {"core"}:
+        raise LauncherError("Installer bootstrap requires separate feature updates; use the updater.")
+    store.stage_baseline(core)
+    store.cancel_pending()
+    store.prepare({**current, "core": core}, catalog_sequence=catalog["sequence"])
+    _check_ancestry(request)
+    request.unlink()
+
+
 def _canon(path: str | os.PathLike) -> Path:
     return Path(path).expanduser().resolve()
 
@@ -596,6 +626,10 @@ class Launcher:
                        occupied_probe=self.occupied_probe)
             store = self._store(app_root)
             store.recover()
+            try:
+                _prepare_installer_core(app_root, store)
+            except (OSError, RuntimeError, ValueError) as exc:
+                _record_recovery(app_root, f"installer bootstrap rejected: {exc}")
             activated = None
             pending_attempt = False
             try:

@@ -78,7 +78,10 @@ class PluginRuntimeManager:
     @staticmethod
     def _spec(manifest):
         if getattr(sys, "frozen", False) and manifest.kind == "dich-vu" and manifest.plugin_id == "dong-bo-video":
-            executable = Path(sys.executable).resolve().parent / "KidTEVideo.exe"
+            from component_runtime import component_path
+            executable = component_path("video-sync", "KidTEVideo.exe")
+            if executable is None:
+                executable = Path(sys.executable).resolve().parent / "KidTEVideo.exe"
             command = (str(executable), *manifest.command[1:])
         else:
             command = (sys.executable, str(manifest.command_path), *manifest.command[1:])
@@ -95,7 +98,14 @@ class PluginRuntimeManager:
                 runtime = {"state": "in_process"}
                 state = "dang_chay"
             else:
-                runtime = self.supervisor.status(self._spec(manifest))
+                try:
+                    spec = self._spec(manifest)
+                    if getattr(sys, "frozen", False) and not Path(spec.command[0]).is_file():
+                        runtime = {"state": "not_installed", "reason": "Chưa cài Đồng bộ video LIVE — vào Cài đặt → Cập nhật để tải."}
+                    else:
+                        runtime = self.supervisor.status(spec)
+                except (OSError, RuntimeError, ValueError):
+                    runtime = {"state": "invalid_package", "reason": "Gói đồng bộ video bị lỗi — cài lại ở Cài đặt → Cập nhật."}
                 state = "dang_chay" if runtime.get("state") == "running" else self.states[plugin_id]
                 self._note_runtime_transition(plugin_id, runtime)
             plugins.append({
@@ -115,7 +125,13 @@ class PluginRuntimeManager:
             return {"ok": False, "error": "plugin_not_available"}
         if manifest.kind != "dich-vu":
             return {"ok": False, "error": "processor_managed_by_core"}
-        result = self.supervisor.start(self._spec(manifest), manual=True)
+        try:
+            spec = self._spec(manifest)
+        except (OSError, RuntimeError, ValueError):
+            return {"ok": False, "error": "Gói đồng bộ video bị lỗi — cài lại ở Cài đặt → Cập nhật."}
+        if getattr(sys, "frozen", False) and not Path(spec.command[0]).is_file():
+            return {"ok": False, "error": "Chưa cài Đồng bộ video LIVE — vào Cài đặt → Cập nhật để tải."}
+        result = self.supervisor.start(spec, manual=True)
         self._last_runtime_state[plugin_id] = result.get("state")
         self.states[plugin_id] = (
             "dang_chay" if result.get("state") == "running" else "can_nguoi_xu_ly"

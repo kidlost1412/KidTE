@@ -67,6 +67,17 @@ Source: "{#ProjectRoot}dist\KidTE\*"; DestDir: "{app}\App"; Flags: ignoreversion
 
 ; Cùng AppId với bản cũ: thay tên chương trình và lối tắt, giữ nguyên DuLieu.
 [InstallDelete]
+; Legacy optional payloads are replaced by versioned packages. DuLieu and
+; App/packages (including the installed GPU pack) are preserved.
+Type: filesandordirs; Name: "{app}\App\Captcha"
+Type: filesandordirs; Name: "{app}\App\tools"
+Type: files; Name: "{app}\App\KidTEVideo.exe"
+Type: filesandordirs; Name: "{app}\App\_internal\faster_whisper"
+Type: filesandordirs; Name: "{app}\App\_internal\ctranslate2"
+Type: filesandordirs; Name: "{app}\App\_internal\onnxruntime"
+Type: filesandordirs; Name: "{app}\App\_internal\av"
+Type: filesandordirs; Name: "{app}\App\_internal\av.libs"
+Type: filesandordirs; Name: "{app}\App\_internal\tokenizers"
 #if PackageProfile == "cpu"
 ; These files belong to the former bundled runtime, not DuLieu or external packs.
 Type: filesandordirs; Name: "{app}\App\_internal\nvidia"

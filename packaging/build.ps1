@@ -9,7 +9,8 @@ param(
     [string]$ArtifactLabel = "",
     [switch]$SkipInstaller,
     [switch]$SkipTests,
-    [switch]$KeepBuild
+    [switch]$KeepBuild,
+    [switch]$BuildComponents
 )
 $ErrorActionPreference = "Stop"
 $Project = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -25,8 +26,8 @@ if (-not $Python) {
 }
 try { $Python = (Resolve-Path -LiteralPath $Python -ErrorAction Stop).Path }
 catch { throw "Python executable not found: $Python" }
-# Keep the CAPTCHA sidecar in its audited solver environment through P3, when
-# it becomes a separate component. The CPU core environment intentionally omits
+# Build the optional CAPTCHA package in its audited solver environment.
+# The CPU core environment intentionally omits
 # CAPTCHA build dependencies; do not pip install them into it. Existing builds
 # keep working because the sidecar defaults to core Python.
 if (-not $CaptchaPython) { $CaptchaPython = $Python }
@@ -51,11 +52,18 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 & $Python -m PyInstaller --noconfirm --clean --distpath $Dist --workpath $Build (Join-Path $PSScriptRoot "Updater.spec")
 if ($LASTEXITCODE -ne 0) { throw "Launcher PyInstaller failed" }
 Copy-Item -LiteralPath (Join-Path $Dist "KidTELauncher.exe") -Destination (Join-Path $Dist "KidTE\KidTELauncher.exe")
-& $CaptchaPython -m PyInstaller --noconfirm --clean --distpath $Dist --workpath $Build (Join-Path $PSScriptRoot "KidTECaptcha.spec")
-if ($LASTEXITCODE -ne 0) { throw "CAPTCHA sidecar PyInstaller failed" }
-Copy-Item -LiteralPath (Join-Path $Dist "KidTECaptcha") -Destination (Join-Path $Dist "KidTE\Captcha") -Recurse
+if ($BuildComponents) {
+    & $Python -m PyInstaller --noconfirm --clean --distpath $Dist --workpath $Build (Join-Path $PSScriptRoot "Transcription.spec")
+    if ($LASTEXITCODE -ne 0) { throw "Transcription worker PyInstaller failed" }
+    & $CaptchaPython -m PyInstaller --noconfirm --clean --distpath $Dist --workpath $Build (Join-Path $PSScriptRoot "KidTECaptcha.spec")
+    if ($LASTEXITCODE -ne 0) { throw "CAPTCHA sidecar PyInstaller failed" }
+    $ComponentOutput = Join-Path $Build ("optional-components-" + [guid]::NewGuid().ToString("N"))
+    & $Python (Join-Path $PSScriptRoot "modular_components.py") $Dist $ComponentOutput
+    if ($LASTEXITCODE -ne 0) { throw "Optional component staging failed" }
+    Write-Host "Goi tinh nang de dong goi: $ComponentOutput"
+}
 # stage_runtime chep plugin/tien ich/ffmpeg va ghi VERSION (= file VERSION + so commit).
-& $Python (Join-Path $PSScriptRoot "stage_runtime.py") (Join-Path $Dist "KidTE") --profile $ProfileSlug
+& $Python (Join-Path $PSScriptRoot "stage_runtime.py") (Join-Path $Dist "KidTE") --profile $ProfileSlug --minimal
 if ($LASTEXITCODE -ne 0) { throw "Runtime validation failed" }
 $Version = (Get-Content -LiteralPath (Join-Path $Dist "KidTE\VERSION") -Raw).Trim()
 Write-Host "Phien ban: $Version"

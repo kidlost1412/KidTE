@@ -5,8 +5,9 @@ dua vao thu vien sau khi nguoi van hanh bam phat hanh mot ban hop le.
 """
 from __future__ import annotations
 
-import json
 import hashlib
+import importlib
+import json
 import os
 import re
 import shutil
@@ -19,13 +20,16 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import ROOT
 import gpu_runtime
+from config import ROOT
 from video_fingerprint import (
-    TARGET_RATE, read_pcm16, resample_mono, save_reference, spectral_features,
+    TARGET_RATE,
+    read_pcm16,
+    resample_mono,
+    save_reference,
+    spectral_features,
 )
 from video_library import VIDEO_DIR, validate_timeline
-
 
 MAX_VIDEO_BYTES = 20 * 1024**3
 MAX_CHUNK_BYTES = 16 * 1024**2
@@ -112,12 +116,29 @@ def _find_whisper_model():
     return active_model_path()
 
 
+def _require_analysis_runtime():
+    if not getattr(sys, "frozen", False):
+        return
+    from component_runtime import component_path
+    if component_path("video-analysis-cpu", "KidTETranscription.exe") is None:
+        raise ValueError("transcription_worker_package_unavailable")
+    _ffmpeg_binary("ffmpeg")
+    _ffmpeg_binary("ffprobe")
+
+
 def _register_cuda_dll_dirs():
     """Register the validated opt-in pack or the established legacy runtime."""
     return gpu_runtime.register_cuda_dll_dirs()
 
 
 def _transcribe(path):
+    # The frozen core delegates this optional capability to its own runtime
+    # component. Source installs retain the inline legacy path below so older
+    # development environments and tests keep their established behavior.
+    if getattr(sys, "frozen", False):
+        from transcription_client import transcribe
+        return transcribe(path, _find_whisper_model())
+
     # CTranslate2 resolves CUDA DLLs while faster_whisper is imported. Windows
     # therefore needs the workspace/runtime directories registered first;
     # registering them after the import makes model loading appear successful
@@ -130,7 +151,9 @@ def _transcribe(path):
         # runtime or to a source venv. Keep transcription available on CPU.
         gpu_error = exc
     try:
-        from faster_whisper import WhisperModel
+        # Keep this as a runtime-only source import: PyInstaller must not pull
+        # the large transcription stack into the core executable.
+        WhisperModel = importlib.import_module("faster_whisper").WhisperModel
     except ImportError as exc:
         raise RuntimeError("faster_whisper_not_installed") from exc
     model_name = _find_whisper_model()
@@ -172,7 +195,7 @@ def _transcribe(path):
                           "language_probability": round(float(info.language_probability), 4),
                           "device": device, "compute_type": compute,
                           "model": model_name}
-        except Exception as exc:  # GPU co the thieu DLL; CPU la duong lui an toan.
+        except Exception as exc:  # noqa: BLE001 - CUDA backends expose vendor-specific failures; CPU fallback is required.
             last_error = exc
             if device == "cuda":
                 from problems import report_problem
@@ -376,7 +399,7 @@ class VideoAnalysisManager:
     def __init__(self, root=None, catalog_provider=None, live_provider=None):
         self.root = Path(root or (ROOT / "data" / "video_uploads"))
         self.root.mkdir(parents=True, exist_ok=True)
-        self.catalog_provider = catalog_provider or (lambda: {})
+        self.catalog_provider = catalog_provider or dict
         self.live_provider = live_provider or (lambda: False)
         self._lock = threading.RLock()
         # Whisper/ffmpeg tốn nhiều CPU/GPU và RAM. Cho phép phân tích trong LIVE
@@ -427,6 +450,7 @@ class VideoAnalysisManager:
             return current
 
     def start_upload(self, filename, total_size, source_probe=""):
+        _require_analysis_runtime()
         snapshot = self.catalog_provider() or {}
         catalog_snapshot = _catalog_rows(snapshot)
         if not catalog_snapshot:
@@ -565,6 +589,7 @@ class VideoAnalysisManager:
         worker.start()
 
     def resume(self, job_id):
+        _require_analysis_runtime()
         if not _catalog_rows(self.catalog_provider()):
             raise ValueError("saved_catalog_required")
         with self._lock:
@@ -606,7 +631,7 @@ class VideoAnalysisManager:
             draft = {
                 "schema_version": 1, "job_id": job_id,
                 "title": state.get("title") or Path(state["filename"]).stem,
-                "source_file": state["filename"], "cycle_ms": int(round(duration * 1000)),
+                "source_file": state["filename"], "cycle_ms": round(duration * 1000),
                 "repin_every_ms": 20000, "catalog": products,
                 "suggestions": suggestions, "events": [{
                     "at_ms": row["at_ms"], "product_id": row["product_id"],
@@ -628,13 +653,13 @@ class VideoAnalysisManager:
                 pass
             self._write(job_id, state="review", phase="owner_review",
                         suggestions=len(suggestions), transcript_segments=len(segments))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - persist job failure even for unexpected media/backend errors.
             from problems import report_problem
             report_problem("video_analysis_failed", f"Phân tích video {job_id} lỗi", exc)
             try:
                 self._write(job_id, state="error", phase="failed",
                             error=f"{type(exc).__name__}: {exc}"[:500])
-            except Exception as ghi_loi:
+            except Exception as ghi_loi:  # noqa: BLE001 - a concurrent cancel may remove the job folder.
                 # Job co the da bi xoa trong luc phan tich (nguoi dung huy, don
                 # thu muc). Ban cu de chinh trinh xu ly loi nem tiep, thanh mot
                 # exception khong ai bat trong thread nen -> tien trinh ghi mot
@@ -669,10 +694,16 @@ class VideoAnalysisManager:
         snapshot = self.catalog_provider() or {}
         products = _catalog_rows(snapshot)
         synced = str(snapshot.get("synced_at") or "")
+        runtime_error = ""
+        try:
+            _require_analysis_runtime()
+        except (OSError, RuntimeError, ValueError) as exc:
+            runtime_error = str(exc)
         return {
             "ok": True, "catalog_ready": bool(products), "product_count": len(products),
             "synced_at": synced, "room_id": str(snapshot.get("room_id") or ""),
-            "can_analyze_offline": bool(products),
+            "can_analyze_offline": bool(products) and not runtime_error,
+            "runtime_ready": not runtime_error, "runtime_error": runtime_error,
             "live_running": bool(self.live_provider()),
             "analysis_model": _find_whisper_model(),
             "max_parallel_jobs": 1,
@@ -735,7 +766,7 @@ class VideoAnalysisManager:
         clean_events, used = [], []
         for raw in events if isinstance(events, list) else []:
             at_ms = int(raw.get("at_ms"))
-            if at_ms < 0 or at_ms >= int(round(float(state["duration_s"]) * 1000)):
+            if at_ms < 0 or at_ms >= round(float(state["duration_s"]) * 1000):
                 raise ValueError("event_time_out_of_range")
             product_id = str(raw.get("product_id") or "").strip()
             if product_id and product_id not in catalog:
@@ -781,7 +812,7 @@ class VideoAnalysisManager:
         products = {}
         for product_id in dict.fromkeys(used):
             products[f"sku_{product_id}"] = timeline_product_entry(catalog[product_id])
-        cycle_ms = int(round(float(state["duration_s"]) * 1000))
+        cycle_ms = round(float(state["duration_s"]) * 1000)
         timeline = {
             "schema_version": 1, "video_id": video_id,
             "title": str(title or state.get("title") or video_id).strip()[:200],

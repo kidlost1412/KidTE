@@ -101,7 +101,7 @@ def build_version():
     return f"{base}.{count}"
 
 
-def stage(destination: Path, profile: str = "gpu"):
+def stage(destination: Path, profile: str = "gpu", *, minimal: bool = False):
     subprocess.run([sys.executable, str(PROJECT / 'packaging/apply_theme.py'), '--check'], check=True)
     subprocess.run([sys.executable, str(PROJECT / 'packaging/sync_extension_ui.py'), '--check'], check=True)
     destination = destination.resolve()
@@ -119,8 +119,9 @@ def stage(destination: Path, profile: str = "gpu"):
                   destination / "extension-shopee" / name)
     for name in DOC_FILES:
         copy_file(PROJECT / "docs" / name, destination / "docs" / name)
-    copy_ffmpeg(destination)
-    return validate(destination, profile=profile)
+    if not minimal:
+        copy_ffmpeg(destination)
+    return validate(destination, profile=profile, minimal=minimal)
 
 
 def copy_ffmpeg(destination: Path):
@@ -185,7 +186,7 @@ def _gpu_dlls(destination: Path):
     return found
 
 
-def validate(destination: Path, profile: str = "gpu"):
+def validate(destination: Path, profile: str = "gpu", *, minimal: bool = False):
     """Validate CPU or legacy bundled-GPU payloads.
 
     Keep the direct API default at `gpu` for existing callers. Build scripts
@@ -223,10 +224,21 @@ def validate(destination: Path, profile: str = "gpu"):
     required += [f"extension/{name}" for name in EXTENSION_FILES]
     required += [f"extension-shopee/{name}" for name in SHOPEE_EXTENSION_FILES]
     required += [f"docs/{name}" for name in DOC_FILES]
+    if minimal:
+        required = [name for name in required if not name.startswith(("Captcha/", "tools/"))
+                    and name != "KidTEVideo.exe"]
     missing = [item for item in required if not (destination / item).is_file()]
     forbidden = []
     if profile == "cpu":
         forbidden.extend(_gpu_dlls(destination))
+    if minimal:
+        for path in destination.rglob("*"):
+            rel = path.relative_to(destination).as_posix().casefold()
+            if path.is_file() and (rel.startswith(("captcha/", "tools/", "_internal/faster_whisper/",
+                                                   "_internal/ctranslate2/", "_internal/onnxruntime/",
+                                                   "_internal/av/", "_internal/av.libs/", "_internal/tokenizers/"))
+                                   or rel == "kidtevideo.exe"):
+                forbidden.append(rel)
     for item in destination.rglob("*"):
         if not item.is_file():
             continue
@@ -252,7 +264,8 @@ if __name__ == "__main__":
     parser.add_argument("destination", type=Path)
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--profile", type=str.lower, choices=("cpu", "gpu"), default="cpu")
+    parser.add_argument("--minimal", action="store_true")
     args = parser.parse_args()
-    result = (validate(args.destination.resolve(), profile=args.profile) if args.validate_only
-              else stage(args.destination, profile=args.profile))
+    result = (validate(args.destination.resolve(), profile=args.profile, minimal=args.minimal) if args.validate_only
+              else stage(args.destination, profile=args.profile, minimal=args.minimal))
     print(json.dumps(result, ensure_ascii=False))

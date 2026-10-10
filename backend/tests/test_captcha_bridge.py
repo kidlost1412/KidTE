@@ -194,6 +194,85 @@ def test_another_kid_te_instance_is_not_mistaken_for_ours(tmp_path):
     assert external == [other]
 
 
+def test_selected_solver_package_is_used_for_frozen_command(tmp_path):
+    bridge = CaptchaBridge(tmp_path / "captcha-data")
+    package_exe = tmp_path / "components" / "captcha-solver" / "1.0.0" / "Captcha" / "KidTECaptcha.exe"
+    resolver = SimpleNamespace(component_path=mock.Mock(return_value=package_exe))
+    with (mock.patch.dict(sys.modules, {"component_runtime": resolver}),
+          mock.patch("captcha_bridge.IS_FROZEN", True),
+          mock.patch("captcha_bridge.INSTALL_ROOT", tmp_path / "App")):
+        assert bridge._command() == [str(package_exe), "--data-dir", str(bridge.data_dir)]
+        assert bridge._solver_package_root() == package_exe.parent
+    resolver.component_path.assert_called_with("captcha-solver", "Captcha/KidTECaptcha.exe")
+
+
+def test_missing_solver_package_is_a_clear_unavailable_state(tmp_path):
+    bridge = CaptchaBridge(tmp_path / "captcha-data")
+    resolver = SimpleNamespace(component_path=mock.Mock(return_value=None))
+    with (mock.patch.dict(sys.modules, {"component_runtime": resolver}),
+          mock.patch("captcha_bridge.IS_FROZEN", True),
+          mock.patch("captcha_bridge.INSTALL_ROOT", tmp_path / "App"),
+          mock.patch.object(bridge, "_processes", return_value=([], []))):
+        state = bridge.status()
+        result = bridge.start()
+    assert state["available"] is False
+    assert state["health"]["state"] == "not_installed"
+    assert result["ok"] is False
+    assert result["error"] == "captcha_solver_missing"
+
+
+def test_invalid_selected_solver_does_not_fall_back_to_legacy_path(tmp_path):
+    bridge = CaptchaBridge(tmp_path / "captcha-data")
+    resolver = SimpleNamespace(component_path=mock.Mock(
+        side_effect=RuntimeError("component resource digest mismatch")))
+    with (mock.patch.dict(sys.modules, {"component_runtime": resolver}),
+          mock.patch("captcha_bridge.IS_FROZEN", True),
+          mock.patch("captcha_bridge.INSTALL_ROOT", tmp_path / "App"),
+          pytest.raises(RuntimeError, match="digest mismatch")):
+        bridge._command()
+
+
+def test_invalid_selected_solver_is_reported_without_breaking_status(tmp_path):
+    bridge = CaptchaBridge(tmp_path / "captcha-data")
+    resolver = SimpleNamespace(component_path=mock.Mock(
+        side_effect=RuntimeError("component resource digest mismatch")))
+    with (mock.patch.dict(sys.modules, {"component_runtime": resolver}),
+          mock.patch("captcha_bridge.IS_FROZEN", True),
+          mock.patch("captcha_bridge.INSTALL_ROOT", tmp_path / "App"),
+          mock.patch.object(bridge, "_processes", return_value=([], []))):
+        state = bridge.status()
+    assert state["available"] is False
+    assert state["package_error"] == "captcha_solver_package_invalid"
+    assert state["health"]["state"] == "not_installed"
+
+
+def test_monitor_uses_selected_package_and_resolved_ffmpeg(tmp_path):
+    bridge = CaptchaBridge(tmp_path / "captcha-data")
+    exe = tmp_path / "components" / "captcha-solver" / "1.0.0" / "Captcha" / "KidTECaptcha.exe"
+    ffmpeg = tmp_path / "components" / "media-tools" / "1.0.0" / "tools" / "ffmpeg.exe"
+    script = exe.parent / "_internal" / "captcha-monitor" / "monitor.ps1"
+    script.parent.mkdir(parents=True)
+    script.write_text("# monitor", encoding="utf-8")
+    ffmpeg.parent.mkdir(parents=True)
+    ffmpeg.write_text("ffmpeg", encoding="utf-8")
+    with (mock.patch("captcha_bridge.IS_FROZEN", True),
+          mock.patch.object(bridge, "_selected_solver_executable", return_value=exe),
+          mock.patch.object(bridge, "_ffmpeg_path", return_value=ffmpeg)):
+        command = bridge._monitor_command(123)
+    assert command[command.index("-File") + 1] == str(script)
+    assert command[command.index("-Ffmpeg") + 1] == str(ffmpeg)
+
+
+def test_worker_environment_passes_absolute_ffmpeg_path(tmp_path):
+    bridge = CaptchaBridge(tmp_path)
+    ffmpeg = tmp_path / "tools" / "ffmpeg.exe"
+    ffmpeg.parent.mkdir()
+    ffmpeg.write_text("ffmpeg", encoding="utf-8")
+    with mock.patch("captcha_bridge.find_tool", return_value=str(ffmpeg)):
+        env = bridge._solver_environment()
+    assert env["KIDTE_FFMPEG"] == str(ffmpeg.resolve())
+
+
 def test_closing_app_writes_cooperative_stop_and_blocks_late_autostart(tmp_path):
     bridge = CaptchaBridge(tmp_path)
     with (mock.patch.object(bridge, "_processes", return_value=([], [])),

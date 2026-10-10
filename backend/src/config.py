@@ -155,14 +155,31 @@ EXTENSION_DIR = _find_extension_dir()
 
 
 def find_tool(name):
-    """ffmpeg/ffprobe: ưu tiên bản đi kèm bộ cài (``<cài>/tools``), rồi mới tới PATH.
+    """Find the selected media-tools package, then use legacy/source fallbacks.
 
     Máy mới thường không có ffmpeg; không có nó thì Studio thiếu poster/dải hình
     /sóng âm và không phân tích được video tải lên.
     """
     import shutil
+    if name not in {"ffmpeg", "ffprobe"}:
+        raise ValueError("unsupported_media_tool")
+
+    extension = ".exe" if IS_FROZEN or os.name == "nt" else ""
+    filename = name + extension
+    if IS_FROZEN:
+        # A selected package is authoritative. component_path raises if its
+        # active record or installed files are invalid; never hide that by
+        # falling through to a stale copy or a PATH installation.
+        from component_runtime import component_path
+        selected = component_path("media-tools", f"tools/{filename}")
+        if selected is not None:
+            candidate = Path(selected)
+            if not candidate.is_file():
+                raise RuntimeError(f"selected_media_tool_missing:{name}")
+            return str(candidate)
+
     for folder in (INSTALL_ROOT / "tools", PROJECT_ROOT / "tools" / "ffmpeg"):
-        candidate = folder / (name + (".exe" if os.name == "nt" else ""))
+        candidate = folder / filename
         if candidate.is_file():
             return str(candidate)
     return shutil.which(name)

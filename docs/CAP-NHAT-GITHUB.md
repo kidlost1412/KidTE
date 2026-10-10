@@ -10,7 +10,24 @@ Sau khi chuẩn bị xong, kết thúc phiên LIVE, đóng Kid TE và mở lại
 
 **Hủy cập nhật chờ** hủy lựa chọn chưa áp dụng. **Quay lại bản trước** chuẩn bị lựa chọn cũ cho lần mở tiếp theo. Các gói đã lưu được giữ để khôi phục; thao tác này không xóa dữ liệu, model hoặc lịch sử khách.
 
-Đợt này hỗ trợ lõi cùng API và schema dữ liệu đã ghim, cùng GPU CUDA 12 cho Windows x64, Python ABI `cp311`, CTranslate2 `4.8.2`, cuDNN 9. Catalog khai thay đổi schema hoặc migration bị chặn. CAPTCHA, FFmpeg, video-sync và processor vẫn phát hành cùng lõi. Tiện ích Chrome dùng đường dẫn ổn định trong `App/extension` và `App/extension-shopee`; cập nhật riêng tiện ích thuộc đợt sau.
+P3 hỗ trợ lõi cùng API/schema dữ liệu đã ghim và các gói tùy chọn dưới đây. Catalog khai thay đổi schema hoặc migration bị chặn. Processor nhỏ vẫn đi cùng lõi; tiện ích Chrome dùng đường dẫn ổn định trong `App/extension` và `App/extension-shopee`. Cập nhật riêng processor và tiện ích thuộc đợt sau.
+
+| Gói | Khi cần | Phụ thuộc |
+|---|---|---|
+| `core` | Giao diện, trả lời, quản lý sản phẩm/khách và các processor nhỏ | Không tự kéo tính năng tùy chọn |
+| `media-tools` | Xử lý video, poster, sóng âm và quay cảnh báo CAPTCHA | Lõi P3 |
+| `captcha-solver` | Giải CAPTCHA và monitor Telegram | Lõi P3, công cụ video |
+| `video-sync` | Đồng bộ âm thanh/video LIVE | Lõi P3 |
+| `video-analysis-cpu` | Chép lời video trên máy | Lõi P3, công cụ video, model đã chọn riêng |
+| `gpu-cuda12` | Tăng tốc chép lời NVIDIA | Runtime Windows x64/cp311/CTranslate2 4.8.2/cuDNN 9 |
+
+Worker chép lời là EXE có runtime riêng, giao tiếp JSON protocol 1 qua stdin/stdout. Nó chỉ đọc WAV PCM16/16 kHz và model cục bộ được lõi truyền vào, không mở DB hay tải model ngầm. Lõi quản lý job, bản nháp và dữ liệu. Thiếu gói thì chức năng báo cách tải trong Cập nhật; các chức năng còn lại tiếp tục dùng được.
+
+Ví dụ sửa CAPTCHA: build và phát hành phiên bản mới của `captcha-solver`, ký catalog với sequence mới và giữ nguyên record lõi, media-tools, GPU cũ. Máy đã có các phụ thuộc tương thích chỉ tải ZIP CAPTCHA. Sửa giao diện hoặc processor đang thuộc lõi vẫn tải core ZIP; chưa có tải delta theo file. Bản vá worker chỉ tải worker ZIP nếu API/phụ thuộc giữ tương thích. Thay native dependency thì resolver trình bày đầy đủ các gói phải đổi trước khi người dùng xác nhận.
+
+**Gỡ tính năng** chuẩn bị mapping bỏ gói cho lần mở lại. Gói đang được tính năng khác dùng không được gỡ trước phụ thuộc. Dữ liệu/model không bị xóa; các phiên bản package còn được giữ để rollback, chưa có garbage collection tự động.
+
+P2 launcher chỉ nhận core/GPU. Cài installer P3 một lần để nâng launcher; catalog P2 được giữ ở `updates-beta`, còn P3 dùng `updates-beta-p3` hoặc `updates-stable-p3`. Hai feed tránh gửi ID mới cho launcher cũ. Installer chính thức mang `bootstrap-request.json` đã ký: sau kiểm khóa/cổng/LIVE, launcher kiểm file lõi cài sẵn theo inventory, sao chép vào thư mục phiên bản và chuẩn bị mapping mới, giữ GPU đã chọn. Bootstrap cũng qua kiểm readiness/rollback. Không sao chép bằng hardlink, không migrate DB.
 
 ## Build và phiên bản
 
@@ -36,6 +53,7 @@ python packaging/update_release.py keygen `
   --private-key '<ngoài checkout>/release-key.dpapi' `
   --public-key '<ngoài checkout>/release-public.json'
 python packaging/update_release.py package dist/KidTE --component core --out core.zip
+python packaging/update_release.py package <cây-media-tools> --component media-tools --out media-tools.zip
 python packaging/update_release.py sign catalog-payload.json `
   --private-key '<ngoài checkout>/release-key.dpapi' --out kidte-catalog-v2.json
 ```
@@ -48,7 +66,9 @@ Mỗi package record ghi ID, kind, SemVer, URL asset cố định, dung lượng
 
 Tạo release theo tag phiên bản, tải core ZIP, GPU ZIP cần thiết, installer và checksums đã nghiệm thu. Catalog có thể tham chiếu lại GPU ZIP ở tag cũ để bản vá lõi không bắt tải lại GPU. Mỗi asset phải dưới 2 GiB. [Giới hạn GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).
 
-Catalog ổn định nằm ở asset `kidte-catalog-v2.json` của tag `updates-stable`; kênh thử ở `updates-beta`. Catalog cần trỏ tới asset đã upload đầy đủ trước khi công bố. Mỗi lần cập nhật asset catalog phải ký payload mới với sequence lớn hơn; đồng thời cập nhật thời hạn. ETag và thời gian chờ sau lỗi giảm request thừa; app chỉ kiểm khi người dùng yêu cầu. Nguồn package là asset cụ thể, không phải ZIP source do GitHub tự tạo. [API Releases công khai](https://docs.github.com/en/rest/releases/releases).
+Catalog P3 nằm ở asset `kidte-catalog-v2.json` của tag `updates-stable-p3` hoặc `updates-beta-p3`; feed P2 cũ được giữ riêng. Catalog cần trỏ tới asset đã upload đầy đủ trước khi công bố. Mỗi lần cập nhật asset catalog phải ký payload mới với sequence lớn hơn; đồng thời cập nhật thời hạn. ETag và thời gian chờ sau lỗi giảm request thừa; app chỉ kiểm khi người dùng yêu cầu. Nguồn package là asset cụ thể, không phải ZIP source do GitHub tự tạo. [API Releases công khai](https://docs.github.com/en/rest/releases/releases).
+
+Phát hành installer chính thức: build core và các cây optional; đóng ZIP, đo hash/file list, ký catalog; chép catalog đã ký thành `dist/KidTE/bootstrap-request.json`, sinh lại release-manifest rồi nén installer. Core ZIP loại launcher, release-manifest và bootstrap request để tránh vòng hash. Khi chưa có managed core, updater cũng có thể kiểm inventory lõi ở root và dùng bản cài khớp, không tải lại core ZIP. Nếu khác byte thì trình bày đúng dung lượng cần tải.
 
 Installer và core ZIP mới phải được build từ commit nguồn chốt. Catalog ký đúng SHA256 đo từ artifact thực; việc ký không thay nghiệm thu máy Windows sạch, cài/nâng cấp, WebView và phiên LIVE.
 

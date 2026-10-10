@@ -140,14 +140,19 @@ def run_setup_checks(*, include_audio=True, key_configured=None):
                          impact="AI không trả lời được khách",
                          fix=fix("Tạo khoá ở trang DeepSeek (platform.deepseek.com → API keys), rồi dán vào "
                                  "Cài đặt → Cài đặt.", "Nhập khoá", page="system", sub="setup")))
-    ffmpeg = find_tool("ffmpeg")
+    try:
+        ffmpeg = find_tool("ffmpeg")
+        ffmpeg_detail = ffmpeg or "Không tìm thấy"
+    except (OSError, RuntimeError, ValueError) as exc:
+        # Keep diagnostics usable when an active package is damaged. find_tool
+        # deliberately raises instead of hiding that state with a PATH copy.
+        ffmpeg = None
+        ffmpeg_detail = str(exc)
     checks.append(_check("ffmpeg", "ffmpeg (xử lý video)", "ok" if ffmpeg else "warn",
-                         ffmpeg or "Không tìm thấy",
+                         ffmpeg_detail,
                          impact="Studio thiếu hình xem trước/sóng âm; không phân tích được video tải lên",
-                         fix=fix(REINSTALL if IS_FROZEN else
-                                 "Tải bản \"release essentials\", giải nén ffmpeg.exe + ffprobe.exe vào thư mục "
-                                 "tools\\ffmpeg của dự án.", "" if IS_FROZEN else "Mở trang tải ffmpeg",
-                                 **({} if IS_FROZEN else {"open": "ffmpeg"}))))
+                         fix=fix("Mở Cài đặt → Cập nhật → Công cụ video để cài hoặc cập nhật gói.",
+                                 "Mở Cập nhật", page="system", sub="updates")))
     try:
         from whisper_models import active_model_path
         model = active_model_path()

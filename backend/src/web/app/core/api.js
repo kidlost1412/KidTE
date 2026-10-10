@@ -83,6 +83,11 @@ export const patch = (url, body, opts = {}) => request(url, {...opts, method: 'P
 
 // Mã lỗi backend -> câu người vận hành hiểu được và biết phải làm gì.
 const MESSAGES = {
+  transcription_worker_package_unavailable: 'Chưa cài bộ chép lời. Vào Cài đặt → Cập nhật → Bộ chép lời trên máy để tải.',
+  missing_ffmpeg: 'Chưa có công cụ video. Vào Cài đặt → Cập nhật → Công cụ video để tải.',
+  missing_ffprobe: 'Chưa có công cụ video. Vào Cài đặt → Cập nhật → Công cụ video để tải.',
+  component_in_use: 'Gói đang được một tính năng khác sử dụng. Gỡ tính năng phụ thuộc trước.',
+  component_not_installed: 'Tính năng chưa được cài trên máy.',
   update_source_mode_disabled: 'Cập nhật chưa bật ở bản mã nguồn. Hãy dùng bản cài đã đóng gói.',
   update_trust_not_configured: 'Bản ứng dụng chưa có khóa xác minh của nhà phát hành.',
   update_check_required: 'Hãy kiểm tra bản phát hành trước khi chọn gói.',
@@ -158,7 +163,8 @@ const MESSAGES = {
   processor_not_found: 'Không có bộ xử lý này.',
   captcha_admin_declined: 'Windows chưa cấp quyền Administrator cho solver. Hãy chấp nhận hộp thoại UAC rồi khởi chạy lại.',
   captcha_other_solver_running: 'Đã có solver độc lập khác đang chạy. Hãy đóng solver đó trước khi khởi chạy bản trong Kid TE.',
-  captcha_solver_missing: 'Chưa tìm thấy chương trình solver riêng. Kiểm tra lại bộ cài.',
+  captcha_solver_missing: 'Gói CAPTCHA chưa được cài. Vào Cài đặt → Cập nhật và chọn gói CAPTCHA để cài.',
+  captcha_solver_package_invalid: 'Gói CAPTCHA đã chọn bị thiếu hoặc sai nội dung. Vào Cài đặt → Cập nhật để cài lại gói CAPTCHA.',
   captcha_key_missing: 'Chưa lưu SadCaptcha API key.',
   captcha_key_rejected: 'SadCaptcha đã từ chối key. Hãy kiểm tra số lượt và lưu key còn hiệu lực.',
   captcha_stop_requires_admin: 'Cần quyền Administrator để dừng solver. Hãy đóng tiến trình solver từ cửa sổ Admin.',

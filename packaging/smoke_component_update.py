@@ -36,12 +36,13 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
-from psutil import NoSuchProcess, Process as PsutilProcess
+from psutil import NoSuchProcess
+from psutil import Process as PsutilProcess
 
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "backend" / "src"))
 
-from component_store import ComponentStore, ComponentStoreError
+from component_store import ComponentStore
 from update_catalog import verify_catalog
 from update_manager import UpdateManager
 from update_trust import TRUSTED_KEYS
@@ -203,6 +204,14 @@ class LocalTransport:
             raise SmokeFailure("transport_package_record_mismatch")
         if source.stat().st_size != expected_bytes or _sha256_file(source) != expected_sha256:
             raise SmokeFailure("local_archive_digest_mismatch")
+        if destination.is_file():
+            if destination.stat().st_size != expected_bytes or _sha256_file(destination) != expected_sha256:
+                raise SmokeFailure("local_cached_archive_digest_mismatch")
+            if progress:
+                progress(expected_bytes, expected_bytes)
+            self.calls.append({"operation": "archive", "component": component_id,
+                               "bytes": expected_bytes, "sha256": expected_sha256, "cached": True})
+            return destination
         destination.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256()
         count = 0
@@ -539,6 +548,7 @@ def _run_step(index: int, step: dict, base_dir: Path, app_root: Path,
             raise SmokeFailure("activation_journal_generation_mismatch")
         if expect_rollback and journal.get("new_generation") != pending["generation"]:
             raise SmokeFailure("rollback_journal_generation_mismatch")
+        launcher_pid = process.pid
         return_code = _shutdown_owned(process, base, child_identity)
         process = None
         if return_code != 0:
@@ -555,7 +565,7 @@ def _run_step(index: int, step: dict, base_dir: Path, app_root: Path,
             "rolled_back": expect_rollback,
             "journal_state": journal["state"],
             "launcher_sha256": launcher_hash,
-            "launcher_pid": int(process.pid) if process else None,
+            "launcher_pid": launcher_pid,
             "child_pid": child_pid,
             "child_parent_verified": True,
             "running_executable": f"packages/core/{expected_versions['core']}/KidTE.exe",

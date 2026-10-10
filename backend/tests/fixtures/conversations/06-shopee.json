@@ -1,0 +1,37 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "giá bao nhiêu vậy shop",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "giá bao nhiêu vậy shop"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "đạm cá",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "follow-up",
+        "resolved_question_contains": [
+          "giá bao nhiêu vậy shop",
+          "đạm cá"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "06-shopee"
+}

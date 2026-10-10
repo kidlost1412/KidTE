@@ -1,0 +1,255 @@
+/* Kid TE — design tokens.
+   Một nguồn duy nhất cho màu, cỡ chữ, khoảng cách, bo góc, bóng đổ.
+   Mọi component chỉ được dùng biến ở đây, không đóng cứng màu. */
+
+:root {
+  color-scheme: light;
+
+  /* Typography — Segoe UI Variable hiển thị tiếng Việt đầy đủ dấu trên Windows */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --fs-3xl: 34px;
+  --lh-tight: 1.2;
+  --lh: 1.5;
+
+  /* Khoảng cách theo lưới 4px */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* Bề mặt (light) */
+
+  --text-inverse: #ffffff;
+
+  /* Thương hiệu và màu ngữ nghĩa được sinh từ ui/theme/sakura.json ở cuối file */
+
+  /* Trạng thái (chữ đạt AA trên nền trắng) */
+
+  /* Màu định danh theo SỐ GIỎ — dùng nhất quán ở timeline, chip, avatar */
+  --bag-1: #2f6fdf;  --bag-2: #d9480f;  --bag-3: #0f9d74;  --bag-4: #9b3fd6;  --bag-5: #c78a00;
+  --bag-6: #d6336c;  --bag-7: #0b8fb3;  --bag-8: #5c7c16;  --bag-9: #b35a2b;  --bag-10: #4e5fd1;
+  --bag-none: #8a96a8;
+
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 1px rgba(16, 24, 40, .04);
+  --shadow-2: 0 4px 12px rgba(16, 24, 40, .08), 0 1px 3px rgba(16, 24, 40, .06);
+  --shadow-3: 0 16px 40px rgba(16, 24, 40, .16), 0 4px 12px rgba(16, 24, 40, .08);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--focus) 35%, transparent);
+
+  --sidebar-w: 232px;
+  --sidebar-w-collapsed: 68px;
+  --topbar-h: 56px;
+
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+
+  /* Studio video luôn tối để hình ảnh nổi bật (giống phần mềm dựng) */
+  --studio-bg: #0d1117;
+  --studio-panel: #151b23;
+  --studio-panel-2: #1b222c;
+  --studio-line: #2a3340;
+  --studio-text: #e8edf3;
+  --studio-text-2: #a9b4c2;
+  --studio-text-3: #7b8796;
+
+  --studio-playhead: #ff4d5e;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-2: 0 6px 16px rgba(0, 0, 0, .45);
+  --shadow-3: 0 18px 48px rgba(0, 0, 0, .6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-2: 0 6px 16px rgba(0, 0, 0, .45);
+    --shadow-3: 0 18px 48px rgba(0, 0, 0, .6);
+  }
+}
+
+:root[data-density="compact"] {
+  --fs-md: 13px;
+  --s-4: 12px;
+  --s-5: 16px;
+  --s-6: 20px;
+}
+
+/* SAKURA GENERATED START */
+:root {
+  color-scheme: light;
+  --bg: #FCF9F7;
+  --bg-sunken: #F4EAEB;
+  --surface: #FFFEFD;
+  --surface-2: #FCF6F7;
+  --surface-3: #F7ECEF;
+  --surface-hover: #FBEFF0;
+  --surface-active: #F8DFE5;
+  --border: #E4CCD2;
+  --border-strong: #CBA9B4;
+  --divider: #F0E2E6;
+  --text: #3C2D32;
+  --text-2: #59434D;
+  --text-3: #715961;
+  --text-disabled: #86727A;
+  --brand: #F8DFE5;
+  --brand-hover: #F2D2DC;
+  --brand-press: #ECC4D1;
+  --brand-soft: #FBEFF0;
+  --brand-soft-2: #F8DFE5;
+  --brand-text: #79545E;
+  --brand-on: #3C2D32;
+  --brand-border: #A77B8A;
+  --focus: #79545E;
+  --stage-start: #F8DFE5;
+  --stage-end: #FBEFF0;
+  --stage-text: #3C2D32;
+  --stage-muted: #715961;
+  --ok: #47755F;
+  --ok-soft: #EDF5F0;
+  --ok-text: #386252;
+  --warn: #A66B22;
+  --warn-soft: #FBF1DF;
+  --warn-text: #80511C;
+  --danger: #BB4351;
+  --danger-soft: #FCECEF;
+  --danger-text: #9E3345;
+  --info: #576F9B;
+  --info-soft: #EDF1F8;
+  --info-text: #415A85;
+  --ai: #796088;
+  --ai-soft: #F2EDF7;
+  --ai-text: #674877;
+  --live: #B23C54;
+  --live-soft: #FBE8ED;
+  --studio-accent: #F0B6CC;
+  --danger-on: #FFFFFF;
+  --live-on: #FFFFFF;
+  --warn-on: #FFFFFF;
+  --info-on: #FFFFFF;
+  --ai-on: #FFFFFF;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #201B20;
+  --bg-sunken: #19151A;
+  --surface: #2A2429;
+  --surface-2: #30282F;
+  --surface-3: #382E36;
+  --surface-hover: #3B2D36;
+  --surface-active: #493039;
+  --border: #51404B;
+  --border-strong: #806571;
+  --divider: #40323C;
+  --text: #F5E8ED;
+  --text-2: #E0C7D1;
+  --text-3: #C7ABB8;
+  --text-disabled: #AB909E;
+  --brand: #F0CDD6;
+  --brand-hover: #F6DCE3;
+  --brand-press: #E7BBC9;
+  --brand-soft: #493039;
+  --brand-soft-2: #583846;
+  --brand-text: #F0B9CB;
+  --brand-on: #3C2D32;
+  --brand-border: #D7A3B7;
+  --focus: #F0B9CB;
+  --stage-start: #493039;
+  --stage-end: #382B35;
+  --stage-text: #F5E8ED;
+  --stage-muted: #D9BFCB;
+  --ok: #9CC5AF;
+  --ok-soft: #253E33;
+  --ok-text: #B4D8C5;
+  --warn: #E9BC7A;
+  --warn-soft: #493820;
+  --warn-text: #F0CC99;
+  --danger: #F298AA;
+  --danger-soft: #4B2834;
+  --danger-text: #FAB0BF;
+  --info: #ADC2E8;
+  --info-soft: #2D384D;
+  --info-text: #C0D1F0;
+  --ai: #C7ACDC;
+  --ai-soft: #3D304C;
+  --ai-text: #DAC5E9;
+  --live: #F298AA;
+  --live-soft: #4B2834;
+  --studio-accent: #F0B6CC;
+  --danger-on: #3C2D32;
+  --live-on: #3C2D32;
+  --warn-on: #3C2D32;
+  --info-on: #3C2D32;
+  --ai-on: #3C2D32;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --bg: #201B20;
+  --bg-sunken: #19151A;
+  --surface: #2A2429;
+  --surface-2: #30282F;
+  --surface-3: #382E36;
+  --surface-hover: #3B2D36;
+  --surface-active: #493039;
+  --border: #51404B;
+  --border-strong: #806571;
+  --divider: #40323C;
+  --text: #F5E8ED;
+  --text-2: #E0C7D1;
+  --text-3: #C7ABB8;
+  --text-disabled: #AB909E;
+  --brand: #F0CDD6;
+  --brand-hover: #F6DCE3;
+  --brand-press: #E7BBC9;
+  --brand-soft: #493039;
+  --brand-soft-2: #583846;
+  --brand-text: #F0B9CB;
+  --brand-on: #3C2D32;
+  --brand-border: #D7A3B7;
+  --focus: #F0B9CB;
+  --stage-start: #493039;
+  --stage-end: #382B35;
+  --stage-text: #F5E8ED;
+  --stage-muted: #D9BFCB;
+  --ok: #9CC5AF;
+  --ok-soft: #253E33;
+  --ok-text: #B4D8C5;
+  --warn: #E9BC7A;
+  --warn-soft: #493820;
+  --warn-text: #F0CC99;
+  --danger: #F298AA;
+  --danger-soft: #4B2834;
+  --danger-text: #FAB0BF;
+  --info: #ADC2E8;
+  --info-soft: #2D384D;
+  --info-text: #C0D1F0;
+  --ai: #C7ACDC;
+  --ai-soft: #3D304C;
+  --ai-text: #DAC5E9;
+  --live: #F298AA;
+  --live-soft: #4B2834;
+  --studio-accent: #F0B6CC;
+  --danger-on: #3C2D32;
+  --live-on: #3C2D32;
+  --warn-on: #3C2D32;
+  --info-on: #3C2D32;
+  --ai-on: #3C2D32;
+} }
+/* SAKURA GENERATED END */

@@ -1,0 +1,169 @@
+{
+  "note": "Synthetic matcher and workflow fixtures; identifiers are fabricated and no live marketplace listings are included.",
+  "titles": [
+    {
+      "product_id": "SYN-LISTING-001",
+      "title": "CHUYÊN ĐẬU PHỘNG – Thúc trái to, hạt đều, chắc hạt, bóng mẩy"
+    },
+    {
+      "product_id": "SYN-LISTING-002",
+      "title": "TRICHODERMA – Ủ phân, cải tạo đất tơi xốp"
+    },
+    {
+      "product_id": "SYN-LISTING-003",
+      "title": "CHUYÊN ỚT (50GR) – Bóng quả, chín đều, màu trái đẹp, nặng kí, ra hoa đậu quả"
+    },
+    {
+      "product_id": "SYN-LISTING-004",
+      "title": "MAGIE KẼM (50GR) – BIẾN VÀNG THÀNH XANH"
+    },
+    {
+      "product_id": "SYN-LISTING-005",
+      "title": "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại"
+    },
+    {
+      "product_id": "SYN-LISTING-006",
+      "title": "DEMO AMINO (chai 1L) listing fixture"
+    },
+    {
+      "product_id": "SYN-LISTING-007",
+      "title": "DEMO Đạm Cá Hữu Cơ Amino (Can 5 Lít)"
+    },
+    {
+      "product_id": "SYN-LISTING-008",
+      "title": "Combo DEMO Root + Humic (Can 5 Lít)"
+    },
+    {
+      "product_id": "SYN-LISTING-009",
+      "title": "Synthetic garden product sample 09"
+    },
+    {
+      "product_id": "SYN-LISTING-010",
+      "title": "Synthetic garden product sample 10"
+    },
+    {
+      "product_id": "SYN-LISTING-011",
+      "title": "Synthetic garden product sample 11"
+    },
+    {
+      "product_id": "SYN-LISTING-012",
+      "title": "Synthetic garden product sample 12"
+    },
+    {
+      "product_id": "SYN-LISTING-013",
+      "title": "Synthetic garden product sample 13"
+    },
+    {
+      "product_id": "SYN-LISTING-014",
+      "title": "Synthetic garden product sample 14"
+    },
+    {
+      "product_id": "SYN-LISTING-015",
+      "title": "Synthetic garden product sample 15"
+    },
+    {
+      "product_id": "SYN-LISTING-016",
+      "title": "Synthetic garden product sample 16"
+    },
+    {
+      "product_id": "SYN-LISTING-017",
+      "title": "Synthetic garden product sample 17"
+    },
+    {
+      "product_id": "SYN-LISTING-018",
+      "title": "Synthetic garden product sample 18"
+    },
+    {
+      "product_id": "SYN-LISTING-019",
+      "title": "Synthetic garden product sample 19"
+    },
+    {
+      "product_id": "SYN-LISTING-020",
+      "title": "Synthetic garden product sample 20"
+    },
+    {
+      "product_id": "SYN-LISTING-021",
+      "title": "Synthetic garden product sample 21"
+    },
+    {
+      "product_id": "SYN-LISTING-022",
+      "title": "Synthetic garden product sample 22"
+    },
+    {
+      "product_id": "SYN-LISTING-023",
+      "title": "Synthetic garden product sample 23"
+    },
+    {
+      "product_id": "SYN-LISTING-024",
+      "title": "Synthetic garden product sample 24"
+    },
+    {
+      "product_id": "SYN-LISTING-025",
+      "title": "Synthetic garden product sample 25"
+    },
+    {
+      "product_id": "SYN-LISTING-026",
+      "title": "Synthetic garden product sample 26"
+    },
+    {
+      "product_id": "SYN-LISTING-027",
+      "title": "Synthetic garden product sample 27"
+    },
+    {
+      "product_id": "SYN-LISTING-028",
+      "title": "Synthetic garden product sample 28"
+    },
+    {
+      "product_id": "SYN-LISTING-029",
+      "title": "Synthetic garden product sample 29"
+    },
+    {
+      "product_id": "SYN-LISTING-030",
+      "title": "Synthetic garden product sample 30"
+    },
+    {
+      "product_id": "SYN-LISTING-031",
+      "title": "Synthetic garden product sample 31"
+    },
+    {
+      "product_id": "SYN-LISTING-032",
+      "title": "Synthetic garden product sample 32"
+    },
+    {
+      "product_id": "SYN-LISTING-033",
+      "title": "Synthetic garden product sample 33"
+    },
+    {
+      "product_id": "SYN-LISTING-034",
+      "title": "Synthetic garden product sample 34"
+    },
+    {
+      "product_id": "SYN-LISTING-035",
+      "title": "Synthetic garden product sample 35"
+    },
+    {
+      "product_id": "SYN-LISTING-036",
+      "title": "Synthetic garden product sample 36"
+    },
+    {
+      "product_id": "SYN-LISTING-037",
+      "title": "Synthetic garden product sample 37"
+    },
+    {
+      "product_id": "SYN-LISTING-038",
+      "title": "Synthetic garden product sample 38"
+    },
+    {
+      "product_id": "SYN-LISTING-039",
+      "title": "Synthetic garden product sample 39"
+    },
+    {
+      "product_id": "SYN-LISTING-040",
+      "title": "Synthetic garden product sample 40"
+    },
+    {
+      "product_id": "SYN-LISTING-041",
+      "title": "Synthetic garden product sample 41"
+    }
+  ]
+}

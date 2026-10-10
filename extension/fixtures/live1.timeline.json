@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "video_id": "live1",
+  "title": "Live 1 — video phát lại 19 phút",
+  "source_file": "live1.mp4",
+  "cycle_ms": 1140770,
+  "repin_every_ms": 20000,
+  "note": "cycle_ms phải bằng đúng độ dài thật của video; tools/add_video.py in ra số này",
+  "products": {
+    "tc01": {
+      "bag_index": 1,
+      "short_name": "TC01",
+      "title": "Kích Rễ Cực Mạnh TC01",
+      "include_all": ["tc01"],
+      "exclude_any": []
+    },
+    "fish1": {
+      "bag_index": 2,
+      "short_name": "Đạm cá 1L",
+      "title": "Đạm Cá Amino 1L Chất Hữu Cơ 20%",
+      "include_all": ["dam ca", "1l"],
+      "exclude_any": ["5 lit", "5l", "can 5"]
+    },
+    "topone": {
+      "bag_index": 3,
+      "short_name": "Top Bo One",
+      "title": "BO TRI ONE | Chế Phẩm Top Bo One Tri",
+      "include_all": ["bo tri one"],
+      "exclude_any": []
+    },
+    "fish5": {
+      "bag_index": 4,
+      "short_name": "Đạm cá 5L",
+      "title": "Đạm Cá Hữu Cơ Amino Giúp Cây Bật Mầm (Can 5 Lít)",
+      "include_all": ["dam ca", "5 lit"],
+      "exclude_any": []
+    },
+    "soil": {
+      "bag_index": 5,
+      "short_name": "Sạch Sâu Đất",
+      "title": "SẠCH SÂU ĐẤT 1KG Công Nghệ",
+      "include_all": ["sach sau dat", "1kg"],
+      "exclude_any": []
+    }
+  },
+  "events": [
+    { "at_ms": 0, "product": "tc01" },
+    { "at_ms": 167000, "product": "topone" },
+    { "at_ms": 302000, "product": null },
+    { "at_ms": 390000, "product": "tc01" },
+    { "at_ms": 510000, "product": "fish1", "alternate_with": "fish5", "alternate_every_ms": 60000 },
+    { "at_ms": 727000, "product": "topone" },
+    { "at_ms": 940000, "product": "fish1", "alternate_with": "fish5", "alternate_every_ms": 60000 },
+    { "at_ms": 1000000, "product": "topone" },
+    { "at_ms": 1040000, "product": "soil" },
+    { "at_ms": 1080000, "product": "topone" }
+  ],
+  "script_contexts": [
+    { "at_ms": 0, "topic": "TC01 và bộ rễ yếu", "facts": ["Ở đoạn TC01 này, người dẫn hướng dẫn phun qua lá khi bộ rễ đang yếu."] },
+    { "at_ms": 167000, "topic": "Top One xử lý bọ trĩ, rầy rệp và côn trùng chích hút", "facts": ["Người dẫn đang nói Top One thấm qua lá và lưu dẫn để xử lý bọ trĩ ở vị trí khuất."] },
+    { "at_ms": 302000, "topic": "Đoạn chuyển sản phẩm", "facts": [] },
+    { "at_ms": 390000, "topic": "TC01 và chăm bộ rễ", "facts": ["Ở đoạn TC01 này, người dẫn ưu tiên đường phun qua lá khi bộ rễ yếu."] },
+    { "at_ms": 510000, "topic": "Đạm cá hữu cơ Amino 1L và 5L", "facts": [] },
+    { "at_ms": 727000, "topic": "Top One và côn trùng chích hút", "facts": [] },
+    { "at_ms": 940000, "topic": "Đạm cá hữu cơ Amino", "facts": [] },
+    { "at_ms": 1000000, "topic": "Top One và côn trùng chích hút", "facts": [] },
+    { "at_ms": 1040000, "topic": "Sạch Sâu Đất 1KG đang được giới thiệu nhưng chưa có hồ sơ kỹ thuật duyệt", "facts": [] },
+    { "at_ms": 1080000, "topic": "Top One và cơ chế tác động lên côn trùng chích hút", "facts": [] }
+  ]
+}

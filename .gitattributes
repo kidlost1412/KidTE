@@ -1,0 +1,19 @@
+* text=auto
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.ps1 text eol=crlf
+*.cs text eol=crlf
+*.iss text eol=crlf
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.npz binary
+*.wav binary
+*.sqlite3 binary

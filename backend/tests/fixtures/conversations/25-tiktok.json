@@ -1,0 +1,36 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "giá bao nhiêu",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "giá"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "dạ",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "follow-up",
+        "resolved_question_contains": [
+          "dạ"
+        ],
+        "original_preserved": true,
+        "must_not_contain": [
+          "giá bao nhiêu"
+        ]
+      }
+    }
+  ],
+  "id": "25-tiktok"
+}

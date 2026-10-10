@@ -1,0 +1,38 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "giá bao nhiêu",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "giá bao nhiêu"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "bên em có những loại nào",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "compare",
+        "resolved_question_contains": [
+          "bên em có những loại nào"
+        ],
+        "original_preserved": true,
+        "must_not_contain": [
+          "—"
+        ]
+      }
+    }
+  ],
+  "id": "19-shopee"
+}

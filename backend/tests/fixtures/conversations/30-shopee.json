@@ -1,0 +1,20 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "ship về Cần Thơ mấy ngày",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "shipping",
+        "resolved_question_contains": [
+          "ship về Cần Thơ mấy ngày"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "30-shopee"
+}

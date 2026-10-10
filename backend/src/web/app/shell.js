@@ -1,0 +1,204 @@
+import {h, clear, isTypingTarget} from './core/dom.js';
+import {icon} from './core/icons.js';
+import {fold, relative} from './core/format.js';
+import {openModal, isOverlayOpen} from './ui/overlays.js';
+
+const NAV = [
+  {group: 'Vận hành'},
+  {page: 'overview', label: 'Trung tâm LIVE', icon: 'home'},
+  {page: 'inbox', label: 'Hộp thư LIVE', icon: 'message', badge: d => d?.session?.todo ?? d?.session?.unanswered, tone: 'danger'},
+  {page: 'brain', label: 'Trí nhớ AI', icon: 'sparkles', badge: d => d?.learning?.suggested, tone: 'warn'},
+  {page: 'video', label: 'Video & lịch ghim', icon: 'film', badge: d => d?.video_review?.pending_jobs, tone: 'warn'},
+  {group: 'Dữ liệu'},
+  {page: 'catalog', label: 'Sản phẩm', icon: 'box', badge: d => d?.catalog?.unmapped, tone: 'warn'},
+  {page: 'customers', label: 'Khách hàng', icon: 'users'},
+  {group: 'Hệ thống'},
+  {page: 'captcha', label: 'Giải CAPTCHA', icon: 'shield'},
+  {page: 'automation', label: 'Trợ lý tự động', icon: 'bot'},
+  {page: 'system', label: 'Cài đặt & hệ thống', icon: 'settings', badge: d => (d && d.backup && d.backup.overdue) ? '!' : 0, tone: 'warn'},
+];
+
+function getTheme() {
+  try { return localStorage.getItem('lr-theme') || 'system'; } catch (_) { return 'system'; }
+}
+export function applyTheme(theme) {
+  try { if (theme === 'system') localStorage.removeItem('lr-theme'); else localStorage.setItem('lr-theme', theme); } catch (_) { /* */ }
+  if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
+}
+function effectiveTheme() {
+  const t = getTheme();
+  if (t !== 'system') return t;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+export function createShell({navigate, commands}) {
+  const root = document.getElementById('app');
+  const navButtons = new Map();
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('lr-sidebar') === 'collapsed'; } catch (_) { /* */ }
+
+  const nav = h('nav', {class: 'nav', 'aria-label': 'Điều hướng chính'});
+  NAV.forEach(item => {
+    if (item.group) { nav.append(h('div', {class: 'nav-group'}, item.group)); return; }
+    const badge = h('span', {class: 'nav-badge', hidden: true});
+    const button = h('button', {class: 'nav-item', type: 'button', title: item.label, onClick: () => navigate(item.page)},
+      icon(item.icon), h('span', {class: 'nav-label'}, item.label), badge, h('i', {class: 'nav-dot', hidden: true}));
+    navButtons.set(item.page, {button, badge, item});
+    nav.append(button);
+  });
+
+  const themeBtn = h('button', {class: 'nav-item', type: 'button', onClick: () => { applyTheme(effectiveTheme() === 'dark' ? 'light' : 'dark'); renderThemeBtn(); }});
+  function renderThemeBtn() {
+    const dark = effectiveTheme() === 'dark';
+    clear(themeBtn, icon(dark ? 'sun' : 'moon'), h('span', {class: 'nav-label'}, dark ? 'Giao diện sáng' : 'Giao diện tối'));
+    themeBtn.title = dark ? 'Chuyển giao diện sáng' : 'Chuyển giao diện tối';
+  }
+  renderThemeBtn();
+  const collapseBtn = h('button', {class: 'nav-item', type: 'button', onClick: () => setCollapsed(!collapsed)});
+  function setCollapsed(value) {
+    collapsed = value;
+    shell.classList.toggle('collapsed', collapsed);
+    try { localStorage.setItem('lr-sidebar', collapsed ? 'collapsed' : 'open'); } catch (_) { /* */ }
+    clear(collapseBtn, icon('sidebar'), h('span', {class: 'nav-label'}, collapsed ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'));
+    collapseBtn.title = collapsed ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên';
+  }
+
+  const sidebar = h('aside', {class: 'sidebar'},
+    h('a', {class: 'brand', href: '#overview', 'aria-label': 'Kid TE — Tổng quan'},
+      h('span', {class: 'brand-mark'}, h('img', {src: '/assets/kid-te-icon.png', alt: '', width: '32', height: '32'})),
+      h('span', {class: 'brand-copy'}, h('strong', {class:'brand-wordmark','aria-label':'Kid TE'}, h('span',{},'K'),h('b',{},'T'),h('span',{},'i'),h('b',{},'E'),h('span',{},'d')), h('small', {}, 'Trợ lý vận hành LIVE'))),
+    nav,
+    h('div', {class: 'sidebar-foot'}, themeBtn, collapseBtn));
+
+  const statusStrip = h('div', {class: 'status-strip', 'aria-label': 'Trạng thái vận hành'});
+  const trigger = h('button', {class: 'command-trigger', type: 'button', onClick: () => openPalette()},
+    icon('search'), h('span', {}, 'Tìm trang, lệnh…'), h('span', {class: 'kbd'}, 'Ctrl K'));
+  const topbar = h('header', {class: 'topbar'}, trigger, statusStrip);
+  const main = h('main', {class: 'main', id: 'main', tabindex: '-1'});
+  const shell = h('div', {class: 'shell'}, sidebar, topbar, main);
+  root.replaceChildren(shell);
+  document.querySelector('.skip-link')?.addEventListener('click', e => { e.preventDefault(); main.focus(); });
+  setCollapsed(collapsed);
+
+  function pill(label, tone, onClick, {title, live} = {}) {
+    return h('button', {class: 'status-pill' + (live ? ' live-on' : ''), type: 'button', title: title || label, onClick},
+      h('i', {class: 'status-dot ' + tone}), h('span', {class: 'pill-label'}, label));
+  }
+
+  function setStatus(dash, error) {
+    if (error && !dash) {
+      clear(statusStrip, pill('Mất kết nối với Kid TE', 'danger', () => location.reload(), {title: 'Không liên lạc được với Kid TE. Bấm để tải lại.'}));
+      return;
+    }
+    const ext = (dash && dash.extension) || {};
+    const connected = Boolean(ext.connected);
+    const live = connected && ext.live_running;
+    const ai = (dash && dash.ai) || {};
+    const video = (dash && dash.video) || null;
+    const videoOk = video && ['watching', 'detected', 'running', 'tracking'].includes(video.state);
+    const captcha = (dash && dash.captcha) || {};
+    clear(statusStrip,
+      ...['tiktok', 'shopee'].map(platform => {
+        const channel = dash?.live_channels?.[platform] || {}, ext = channel.extension || {};
+        const live = ext.connected && ext.live_running;
+        const name = platform === 'shopee' ? 'Shopee' : 'TikTok';
+        return pill(`${name}: ${live ? 'LIVE' : ext.connected ? 'đã nối' : 'chưa nối'}`, live ? 'live' : 'warn',
+          () => navigate('system', 'live'), {live, title: `${name} · ${channel.position?.available ? 'đã nhận diện video riêng' : 'chờ nguồn riêng'}`});
+      }),
+      pill(ai.deepseek_available ? 'DeepSeek sẵn sàng' : 'AI chưa sẵn sàng', ai.deepseek_available ? 'ok' : 'danger', () => navigate('system', 'setup')),
+      pill(captcha.running ? 'CAPTCHA đang quét' : captcha.key_rejected ? 'CAPTCHA: key lỗi' : 'CAPTCHA chưa chạy',
+        captcha.running ? 'ok' : captcha.key_rejected ? 'danger' : 'warn', () => navigate('captcha')));
+    navButtons.forEach(({badge, item, button}) => {
+      const value = item.badge ? item.badge(dash) : 0;
+      const show = Boolean(value) && value !== '0';
+      badge.hidden = !show;
+      badge.textContent = show ? (Number(value) > 99 ? '99+' : String(value)) : '';
+      badge.className = 'nav-badge ' + (item.tone === 'danger' ? '' : item.tone || '');
+      button.querySelector('.nav-dot').hidden = !show;
+    });
+  }
+
+  // -------- Command palette (Ctrl+K) --------
+  let paletteOpen = null;
+  function openPalette() {
+    if (paletteOpen) return;
+    const items = commands();
+    const inputNode = h('input', {placeholder: 'Gõ để tìm: "video", "khách", "cài đặt", "giỏ 3"…', 'aria-label': 'Tìm lệnh'});
+    const list = h('div', {class: 'palette-list', role: 'listbox'});
+    let index = 0, filtered = items;
+    function render() {
+      list.replaceChildren();
+      if (!filtered.length) { list.append(h('div', {class: 'empty'}, h('strong', {}, 'Không có kết quả'), h('p', {}, 'Thử từ khoá khác.'))); return; }
+      let group = '';
+      filtered.forEach((cmd, i) => {
+        if (cmd.group !== group) { group = cmd.group; list.append(h('div', {class: 'palette-group'}, group)); }
+        const node = h('button', {class: 'palette-item', type: 'button', role: 'option', 'aria-selected': String(i === index), onClick: () => run(cmd), onMousemove: () => { if (index !== i) { index = i; render(); } }},
+          h('span', {class: 'pi-icon'}, icon(cmd.icon || 'arrowRight')), h('span', {class: 'grow'}, h('strong', {}, cmd.title), cmd.sub ? h('small', {}, cmd.sub) : null));
+        list.append(node);
+      });
+      list.querySelector('[aria-selected="true"]')?.scrollIntoView({block: 'nearest'});
+    }
+    function run(cmd) { entry.close(); paletteOpen = null; cmd.run(); }
+    inputNode.addEventListener('input', () => {
+      const q = fold(inputNode.value);
+      filtered = !q ? items : items.filter(cmd => fold(`${cmd.title} ${cmd.sub || ''} ${cmd.keywords || ''} ${cmd.group}`).includes(q));
+      index = 0; render();
+    });
+    inputNode.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); index = Math.min(filtered.length - 1, index + 1); render(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); index = Math.max(0, index - 1); render(); }
+      else if (e.key === 'Enter' && filtered[index]) { e.preventDefault(); run(filtered[index]); }
+    });
+    const palette = h('div', {class: 'palette'}, h('div', {class: 'palette-search'}, icon('search'), inputNode), list);
+    const overlay = h('div', {class: 'overlay', style: {placeItems: 'start center'}}, palette);
+    const entry = {close() { overlay.remove(); document.removeEventListener('keydown', esc, true); }};
+    const esc = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); entry.close(); paletteOpen = null; } };
+    document.addEventListener('keydown', esc, true);
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) { entry.close(); paletteOpen = null; } });
+    document.body.append(overlay);
+    paletteOpen = entry;
+    render();
+    inputNode.focus();
+  }
+
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+    else if (e.key === '?' && !isTypingTarget(e.target) && !isOverlayOpen() && !paletteOpen) { showShortcuts(); }
+  });
+
+  function showShortcuts() {
+    const rows = [
+      ['Ctrl K', 'Mở tìm kiếm nhanh / lệnh'], ['?', 'Xem phím tắt'],
+      ['Space', 'Studio: phát / dừng'], ['J / L', 'Lùi / tiến 5 giây'], ['← / →', 'Lùi / tiến 1 giây (giữ Shift: 10 giây)'],
+      [', / .', 'Lùi / tiến 1 khung hình'], ['< / >', 'Giảm / tăng tốc độ phát'],
+      ['1 … 9, 0', 'Ghim giỏ số đó TỪ GIÂY ĐANG XEM (0 = giỏ 10)'], ['M', 'Ghim sản phẩm tại đây (chọn từ danh sách)'],
+      ['S', 'Cắt đoạn tại giây đang xem'], ['[ / ]', 'Tới đoạn trước / sau'], ['Z', 'Phóng timeline vào đoạn đang chọn'],
+      ['Delete', 'Xoá mốc (khi duyệt AI: loại mốc)'], ['Ctrl Z / Ctrl Y', 'Hoàn tác / làm lại'], ['+ / −', 'Phóng to / thu nhỏ timeline'],
+      ['Enter', 'Duyệt AI: mốc này ĐÚNG → sang mốc chưa duyệt kế tiếp'], ['X', 'Duyệt AI: mốc này SAI → sang mốc kế tiếp'],
+      ['N', 'Duyệt AI: tới mốc chưa duyệt'], ['R', 'Nghe lại mốc từ 3 giây trước'],
+    ];
+    openModal({title: 'Phím tắt', size: 'wide', body: h('table', {class: 'table'}, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('td', {style: {width: '160px'}}, k.split(' / ').flatMap((part, i) => [i ? ' / ' : '', h('span', {class: 'kbd'}, part)])), h('td', {}, v)))))});
+  }
+
+  return {
+    main,
+    setRoute(route, {fullBleed = false} = {}) {
+      navButtons.forEach(({button, item}) => {
+        if (item.page === route.page) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+      });
+      main.classList.toggle('full', fullBleed);
+      shell.classList.toggle('collapsed', fullBleed || collapsed);
+      shell.classList.toggle('studio-mode', fullBleed);
+    },
+    setFullBleed(value) {
+      main.classList.toggle('full', value);
+      // Studio cần tối đa bề ngang: thu gọn thanh bên tạm thời, không ghi nhớ.
+      shell.classList.toggle('collapsed', value || collapsed);
+      shell.classList.toggle('studio-mode', value);
+    },
+    setStatus,
+    openPalette,
+    showShortcuts,
+    relative,
+  };
+}

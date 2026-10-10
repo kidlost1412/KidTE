@@ -1,0 +1,289 @@
+import math
+import random
+import time
+
+from tiktok_live_studio_captcha_solver.logs import log_image
+
+from .exceptions import TemplateMatchNotFound
+from .image_io import pil_to_b64_string
+from .system import tkinter_is_installed
+
+if __name__ == "__main__":
+    if not tkinter_is_installed():
+        print("tkinter is not installed on the system. To run this program, you must install tkinter.")
+        exit(1)
+
+import dataclasses
+import logging
+import os
+import pyautogui
+import numpy as np
+from pyscreeze import Box
+
+from .api import ApiAuthError, ApiClient, ApiResponseError
+from .vision import (draw_over_piece, extract_piece_from_puzzle, extract_puzzle_canvas,
+                     find_modern_puzzle_layout, find_puzzle_captcha_box,
+                     find_shapes_captcha_box, find_slide_button_box)
+
+LOGGER = logging.getLogger(__name__)
+
+def prompt_api_key() -> str:
+    api_key = os.environ.get("SADCAPTCHA_API_KEY")
+    if not api_key:
+        api_key = input("Please enter your SadCaptcha API key (You can also set the SADCAPTCHA_API_KEY environment variable): ")
+    return api_key
+
+def move_mouse_human(x_loc: float, y_loc: float) -> None:
+    duration = random.uniform(0.5, 1.5)
+    pyautogui.moveTo(
+        x_loc,
+        y_loc,
+        duration=duration,
+        tween=pyautogui.easeInOutQuad
+    )
+
+def click_proportional_point_inside_area(
+    proportion_x: float,
+    proportion_y: float,
+    area_width: int,
+    area_height: int,
+    offset_x: int,
+    offset_y: int,
+    human: bool = True
+) -> None:
+    """Click a proportional point within a given area on the screen. The X value where the
+    click occurs is calculated as: (area_width*proportion_x)+offset_
+    The Y value where the click occurs is calculated as: (area_height*proportion_y)+offset_y """
+    x_loc = (area_width * proportion_x) + offset_x
+    y_loc = (area_height * proportion_y) + offset_y
+    if human:
+        move_mouse_human(x_loc, y_loc)
+        time.sleep(random.random() * 0.5)
+    pyautogui.click(x_loc, y_loc)
+    LOGGER.info(f"clicked at {x_loc}, {y_loc}")
+
+def solve_puzzle_captcha(api_client: ApiClient, screenshot=None) -> None:
+    if screenshot is None:
+        screenshot = pyautogui.screenshot()
+    try:
+        modern = find_modern_puzzle_layout(screenshot)
+    except TemplateMatchNotFound:
+        modern = None
+    if modern is not None:
+        canvas_box = modern.canvas
+        puzzle_canvas = screenshot.crop((canvas_box.left, canvas_box.top,
+                                         canvas_box.left + canvas_box.width,
+                                         canvas_box.top + canvas_box.height))
+        button = modern.button
+        LOGGER.info("modern puzzle captcha detected (confidence %.3f)", modern.confidence)
+    else:
+        puzzle_captcha_box = find_puzzle_captcha_box(screenshot)
+        cropped_screenshot = screenshot.crop(
+            (puzzle_captcha_box.left, puzzle_captcha_box.top,
+             puzzle_captcha_box.left + puzzle_captcha_box.width,
+             puzzle_captcha_box.top + puzzle_captcha_box.height)
+        )
+        log_image(cropped_screenshot, "cropped-screenshot.png")
+        puzzle_canvas = extract_puzzle_canvas(cropped_screenshot)
+        button = find_slide_button_box(screenshot)
+        LOGGER.info("legacy puzzle captcha detected")
+    log_image(puzzle_canvas, "puzzle-canvas.png")
+    piece = extract_piece_from_puzzle(puzzle_canvas)
+    puzzle_modified = draw_over_piece(puzzle_canvas)
+    piece_b64 = pil_to_b64_string(piece)
+    puzzle_b64 = pil_to_b64_string(puzzle_modified)
+    resp = api_client.puzzle(puzzle_b64, piece_b64)
+    LOGGER.info("got response for puzzle captcha: " + resp.__repr__())
+    if not math.isfinite(resp.slide_x_proportion) or not 0 <= resp.slide_x_proportion <= 1:
+        raise ValueError("SadCaptcha returned an invalid puzzle slide proportion")
+
+    # The answer is a proportion of the puzzle canvas. The modern slider's
+    # thumb travels only across the track excluding its own width. Moving the
+    # cursor by the canvas distance overshoots the hole (observed on a real
+    # 350 px canvas with an 80 px thumb: 207 px requested moved it ~269 px).
+    target_distance = int(resp.slide_x_proportion * puzzle_canvas.width)
+    if modern is not None:
+        travel = puzzle_canvas.width - button.width
+        if travel <= 0:
+            raise ValueError("Modern puzzle slider has no usable travel")
+        distance = round(resp.slide_x_proportion * travel)
+    else:
+        distance = target_distance
+    if modern is not None:
+        LOGGER.info(
+            "puzzle geometry: canvas=%s button=%s target=%s drag=%s",
+            canvas_box, button, target_distance, distance,
+        )
+    if modern is not None:
+        # The challenge may disappear while the API request is in flight.
+        current_screenshot = pyautogui.screenshot()
+        current = find_modern_puzzle_layout(current_screenshot)
+        if abs(current.button.left - button.left) > 10 or abs(current.button.top - button.top) > 10:
+            raise TemplateMatchNotFound("Puzzle moved while waiting for SadCaptcha")
+        if current.canvas.width != canvas_box.width or current.canvas.height != canvas_box.height:
+            raise TemplateMatchNotFound("Puzzle resized while waiting for SadCaptcha")
+        current_canvas = current_screenshot.crop((
+            current.canvas.left, current.canvas.top,
+            current.canvas.left + current.canvas.width,
+            current.canvas.top + current.canvas.height,
+        ))
+        old_pixels = np.asarray(puzzle_canvas.convert("RGB"), dtype=np.int16)
+        new_pixels = np.asarray(current_canvas.convert("RGB"), dtype=np.int16)
+        if np.mean(np.abs(old_pixels - new_pixels)) > 5:
+            raise TemplateMatchNotFound("Puzzle image changed while waiting for SadCaptcha")
+    start_x = button.left + (button.width / 2)
+    start_y = button.top  + (button.height / 2)
+    end_x = start_x + distance
+    pyautogui.moveTo(start_x, start_y)
+    time.sleep(0.2)
+    try:
+        pyautogui.mouseDown(start_x, start_y)
+        time.sleep(0.5)
+        overshoot = 0 if modern is not None else 15
+        for i in range(0, distance + overshoot, 5):
+            if random.random() > 0.35:
+                x_adjust = random.randint(0, 4)
+                y_adjust = (random.random() - 1) * 2
+                pyautogui.moveTo(start_x + i + x_adjust, start_y + y_adjust)
+        for i in range(0, overshoot, 3):
+            pyautogui.moveTo(end_x + overshoot - i, start_y)
+    finally:
+        pyautogui.mouseUp(end_x, start_y)
+    LOGGER.info("dragged puzzle slider by %s pixels; awaiting TikTok verification", distance)
+    time.sleep(5)
+    if modern is not None:
+        after_screenshot = pyautogui.screenshot()
+        try:
+            after = find_modern_puzzle_layout(after_screenshot)
+        except TemplateMatchNotFound:
+            LOGGER.info("puzzle no longer visible after drag; TikTok result is not confirmed")
+        else:
+            after_canvas = after_screenshot.crop((
+                after.canvas.left, after.canvas.top,
+                after.canvas.left + after.canvas.width,
+                after.canvas.top + after.canvas.height,
+            ))
+            log_image(after_canvas, "post-drag-puzzle.png")
+            if after_canvas.size == puzzle_canvas.size:
+                before_pixels = np.asarray(puzzle_canvas.convert("RGB"), dtype=np.int16)
+                after_pixels = np.asarray(after_canvas.convert("RGB"), dtype=np.int16)
+                difference = float(np.mean(np.abs(before_pixels - after_pixels)))
+                LOGGER.warning(
+                    "puzzle still visible after drag (mean image change %.1f); "
+                    "TikTok has not confirmed success", difference,
+                )
+            else:
+                LOGGER.warning("puzzle still visible after drag at a different size; TikTok has not confirmed success")
+
+
+def solve_shapes_captcha(api_client: ApiClient, screenshot=None) -> None:
+    if screenshot is None:
+        screenshot = pyautogui.screenshot()
+    shapes_captcha_box = find_shapes_captcha_box(screenshot)
+    LOGGER.info("shapes captcha detected")
+    cropped_screenshot = screenshot.crop(
+        (
+            shapes_captcha_box.left,
+            shapes_captcha_box.top,
+            shapes_captcha_box.width + shapes_captcha_box.left,
+            shapes_captcha_box.top + shapes_captcha_box.height
+        )
+    )
+    log_image(cropped_screenshot, "cropped-screenshot.png")
+    img_b64 = pil_to_b64_string(cropped_screenshot)
+    resp = api_client.shapes(img_b64)
+    LOGGER.info("got response for shapes captcha: " + resp.__repr__())
+    coordinates = (
+        resp.point_one_proportion_x, resp.point_one_proportion_y,
+        resp.point_two_proportion_x, resp.point_two_proportion_y,
+    )
+    if any(not math.isfinite(value) or not 0 <= value <= 1 for value in coordinates):
+        raise ValueError("SadCaptcha returned invalid shapes coordinates")
+    current_screenshot = pyautogui.screenshot()
+    current_box = find_shapes_captcha_box(current_screenshot)
+    if any(abs(a - b) > 10 for a, b in zip(shapes_captcha_box, current_box)):
+        raise TemplateMatchNotFound("Shapes captcha moved while waiting for SadCaptcha")
+    current_crop = current_screenshot.crop((
+        current_box.left, current_box.top,
+        current_box.left + current_box.width,
+        current_box.top + current_box.height,
+    ))
+    before = np.asarray(cropped_screenshot.convert("RGB"), dtype=np.int16)
+    after = np.asarray(current_crop.convert("RGB"), dtype=np.int16)
+    if before.shape != after.shape or np.mean(np.abs(before - after)) > 10:
+        raise TemplateMatchNotFound("Shapes captcha image changed while waiting for SadCaptcha")
+    # Click first point, and then second point
+    click_proportional_point_inside_area(
+        resp.point_one_proportion_x,
+        resp.point_one_proportion_y,
+        shapes_captcha_box.width,
+        shapes_captcha_box.height,
+        shapes_captcha_box.left,
+        shapes_captcha_box.top
+    )
+    LOGGER.info("clicked first shape")
+    time.sleep(random.random() * 0.5)
+    click_proportional_point_inside_area(
+        resp.point_two_proportion_x,
+        resp.point_two_proportion_y,
+        shapes_captcha_box.width,
+        shapes_captcha_box.height,
+        shapes_captcha_box.left,
+        shapes_captcha_box.top
+    )
+    LOGGER.info("clicked second shape")
+    # Click confirm button
+    time.sleep(random.random() * 0.5)
+    btn_x_loc = shapes_captcha_box.left + (shapes_captcha_box.width / 2)
+    btn_y_loc = shapes_captcha_box.top + (shapes_captcha_box.height - 15)
+    move_mouse_human(btn_x_loc, btn_y_loc)
+    pyautogui.click(
+        btn_x_loc,
+        btn_y_loc
+    )
+    LOGGER.info("clicked confirm button")
+    time.sleep(5)
+
+def solve_loop(api_client: ApiClient):
+    last_heartbeat = 0.0
+    while True:
+        try:
+            screenshot = pyautogui.screenshot()
+        except Exception:
+            LOGGER.exception("could not capture screen; retrying in 2 seconds")
+            time.sleep(2)
+            continue
+        now = time.monotonic()
+        if now - last_heartbeat >= 30:
+            LOGGER.info("scanning screen for puzzle/shapes captcha (%sx%s)", *screenshot.size)
+            last_heartbeat = now
+        try:
+            solve_puzzle_captcha(api_client, screenshot=screenshot)
+        except TemplateMatchNotFound:
+            try:
+                solve_shapes_captcha(api_client, screenshot=screenshot)
+            except TemplateMatchNotFound:
+                LOGGER.debug("puzzle/shapes captcha not found")
+            except ApiAuthError as exc:
+                LOGGER.error("solver stopped: %s", exc)
+                raise SystemExit(2) from None
+            except ApiResponseError as exc:
+                LOGGER.warning("shapes answer unavailable: %s; retrying in 10 seconds", exc)
+                time.sleep(10)
+            except Exception:
+                LOGGER.exception("unexpected exception while solving shapes captcha")
+        except ApiAuthError as exc:
+            LOGGER.error("solver stopped: %s", exc)
+            raise SystemExit(2) from None
+        except ApiResponseError as exc:
+            LOGGER.warning("puzzle answer unavailable: %s; retrying in 10 seconds", exc)
+            time.sleep(10)
+        except Exception:
+            LOGGER.exception("unexpected exception while solving puzzle captcha")
+        time.sleep(0.5)
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    api_key = prompt_api_key()
+    api_client = ApiClient(api_key)
+    solve_loop(api_client)

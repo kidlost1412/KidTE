@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kid TE · TikTok LIVE</title><link rel="stylesheet" href="popup.css"></head>
+<body data-connection="waiting">
+<header class="app-header"><div class="brand-lockup"><img class="brand-icon" src="icons/kid-te-48.png" alt=""><div class="wordmark" aria-label="Kid TE"><small>K</small><strong>T</strong><small>i</small><strong>E</strong><small>d</small></div></div><span class="platform tiktok">TikTok LIVE</span></header>
+<nav class="workspace-tabs" role="tablist" aria-label="Khu vực tiện ích"><button id="tab-live" role="tab" aria-selected="true" aria-controls="panel-live">Điều hành LIVE</button><button id="tab-tools" role="tab" aria-selected="false" aria-controls="panel-tools" tabindex="-1">Công cụ</button></nav>
+<main>
+<section id="panel-live" class="panel" role="tabpanel" aria-labelledby="tab-live">
+<div class="session-line"><span class="section-label">PHIÊN HIỆN TẠI</span><span class="session-state"><span id="dot"></span><span id="mode">Đang chờ</span></span></div>
+<section class="session-hero"><div class="source-copy"><span class="section-label">VIDEO &amp; NGUỒN PHÁT</span><div id="video-title">Chờ nhận diện video</div><div id="source-label">TikTok Studio · chờ nguồn phát</div><div id="source-badge" role="status" aria-live="polite"></div><div id="pin-badge"></div></div><div class="time-block"><span id="clock">—</span><span class="time-caption">Vị trí video</span></div></section>
+<section class="product-card"><div class="product-heading"><span class="pin-mark" aria-hidden="true">↗</span><span class="section-label">SẢN PHẨM ĐANG GHIM</span></div><div id="current">Chưa xác nhận sản phẩm hiện tại</div><div class="pin-actions"><div id="next">Chờ kịch bản từ Kid TE</div><button id="pause" class="pin-toggle">Tạm dừng</button></div></section>
+<section class="ai-card"><div class="ai-head"><div class="ai-title"><span class="ai-mark" aria-hidden="true">✦</span><div><strong>Trả lời khách hàng</strong><small>DeepSeek · kiến thức Kid TE</small></div></div><button id="ai-toggle" class="ai-toggle" aria-pressed="false">Bật AI</button></div><div id="ai-status" role="status" aria-live="polite">Đang kiểm tra trạng thái AI…</div><div id="collect-status" class="collector-note"></div></section>
+<div id="page-status" class="connection-note" role="status" aria-live="polite">Đang kết nối trang LIVE…</div>
+</section>
+<section id="panel-tools" class="panel" role="tabpanel" aria-labelledby="tab-tools" hidden>
+<div class="tools-heading"><h1>Công cụ vận hành</h1><p>Nguồn và kịch bản tự nối từ Kid TE.</p></div>
+<div class="tool-links"><a href="http://127.0.0.1:8793/#system/live" target="_blank" rel="noopener"><span>Quản lý nguồn phát<small>OBS &amp; TikTok Studio</small></span><span aria-hidden="true">↗</span></a><a href="http://127.0.0.1:8793/#video" target="_blank" rel="noopener"><span>Video &amp; lịch ghim<small>Kịch bản đã lưu trong Kid TE</small></span><span aria-hidden="true">↗</span></a><a href="http://127.0.0.1:8793/#inbox/platform/tiktok" target="_blank" rel="noopener"><span>Hộp thư TikTok<small>Lịch sử và kết quả trả lời</small></span><span aria-hidden="true">↗</span></a></div>
+<details><summary>Giỏ sản phẩm &amp; chẩn đoán</summary><div id="catalog-status"></div><div id="timeline-info"></div><button id="scan-catalog">Làm mới giỏ sản phẩm</button></details>
+<details><summary>Điều khiển thủ công</summary><p class="note">Dùng khi cần căn lại mốc; không đổi video đang phát.</p><button id="start">Bắt đầu lại từ 00:00</button><label for="jump-time">Căn mốc LIVE</label><div class="jump-line"><input id="jump-time" inputmode="numeric" autocomplete="off" placeholder="07:35" aria-describedby="jump-error"><button id="jump">Đến mốc</button></div><div id="jump-error"></div><div class="row"><button id="adjust-back">Lùi 1 giây</button><button id="adjust-forward">Tiến 1 giây</button></div><button id="stop" class="danger">Dừng và bỏ ghim</button></details>
+</section>
+</main>
+<div id="action-feedback" role="status" aria-live="polite" hidden></div>
+<footer><a class="open-app" href="http://127.0.0.1:8793/#overview" target="_blank" rel="noopener"><span>Mở Kid TE<small>Trung tâm điều hành &amp; dữ liệu chung</small></span><span aria-hidden="true">↗</span></a></footer>
+<script src="popup-ux.js"></script><script src="schedule.js"></script><script src="popup.js"></script>
+</body></html>

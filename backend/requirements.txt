@@ -1,0 +1,42 @@
+# Kid TE runtime dependencies. Keep ASCII-only: pip reads this file with the
+# console codepage on Windows (cp1252), so non-ASCII comments break "pip install -r".
+# This is the CPU-first runtime profile. Use requirements-gpu.txt only when
+# building the legacy installer with NVIDIA CUDA libraries bundled.
+
+# Core app: HTTP server, DeepSeek client, desktop window.
+openai>=1.55,<2
+python-dotenv>=1.0,<2
+pywebview==6.2.1
+# Product images, video posters/filmstrips (workspace.py, media_assets.py).
+Pillow>=10
+# Single-instance lock identity + stopping the video-sync service safely.
+psutil>=5.9
+# Bring the existing window to front when the app is opened twice.
+pywin32>=306; sys_platform == "win32"
+
+# Audio fingerprint + video sync (plugins/dong-bo-video, media_assets.py).
+# soundcard, not sounddevice: the PortAudio build shipped with sounddevice
+# has no WASAPI loopback, so it cannot capture what is being played.
+numpy>=1.26
+soundcard>=0.4
+# Read-only OBS WebSocket 5 media source status.
+websocket-client>=1.8,<2
+
+# Local video upload analysis: speech-to-text, no audio/video leaves the PC.
+faster-whisper>=1.2,<2
+
+# captcha_bridge imports requests directly; it must not depend on an indirect
+# install through the CAPTCHA solver environment.
+requests>=2.31,<3
+
+# Documents the owner uploads for the AI to read (Tri nho AI -> Tai lieu).
+pypdf>=5
+
+# Portable backup secret envelopes: audited AESGCM/Scrypt APIs.
+cryptography>=46,<47
+
+# TLS trust: truststore verifies through the Windows CryptoAPI (fetches missing
+# roots on a fresh install); certifi is the bundled fallback (cacert.pem).
+truststore>=0.9,<1
+certifi>=2024.7.4
+httpx>=0.27,<1

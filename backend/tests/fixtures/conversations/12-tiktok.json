@@ -1,0 +1,35 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "tặng gì vậy shop",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "tặng gì vậy shop"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "follow-up",
+        "resolved_question_contains": [
+          "tặng gì vậy shop",
+          "TC01"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "12-tiktok"
+}

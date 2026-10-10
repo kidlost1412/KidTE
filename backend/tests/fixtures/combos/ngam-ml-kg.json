@@ -1,0 +1,20 @@
+{
+ "sku": "COMBO-NGAM-ML-KG",
+ "name": "Ngâm hạt",
+ "combo_components": [
+  {
+   "name": "Chế phẩm A",
+   "method": "ngâm",
+   "amount": 10,
+   "unit": "ml",
+   "per_volume": 16
+  },
+  {
+   "name": "Chế phẩm B",
+   "method": "ngâm",
+   "amount": 5,
+   "unit": "g",
+   "per_volume": 16
+  }
+ ]
+}

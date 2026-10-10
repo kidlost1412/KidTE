@@ -1,0 +1,37 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "liều lượng dùng cho lúa sao",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "dose",
+        "resolved_question_contains": [
+          "liều lượng dùng cho lúa sao"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "follow-up",
+        "resolved_question_contains": [
+          "liều lượng dùng cho lúa sao",
+          "TC01"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "07-tiktok"
+}

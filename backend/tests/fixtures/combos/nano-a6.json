@@ -1,0 +1,20 @@
+{
+ "sku": "COMBO-NANO-A6",
+ "name": "Nano Tonic + A6",
+ "combo_components": [
+  {
+   "name": "Nano Tonic",
+   "method": "phun",
+   "amount": 20,
+   "unit": "ml",
+   "per_volume": 16
+  },
+  {
+   "name": "A6",
+   "method": "tưới",
+   "amount": 30,
+   "unit": "g",
+   "per_volume": 16
+  }
+ ]
+}

@@ -1,0 +1,1 @@
+﻿\.\DISPLAY1 2560x1440 dpi=144 primary

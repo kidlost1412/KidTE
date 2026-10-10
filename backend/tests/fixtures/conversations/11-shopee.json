@@ -1,0 +1,35 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "giá bao nhiêu",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "giá bao nhiêu"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "follow-up",
+        "resolved_question_contains": [
+          "giá bao nhiêu",
+          "TC01"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "11-shopee"
+}

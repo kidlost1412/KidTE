@@ -1,0 +1,37 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "pha bao nhiêu ml cho bình 16 lít",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "dose",
+        "resolved_question_contains": [
+          "pha bao nhiêu ml cho bình 16 lít"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "follow-up",
+        "resolved_question_contains": [
+          "pha bao nhiêu ml cho bình 16 lít",
+          "TC01"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "04-shopee"
+}

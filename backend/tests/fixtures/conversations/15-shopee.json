@@ -1,0 +1,41 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "giá bao nhiêu",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "giá bao nhiêu"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01 giá bao nhiêu",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "TC01 giá bao nhiêu"
+        ],
+        "original_preserved": true,
+        "must_not_contain": [
+          "—"
+        ],
+        "facts": [
+          "120.000"
+        ]
+      }
+    }
+  ],
+  "id": "15-shopee"
+}

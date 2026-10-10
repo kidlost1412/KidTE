@@ -1,0 +1,41 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "10 chai tặng gì",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "10 chai tặng gì"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01 gia bao nhieu",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "TC01 gia bao nhieu"
+        ],
+        "original_preserved": true,
+        "must_not_contain": [
+          "—"
+        ],
+        "facts": [
+          "120.000"
+        ]
+      }
+    }
+  ],
+  "id": "16-tiktok"
+}

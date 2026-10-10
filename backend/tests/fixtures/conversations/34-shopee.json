@@ -1,0 +1,20 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "xoá thông tin của mình đi",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "forget-me",
+        "resolved_question_contains": [
+          "xoá thông tin của mình đi"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "34-shopee"
+}

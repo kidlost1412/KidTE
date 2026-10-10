@@ -1,0 +1,2024 @@
+{
+  "schema_version": 1,
+  "version": "2026.09.13",
+  "publisher": "Kid TE — hồ sơ chính thức",
+  "content": {
+    "nhom_san_pham": [
+      {
+        "nhom": "Thư viện kỹ thuật dùng chung",
+        "managed_by": "shared_product_knowledge",
+        "san_pham": [
+          {
+            "san_pham_id": "WEB-1006",
+            "ten_san_pham": "CHUYÊN ĐẬU PHỘNG – Thúc trái to, hạt đều, chắc hạt, bóng mẩy",
+            "ten_tren_website": "CHUYÊN ĐẬU PHỘNG – Thúc trái to, hạt đều, chắc hạt, bóng mẩy",
+            "thanh_phan_dang_ky": [
+              "Bo 2150ppm, độ ẩm 1%",
+              "Nguyên sử dụng: K2SO4 ( K2O 50% + S 18%)",
+              "Và các vi lượng : Mn, Fe, Cu, Zn dạng vết"
+            ],
+            "cong_dung": [
+              "Hạn chế chiều cao, hạn chế phát đọt",
+              "Cung cấp dinh dưỡng trong suốt quá trình phát triển của cây",
+              "Giảm hiện tượng teo, lép hạt, giúp hạt tạo nhiều dầu, tỷ lệ dầu tối đa",
+              "Thúc trái to, hạt đều, chắc, nặng, bóng mẩy"
+            ],
+            "huong_dan_su_dung": [
+              "Phun được tất cả các thời kỳ của đậu phộng, đặc biệt giai đoạn sắp ra hoa",
+              "Pha gói 50gr cho 16 – 32 lít nước. Định kỳ 7-10 ngày/lần"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/chuyen-dau-phong-50gr/",
+            "website_product_ids": [
+              "1006"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:50:41",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/DONE-18.png"
+          },
+          {
+            "san_pham_id": "WEB-1009",
+            "ten_san_pham": "NANO LÂN – SIÊU RA RỄ (30gr)",
+            "ten_tren_website": "NANO LÂN – SIÊU RA RỄ (30gr)",
+            "thanh_phan_dang_ky": [
+              "Zn 15.000ppm bổ sung thêm",
+              "N: 12, K2Ohh: 0, P2O5hh: 61, S: 8, MgO: 10, Fe: 150ppm, Cu: 150ppm, B: 150ppm, Mn: 150ppm",
+              "Phụ gia hữu hiệu"
+            ],
+            "cong_dung": [
+              "Ra rễ khỏe, nhánh to khỏe",
+              "Giải độc phèn, giải độc hữu cơ",
+              "Chống ngẹn rễ, vàng lá sinh lý",
+              "Bật chồi, bật búp, tạo mầm hoa"
+            ],
+            "huong_dan_su_dung": [
+              "Cho 25gr vào bình pha với 16 – 30 lít nước, phun hoặc tưới cho các loại cây trồng định kỳ từ 7 – 10 ngày"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-lan-sieu-ra-re-30gr/",
+            "website_product_ids": [
+              "1009"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:50:22",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/z3882146728685_9ed7aa70f682a94f31fd7ffb0d764772-1.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1013",
+            "ten_san_pham": "NANO KALI (30gr)",
+            "thanh_phan_dang_ky": [
+              "Kali hữu hiệu: 50%",
+              "Lưu huỳnh: 18%, độ ẩm: 1%"
+            ],
+            "cong_dung": [
+              "Siêu trỗ thoát, chắc hạt;",
+              "Siêu ra hoa, đậu quả;",
+              "Siêu to quả, to củ, bật mầm, bông to, hạt to;",
+              "Giúp củ, quả mau chín, tăng hương vị độ đường và tạo màu sắc đẹp cho quả;",
+              "Hạn chế hiện tượng rỉ sắt, đốm lá, nấm hồng, phấn trắng và nhện hại cây;",
+              "Thoát đòng cực mạnh;",
+              "Tăng sức đề kháng cho cây giúp cứng cây, chắc hạt, chống đổ ngã."
+            ],
+            "uu_diem_website": [
+              "An toàn sau khi phun và không gây cháy lá;",
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 1 gói 30gr vào khoảng 25-32 lít nước",
+              "Phun, tưới trực tiếp vào gốc cây trồng",
+              "Định kỳ từ 7-10 ngày/lần cho mọi giai đoạn phát triển của cây trồng"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-kali-35gr/",
+            "website_product_ids": [
+              "1013"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:49:41",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/ab49710cea5f2e01774e-Copy-scaled.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1016",
+            "ten_san_pham": "HUMIC – Vọt đọt, xanh lá, mập cây",
+            "ten_tren_website": "HUMIC – Vọt đọt, xanh lá, mập cây",
+            "thanh_phan_dang_ky": [
+              "Zn 15.000ppm bổ sung",
+              "Chất hữu cơ 30, humic accid: 65",
+              "Canxi 3.5, Mg 1.5",
+              "Tỷ lệ C/N: 12, pH20: 5",
+              "Độ ẩm ( dạng rắn): 28",
+              "Tỷ trọng ( dạng lỏng): 1.2"
+            ],
+            "cong_dung": [
+              "Cải tạo đất tơi xốp, thoáng khí, giải độc, giảm phèn, kích thích rễ phát triển",
+              "Làm lớn lá, dày lá, màu xanh đậm, phát triển nhanh",
+              "Kích thích hoa nở ( giảm thiểu hoa nghẹn), nụ hoa mập mạnh.",
+              "Nuôi dưỡng hoa, quả nhanh chóng phát triển",
+              "Trái to, tăng năng suất",
+              "Phục hồi cây còi cọc, kém phát triển"
+            ],
+            "huong_dan_su_dung": [
+              "Sử dụng cho tất cả các loại cây trồng từ cây con, sau khi thu hoạch, giai đoạn cần ra hoa, đậu quả. 1.000ml dùng cho 1.000m2, bón gốc hoặc ngâm pha nước tưới( 1000ml pha 400 lít nước). Có thể pha chung với các loại phân bón khác, tùy thuộc vào từng giai đoạn cây trồng."
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/phanbonhumic/",
+            "website_product_ids": [
+              "1016"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:49:16",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/11/DONE-6.png"
+          },
+          {
+            "san_pham_id": "WEB-1061",
+            "ten_san_pham": "MIG 38 – Vọt đọt, bung chồi, vượt tược",
+            "ten_tren_website": "MIG 38 – Vọt đọt, bung chồi, vượt tược",
+            "thanh_phan_dang_ky": [
+              "Zn 15.000ppm bổ sung",
+              "PHH2O: 6.5, Tỷ trọng (dạng lingr) 1:1",
+              "Bổ sung Amino Acid 45, acid fulvic 2, N, P205",
+              "K2O: Bo, Cu, Fe, Mg, Mn, Ca…",
+              "Các axit amin thiết yếu nhằm bổ sung đầy đủ chất dinh dưỡng cho các loại cây trồng"
+            ],
+            "cong_dung": [
+              "Bung chồi, vọt đọt, mở lá, xanh lá, dày lá",
+              "Kích hoạt cây ra hoa sớm, đồng loạt, tránh rụng hoa, tăng khả năng thụ phấn cho hoa",
+              "Nuôi dưỡng trái, giúp trái lớn nhanh, màu sắc bóng đẹp, hạn chế tối đa hiện tượng rụng trái.",
+              "Tăng sinh lực cho cây, khắc phục cây xoắn ngọn, còi cọc, kém phát triển, ngoảnh đầu lân.",
+              "Kích thích bộ rễ phát triển mạnh, đề kháng các bệnh về rễ."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 30-50ml cho bình 20-25 lít (chai 250ml pha cho 100-150 lít nước). Dùng cho tất cả các loại cây trồng, phun định kỳ 7 đến 10 ngày 1 lần."
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/mig-38-vot-dot-bung-choi-vuot-tuoc/",
+            "website_product_ids": [
+              "1061"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:48:59",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2024/01/DONE-4.png"
+          },
+          {
+            "san_pham_id": "WEB-1126",
+            "ten_san_pham": "CHUYÊN ỚT (50GR) – Bóng quả, chín đều, màu trái đẹp, nặng kí, ra hoa đậu quả",
+            "ten_tren_website": "CHUYÊN ỚT (50GR) – Bóng quả, chín đều, màu trái đẹp, nặng kí, ra hoa đậu quả",
+            "thanh_phan_dang_ky": [
+              "Mg: 10%, S: 10%, Bo: 500ppm",
+              "Bổ sung kalisunphat 30%",
+              "Chất vi lượng Mn: 50ppm, Zn: 50ppm, Fe: 50ppm, Cu: 50ppm, độ ẩm 4%"
+            ],
+            "cong_dung": [
+              "Lên màu trái, trái to, thẳng, căng mọng, chín đều",
+              "Bóng quả, nặng cân",
+              "Hạn chế thối nứt, cong vẹo"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 50gr cho 16 – 32 lít nước phun hoặc tưới định kỳ từ 7 – 10 ngày dùng 1 lần"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/chuyen-ot-50gr-bong-qua-chin-deu-mau-trai-dep-nang-ki-ra-hoa-dau-qua/",
+            "website_product_ids": [
+              "1126"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:48:31",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2024/10/DONE.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1136",
+            "ten_san_pham": "FURAGIN (100ml) – Khắc tinh nấm bệnh, diệt sạch vi khuẩn gây hại",
+            "ten_tren_website": "FURAGIN (100ml) – Khắc tinh nấm bệnh, diệt sạch vi khuẩn gây hại",
+            "thanh_phan_dang_ky": [
+              "Oligosaccharins",
+              "Kasugamycin",
+              "Special additives"
+            ],
+            "cong_dung": [
+              "Thán thư, thối trái, héo xanh, thối rễ",
+              "Rỉ sắt, thối nhũn, sương mai, nứt thâm, xì mủ",
+              "Khô vằn bạc lá, khô đầu lá ,đốm lá"
+            ],
+            "uu_diem_website": [
+              "Sản phẩm có tính nội hấp lưu dẫn mạnh, hiệu lực kéo dài;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm;",
+              "Sản phẩm an toàn, lành tính đối với sức khỏe con người và môi trường"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 100ml cho 4 bình phun",
+              "Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/furagin-100ml-khac-tinh-nam-benh-diet-sach-vi-khuan-gay-hai/",
+            "website_product_ids": [
+              "1136"
+            ],
+            "website_categories": [
+              "Phòng trừ bệnh",
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:48:09",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2024/11/DONE-2.png"
+          },
+          {
+            "san_pham_id": "WEB-1145",
+            "ten_san_pham": "SIÊU TO CỦ – VÔ GẠO – LỚN TRÁI (500ml)",
+            "ten_tren_website": "SIÊU TO CỦ – VÔ GẠO – LỚN TRÁI (500ml)",
+            "thanh_phan_dang_ky": [
+              "Lân hữu hiệu",
+              "Kali hữu hiệu",
+              "Đạm tổng số",
+              "Special additives"
+            ],
+            "cong_dung": [
+              "Chống nứt củ hoàn toàn.",
+              "Giúp kích củ, tạo củ nhiều",
+              "Siêu vô gạo",
+              "Tạo tinh Bột",
+              "Giúp lớn củ. Đẹp củ",
+              "Giúp cứng cây, chống đổ ngã"
+            ],
+            "uu_diem_website": [
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm;",
+              "Sản phẩm an toàn, lành tính đối với sức khỏe con người và môi trường"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 100ml cho 10-15 bình phun",
+              "Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sieu-to-cu-vo-gao-lon-trai-500ml/",
+            "website_product_ids": [
+              "1145"
+            ],
+            "website_categories": [
+              "Dinh dưỡng hữu cơ",
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:47:47",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2024/11/DONE-3.png"
+          },
+          {
+            "san_pham_id": "WEB-1149",
+            "ten_san_pham": "MAGIE KẼM (50GR) – BIẾN VÀNG THÀNH XANH",
+            "ten_tren_website": "MAGIE KẼM (50GR) – BIẾN VÀNG THÀNH XANH",
+            "thanh_phan_dang_ky": [
+              "Kẽm (Zn)",
+              "Magie (Mg)",
+              "Special additives"
+            ],
+            "cong_dung": [
+              "Biến vàng thành xanh",
+              "Hiệu quả ngay lần xịt đầu tiên",
+              "Dứt tình trạng: khô đầu lá, vàng lá, cháy ngọn, tóp lá, xoắn lá, sượng trái"
+            ],
+            "uu_diem_website": [
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm;",
+              "Sản phẩm an toàn, lành tính đối với sức khỏe con người và môi trường"
+            ],
+            "huong_dan_su_dung": [
+              "Gói 50gr pha cho 40-50 lít nước",
+              "Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/magie-kem-50gr-bien-vang-thanh-xanh/",
+            "website_product_ids": [
+              "1149"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:47:20",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2024/11/magie-kem.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1155",
+            "ten_san_pham": "AMINO SIÊU MƯỚT (5 LÍT)",
+            "ten_tren_website": "AMINO SIÊU MƯỚT (5 LÍT)",
+            "thanh_phan_dang_ky": [
+              "Đạm tổng số: 3%, Lân hữu hiệu: 3%, Kali hữu hiệu: 3%, Axit humic: 7%",
+              "Sử dụng nguồn nguyên liệu: Đồng, Sắt, Mangan, Kẽm,…"
+            ],
+            "cong_dung": [
+              "Hạ phèn, giải độc hữu cơ, cân bằng PH trong đất, cung cấp dinh dưỡng tối ưu cho đất.",
+              "Kích thích ra rễ cực mạnh, ra nhiều rễ cám, nở bụi nhiều, to bụi, ra nhiều chồi, gia tăng số chồi hữu hiệu.",
+              "Dưỡng cây xanh lá mướt lá, đứng lá cứng cây hạn chế đổ ngã.",
+              "Giúp cây con phát triển đồng đều, đọt lúa non bung khỏe, lá giãn thẳng nhanh. Tăng sức chống chịu sâu bệnh, tăng khả năng kháng khuẩn, nấm bệnh."
+            ],
+            "huong_dan_su_dung": [
+              "Pha phân bón vào nước, tưới hoặc phun đều lá của cây trồng.",
+              "Liều lượng: 20-25ml pha 16 lít nước. Sử dụng định kỳ 7-10 ngày/ lần",
+              "Nên phun vào sáng sớm hoặc chiều mát."
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/amino-sieu-muot-5-lit/",
+            "website_product_ids": [
+              "1155"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:45:55",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/03/z6391299701682_f4eb035db62ab201b33f04365497f284-e1741573338744.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1162",
+            "ten_san_pham": "BIO ROOTS – 1kg",
+            "ten_tren_website": "BIO ROOTS – 1kg",
+            "thanh_phan_dang_ky": [
+              "Axit humic (C): 38% (Tương đương hàm lượng axit humic (axit humic): 65,5%)",
+              "Axit fulvic (C):……………………………………………………………………………………..1%",
+              "Kali hữu hiệu (K2Ohh ):……………………………………………………………………….5%",
+              "pHH20 :……………………………………………………………………………………………..5",
+              "Độ ẩm:……………………………………………………………………………………………….30%"
+            ],
+            "cong_dung": [
+              "Bung chồi, ra cơi, vọt đọt, mở lá, xanh lá, dày lá.",
+              "Kích rễ, đẻ nhánh, tạo mầm.",
+              "Phòng ngừa thối rễ vàng lá bệnh chết nhanh do thiếu dinh dưỡng.",
+              "Tăng sức đề kháng cho cây, tiết kiệm phân bón.",
+              "Giúp hạn phèn, giải độc hữu cơ. Thân thiện với môi trường."
+            ],
+            "huong_dan_su_dung": [
+              "Hòa 1kg với 1500 lít nước để tưới cho 1 ha hoặc phun lên lá cho 1,5 ha."
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/bio-roots-1kg/",
+            "website_product_ids": [
+              "1162"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-05-30T14:47:57",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/03/DONE-2.png"
+          },
+          {
+            "san_pham_id": "WEB-1167",
+            "ten_san_pham": "NANO SIÊU LÂN XANH – 40gr",
+            "thanh_phan_dang_ky": [
+              "Lân hữu hiệu: 46%",
+              "Đạm tổng số: 9%",
+              "Bo: 100ppm",
+              "Zn: 100ppm",
+              "Độ ẩm: 5%",
+              "Bổ sung thêm các vi lượng"
+            ],
+            "cong_dung": [
+              "Bung chồi, ra cơi, vọt đọt, mở lá, xanh lá, dày lá.",
+              "Kích rễ, đẻ nhánh, tạo mầm.",
+              "Phòng ngừa thối rễ vàng lá và chống nghẹn rễ.",
+              "Tăng sức đề kháng cho cây, tiết kiệm phân bón.",
+              "Giúp hạn phèn, giải độc hữu cơ. Thân thiện với môi trường."
+            ],
+            "huong_dan_su_dung": [
+              "Hòa 40g với 16-30 lít nước để phun hoặc tưới cho tất cả các loại cây trồng."
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-lan-30gr/",
+            "website_product_ids": [
+              "1167"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T09:28:43",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2026/04/DONE.png"
+          },
+          {
+            "san_pham_id": "WEB-1169",
+            "ten_san_pham": "SẠCH SÂU – 30ml",
+            "thanh_phan_dang_ky": [
+              "Abamectin……………….2% w/w",
+              "Methoxyfenozide…….8% w/w",
+              "Hàm lượng phụ gia vừa đủ 100% w/w"
+            ],
+            "cong_dung": [
+              "Diệt sâu kháng thuốc – Tấn công nhanh, hạ gục gọn.",
+              "Phổ diệt rộng – Từ sâu tơ, sâu cuốn lá, sâu xanh da láng… đến bọ trĩ, rầy xanh đều “bay màu”!",
+              "Bền bỉ với thời tiết – Không sợ mưa rửa trôi, không bị phân hủy dưới nắng gắt.",
+              "An toàn cho con người, thân thiện với môi trường.",
+              "Thấm sâu, nội hấp, lưu dẫn"
+            ],
+            "uu_diem_website": [
+              "Thay thế các loại thuốc trừ sâu hóa học gây hại cho con người và môi trường sống;",
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 30ml/bình 20-25 lít nước",
+              "Phun ướt đều tán lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sach-sau-30ml/",
+            "website_product_ids": [
+              "1169"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:42:40",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/04/DONE-4.png"
+          },
+          {
+            "san_pham_id": "WEB-1176",
+            "ten_san_pham": "SIÊU LỚN TRÁI – 5KG",
+            "ten_tren_website": "SIÊU LỚN TRÁI – 5KG",
+            "thanh_phan_dang_ky": [
+              "Đạm tổng số (Nts): 10%",
+              "Lân hữu hiệu (P2O5hh): 10%",
+              "Kali hữu hiệu (K2Ohh): 30%",
+              "Magie (Mg): 0,05%",
+              "TE:",
+              "Kẽm (Zn): 150 ppm",
+              "Bo (B): 150 ppm",
+              "Sắt (Fe): 500 ppm",
+              "Độ ẩm: 10% pHH20: 6,6"
+            ],
+            "cong_dung": [
+              "Cứng cây, chắc quả, to củ",
+              "Dưỡng trái, lớn trái, to trái, tạo mầm hoa",
+              "Mập thân, mập bông, chắc cuống",
+              "Ra hoa đồng loạt, hạn chế rụng hoa rụng quả sinh lý",
+              "An toàn với con người và môi trường"
+            ],
+            "uu_diem_website": [
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 1kg/ 200 lít nước",
+              "Phun ướt đều lá hoặc tưới gốc của cây trồng"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sieu-lon-trai-5kg/",
+            "website_product_ids": [
+              "1176"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:42:03",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/04/DONE-5.png"
+          },
+          {
+            "san_pham_id": "WEB-1182",
+            "ten_san_pham": "AMINO SIÊU XANH – 1kg",
+            "ten_tren_website": "AMINO SIÊU XANH – 1kg",
+            "thanh_phan_dang_ky": [
+              "Magie (MgO): 16%",
+              "Lưu huỳnh (S): 12%",
+              "Độ ẩm: 4%",
+              "Special additives"
+            ],
+            "cong_dung": [
+              "Kích thích ra rễ mạnh, ra nhiều rễ mới, hạn chế thối rễ.",
+              "Bật chồi, nở bụi, nở ngọn, vươn cành, cây khỏe, thân mập.",
+              "Xanh lá – to lá – dày lá – bóng mượt lá. Hạn chế vàng lá sinh lý.",
+              "Hỗ trợ cây ra hoa, đậu quả.",
+              "To quả, lớn củ nhanh. Hạn chế nứt, thối do thiếu dinh dưỡng.",
+              "Cân bằng độ PH trong đất, khử chua, hạ phèn, giải độc đất."
+            ],
+            "uu_diem_website": [
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm;",
+              "Sản phẩm an toàn, lành tính đối với sức khỏe con người và môi trường"
+            ],
+            "huong_dan_su_dung": [
+              "Gói 1kg pha cho 200 lít nước",
+              "Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/amino-sieu-xanh-1kg/",
+            "website_product_ids": [
+              "1182"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:41:36",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/05/DONE-2.png"
+          },
+          {
+            "san_pham_id": "WEB-1191",
+            "ten_san_pham": "SIÊU SÂU – 30ml",
+            "thanh_phan_dang_ky": [
+              "Emamectin……………….2% w/w",
+              "Abamectin………………….3% w/w",
+              "Special Addititves……….95% w/w"
+            ],
+            "cong_dung": [
+              "Diệt sâu kháng thuốc – Tấn công nhanh, hạ gục gọn.",
+              "Phổ diệt rộng – Từ sâu tơ, sâu cuốn lá, sâu xanh da láng… đến bọ trĩ, rầy xanh đều “bay màu”!",
+              "Bền bỉ với thời tiết – Không sợ mưa rửa trôi, không bị phân hủy dưới nắng gắt.",
+              "Thấm sâu, nội hấp, lưu dẫn"
+            ],
+            "uu_diem_website": [
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 30ml/bình 20-25 lít nước",
+              "Phun ướt đều tán lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sieu-sau-30ml/",
+            "website_product_ids": [
+              "1191"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:41:12",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/05/DONE-2-1.png"
+          },
+          {
+            "san_pham_id": "WEB-1196",
+            "ten_san_pham": "DIỆT RẦY – 25g",
+            "thanh_phan_dang_ky": [
+              "Acetamiprid:……………….24%",
+              "Buprofezin:…………………..30%",
+              "Special Addititves:………….46%"
+            ],
+            "cong_dung": [
+              "Diệt ung trứng rầy",
+              "Ngăn chặn lột xác",
+              "Diệt sạch rầy rệp chích hút",
+              "Hiệu quả nhanh, rầy chết sạch",
+              "Thấm sâu, nội hấp, lưu dẫn"
+            ],
+            "uu_diem_website": [
+              "Thay thế các loại thuốc trừ sâu hóa học gây hại cho con người và môi trường sống;",
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 25gram/bình 20-25 lít nước",
+              "Phun ướt đều tán lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/diet-ray-25g/",
+            "website_product_ids": [
+              "1196"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:40:50",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/05/DONE-2-2.png"
+          },
+          {
+            "san_pham_id": "WEB-1206",
+            "ten_san_pham": "KÍCH RỄ, GIÂM CÀNH TC01 – 100ml",
+            "ten_tren_website": "KÍCH RỄ, GIÂM CÀNH TC01 – 100ml",
+            "thanh_phan_dang_ky": [
+              "Đạm tổng số (Nts)………………………10 %",
+              "Lân hữu hiệu (P205hh)………………..8 %",
+              "Kali hữu hiệu (K20hh)………………….6 %",
+              "Đồng (CU)…………………………………500 ppm",
+              "Kẽm (Zn)…………………………………..400 ppm",
+              "Mangan (Mn)……………………………..300 ppm",
+              "Molipden (Mo)……………………………50 ppm",
+              "Bo (B)………………………………………100 ppm",
+              "рнH2O………………………………………6,7",
+              "Tỷ trọng…………………………………….1,2"
+            ],
+            "cong_dung": [
+              "Bổ sung nguyên liệu: Atonik và phụ gia đặc biệt hàm lượng vừa đủ",
+              "Sản phẩm chuyên dùng cho kích rễ, giâm cành, chiết cành",
+              "Phù hợp với nhiều loại cây trồng, cung cấp dinh dưỡng",
+              "Giúp cây đâm chồi, để nhánh, bung chồi vượt tược cực kỳ nhanh chóng.",
+              "Giúp cây con lớn nhanh, phục hồi bộ rễ sau khi bị bệnh.",
+              "Cải tạo, giúp đất tơi xốp, cân bằng độ PH"
+            ],
+            "uu_diem_website": [
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Pha phân bón vào nước, phun ướt đều lá của cây trồng. Định kỳ 5-7 ngày/lần",
+              "Cây bonsai và cây cảnh: 10-15ml /16 lít nước phun hoặc tưới định kỳ 7-10 ngày/lần",
+              "Cây an trái: 20 ml hoạc 20 g/16 lít nước",
+              "Cây hoa màu (cà chua, dưa hấu, dưa leo, bầu, bí, dưa leo, rau cải, hoa kiểng): 10-15 ml hoặc10-15 g/16 lít nước",
+              "Nên phun vào sáng sớm hoặc chiều mát. Sử dụng 100ml pha 80-100 lít nước phun tưới vào từng giai đoạn và từng loại cây trồng phù hợp."
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "phan_khuc": "Nhân giống – Kích rễ – Liền sẹo mô cắt",
+            "mo_ta_ngan": "Nở bụi cực to – Kích rễ cực mạnh – Chuyên gia nhân giống",
+            "doi_tuong_cay_trong": [
+              "Cây ăn trái: giâm cành bưởi, cam, chanh, ổi, nho",
+              "Cây công nghiệp: giâm hom hồ tiêu, cà phê",
+              "Cây hoa kiểng: giâm hoa hồng, bonsai, hoa lan",
+              "Tất cả loại cây trồng cần nhân giống vô tính"
+            ],
+            "hieu_qua_chinh": "Kích rễ – Giâm cành – Bung chồi nhanh – Liền sẹo mô cắt",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/kich-re-giam-canh-tc01-100ml/",
+            "website_product_ids": [
+              "1206"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:40:13",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/11/z7173505698148_6dd75e1602f79c516c268fb98c1eda42.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1212",
+            "ten_san_pham": "SIÊU BÁM DÍNH – 100ml",
+            "ten_tren_website": "SIÊU BÁM DÍNH – 100ml",
+            "thanh_phan_dang_ky": [
+              "Polyether modified silicon ……………………… 85%w/w",
+              "Penetrating additives ………………………………15%w/w"
+            ],
+            "cong_dung": [
+              "Siêu thẩm sâu, siêu lan toả trên toàn bộ cây trồng.",
+              "Loang trải, thẩm sâu, chống rửa trôi, chống bốc hơi cực mạnh.",
+              "Sau 30 phút gặp mưa không cần phun lại. Khi tưới gốc, giúp vùng rễ thoáng khí, phân bón thấm nhanh trong vùng rễ.",
+              "Làm tăng hiệu lực của thuốc trừ sâu, thuốc trừ bệnh, thuốc trừ cỏ, phân bón."
+            ],
+            "huong_dan_su_dung": [
+              "Liều dùng: chai 100ml pha pha được 400 – 800 lít nước",
+              "Điều hoà sinh trưởng: Pha chai 100ml cùng với 400 lít nước phun.",
+              "Thuốc trừ cỏ: Pha chai 100ml cùng với 400 lít nước phun.",
+              "Thuốc trừ sâu: Pha chai 100ml cùng với 400 lít nước phun.",
+              "Thuốc trừ bệnh: Pha chai 100ml cùng với 600-800 lít nước phun.",
+              "Phân bón lá: Pha chai 100ml cùng với 600-800 lít nước phun.",
+              "Pha chung được với tất cả thuốc BVTV, phân bón lá và các chế phẩm sinh học sử dụng cho nhiều loại cây trồng, cho vào sau cùng khi đã pha và khuấy tan hết dung dịch thuốc BVTV và phân bón.",
+              "Thời gian cách ly: Phụ thuộc vào chất pha trộn"
+            ],
+            "luu_y": "Thời gian cách ly phụ thuộc vào chất được pha trộn.",
+            "phan_khuc": "Chất hỗ trợ loang trải, thẩm sâu và bám dính",
+            "mo_ta_ngan": "Siêu Bám Dính quy cách 100ml",
+            "doi_tuong_cay_trong": [
+              "Nhiều loại cây trồng khi cần dùng chung cùng thuốc hoặc phân bón"
+            ],
+            "hieu_qua_chinh": "Chất hỗ trợ loang trải và bám dính trong bình phun",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sieu-bam-dinh-100ml/",
+            "website_product_ids": [
+              "1212"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2025-11-03T10:57:28",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2025/11/z7183225261551_ea48664d8666e1dff55025fde2a1b88f-scaled.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1236",
+            "ten_san_pham": "BỌ TRĨ TOP ONE SPI GGO 10SC- Đặc trị bọ trĩ, rầy, rệp, côn trùng chích hút (200ml)",
+            "ten_tren_website": "BỌ TRĨ TOP ONE SPI GGO 10SC- Đặc trị bọ trĩ, rầy, rệp, côn trùng chích hút (200ml)",
+            "thanh_phan_dang_ky": [
+              "Flonicamid:…………3% w/w",
+              "Spirotetramat:……..7% w/w",
+              "Phụ gia vừa đủ"
+            ],
+            "cong_dung": [
+              "Bọ trĩ, bọ xít, bọ xít muỗi, bọ cánh",
+              "Nhện đỏ, ruồi vàng, sâu vẽ bùa Rệp sáp, rầy nâu, rầy xanh",
+              "Rầy chổng cánh, rầy lưng trắng"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 240ml cho phuy 200 lít nước",
+              "Thời gian cách ly 14 ngày"
+            ],
+            "luu_y": "Thời gian cách ly 14 ngày.",
+            "phan_khuc": "Quản lý bọ trĩ, rầy rệp và côn trùng chích hút",
+            "mo_ta_ngan": "Dòng Bọ Trĩ Top One quy cách 200ml",
+            "doi_tuong_cay_trong": [
+              "Cây ăn trái: sầu riêng, xoài, cam bưởi, thanh long (bọ trĩ, rầy)",
+              "Cây lúa: rầy nâu, bọ trĩ",
+              "Cây rau màu: ớt, dưa, đậu (bọ trĩ phá hoại đọt non)",
+              "Cây công nghiệp: cà phê, hồ tiêu (bọ xít muỗi)",
+              "Cây hoa kiểng (bọ trĩ phá nụ hoa, làm nhăn lá)"
+            ],
+            "hieu_qua_chinh": "Dòng 200ml cho bọ trĩ, rầy rệp và côn trùng chích hút",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/bo-tri-top-one-spi-ggo-10sc-dac-tri-bo-tri-ray-rep-con-trung-chich-hut-200ml/",
+            "website_product_ids": [
+              "1236"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-05-29T15:44:12",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2026/05/DONE-1.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1242",
+            "ten_san_pham": "VUA RỆP TOP ONE DINOFU 30SC- Sạch rệp, mát cây, mát bông (240ml)",
+            "thanh_phan_dang_ky": [
+              "Dinotefuran: …………………….. 3% w/w",
+              "Isoprocarb: …………………….. 27% w/w",
+              "Phụ gia vừa đủ"
+            ],
+            "cong_dung": [
+              "Công nghệ mới ung trứng",
+              "Ngăn chặn lột xác",
+              "Diệt sạch rầy rệp chích hút",
+              "Hiệu quả nhanh, rầy chết sạch",
+              "Thấm sâu, nội hấp, lưu dẫn"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 240ml cho 150-200 lít nước",
+              "Thời gian cách ly 14 ngày"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/vua-rep-top-one-dinofu-30sc-sach-rep-mat-cay-mat-bong-240ml/",
+            "website_product_ids": [
+              "1242"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-05-30T14:52:00",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2026/05/DONE-2.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1247",
+            "ten_san_pham": "HUMIC HỮU CƠ ĐẬM ĐẶC – 500G",
+            "ten_tren_website": "HUMIC HỮU CƠ ĐẬM ĐẶC – 500G",
+            "thanh_phan_dang_ky": [
+              "Axit humic (C): 38% (Tương đương hàm lượng axit humic (axit humic): 65,5%)",
+              "Axit fulvic (C):……………………………………………………………………………………..1%",
+              "Kali hữu hiệu (K2Ohh ):……………………………………………………………………….5%",
+              "pHH20 :……………………………………………………………………………………………..5",
+              "Độ ẩm:……………………………………………………………………………………………….30%"
+            ],
+            "cong_dung": [
+              "Bung chồi, ra cơi, vọt đọt, mở lá, xanh lá, dày lá.",
+              "Kích rễ, đẻ nhánh, tạo mầm.",
+              "Phòng ngừa thối rễ vàng lá bệnh chết nhanh do thiếu dinh dưỡng.",
+              "Tăng sức đề kháng cho cây, tiết kiệm phân bón.",
+              "Giúp hạn phèn, giải độc hữu cơ. Thân thiện với môi trường."
+            ],
+            "huong_dan_su_dung": [
+              "Bón 3kg/ha"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/humic-huu-co-dam-dac-500g/",
+            "website_product_ids": [
+              "1247"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-07-03T10:57:14",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2026/05/DONE-2-1.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1257",
+            "ten_san_pham": "SẠCH SÂU TC FIP-GGO 1KG",
+            "ten_tren_website": "SẠCH SÂU TC FIP-GGO 1KG",
+            "thanh_phan_dang_ky": [
+              "Chlorantraniliprole……………….4g/kg",
+              "Clothianidin………………….12g/kg",
+              "Phụ gia vừa đủ 1kg"
+            ],
+            "cong_dung": [
+              "Diệt sâu kháng thuốc – Tấn công nhanh, hạ gục gọn.",
+              "Tác động nhanh lên hệ thần kinh côn trùng.",
+              "Lưu dẫn mạnh, hiệu lực kéo dài.",
+              "Bảo vệ cây trồng chống kháng thuốc",
+              "Phòng trừ tuyến trùng gây hại cho cây trồng."
+            ],
+            "uu_diem_website": [
+              "Vị độc, lưu dẫn, diệt tận gốc.",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Rắc thuốc xung quanh gốc cây, sau đó tưới ướt gốc khi sâu non tuổi 1-2 mới nở, chưa đục vào cây."
+            ],
+            "luu_y": "Sản phẩm có thể dùng chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sach-sau-tc-fip-ggo-1kg/",
+            "website_product_ids": [
+              "1257"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-07-21T16:39:30",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2026/07/DONE.jpg"
+          },
+          {
+            "san_pham_id": "WEB-1267",
+            "ten_san_pham": "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa",
+            "ten_tren_website": "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa",
+            "thanh_phan_dang_ky": [
+              "Canxi (Ca):………………………………………………………………..10.7%",
+              "Bo (B):……………………………………………………………….40.000 ppm",
+              "Kẽm (Zn):…………………………………………………………….1.000 ppm",
+              "Đồng (Cu):………………………………………………………………500 ppm",
+              "Tỷ trọng:………………………………………………………………………….1.1"
+            ],
+            "cong_dung": [
+              "Sản phẩm cung cấp kịp thời Canxi-bo ở dạng dễ hấp thụ cho cây trồng trong thời kỳ sinh trưởng.",
+              "Đặc biệt, giai đoạn cây ra hoa đậu trái giúp bóng trái, đẹp trái.",
+              "Làm dai cuống trái và bông, chống hiện tượng rụng bông và trái.",
+              "Sử dụng hiệu quả cho các loại cây trồng như: dưa hấu, dưa leo, khổ qua, ớt cay, cà chưa, bầu, bí, xoài, nhãn, thanh long,…"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 20-25ml cho bình 16 lít nước (Chai 500ml pha 400 lít nước)."
+            ],
+            "luu_y": "Phun trước khi ra hoa 7-10 ngày để tăng đậu trái và sau khi đậu trái non 5-7 ngày để trái chắc khỏe, chống nứt trái giai đoạn nuôi trái giúp trái lớn nhanh vỏ dày.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/canxi-bo-sua-ra-hoa-dau-qua-bong-qua-chong-rung-hoa/",
+            "website_product_ids": [
+              "1267"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-08-15T15:17:56",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2026/08/DONE.jpg"
+          },
+          {
+            "san_pham_id": "WEB-150",
+            "ten_san_pham": "CHEATUMIG – Phục hồi vàng lá, thối rễ",
+            "ten_tren_website": "CHEATUMIG – Phục hồi vàng lá, thối rễ",
+            "thanh_phan_dang_ky": [
+              "Vi sinh ts: Chaetomium spp, Trichoderma spp,….2×109 CFU/g;",
+              "Metarhizium spp, Bacillus subtilis, Saccharomyces cerevisiae;",
+              "Actinomycetes spp…….2×109 CFU/g;",
+              "Bổ sung: Fuvic, Humic, Chelate,…và các chủng VSV có lợi."
+            ],
+            "cong_dung": [
+              "Phòng và phục hồi vàng lá, thối rễ, lở cổ rễ, sưng rể, chết dây, héo xanh;",
+              "Phòng trừ tuyến trùng hại cây;",
+              "Cải tạo đất, ra rễ nhanh;",
+              "Phòng trừ tuyến trùng hại rễ;",
+              "Ức chế nấm gây bệnh ở rễ cây;",
+              "Cải tạo đất tơi xốp, chai hoá, chua phèn;",
+              "Nâng pH giúp tăng năng suất."
+            ],
+            "uu_diem_website": [
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả nhanh chóng, rõ rệt;",
+              "An toàn cho người sử dụng và vật nuôi;",
+              "Tạo ra thực phẩm an toàn cho sức khoẻ con người và môi trường xung quanh;",
+              "Hạn chế tồn dư hoá học phù hợp xuất khẩu."
+            ],
+            "huong_dan_su_dung": [
+              "1kg pha với khoảng 200-400 lít nước:",
+              "Đối với cây công nghiệp, cây ăn trái: (cây có múi, hồ tiêu, cà phê, sầu riêng, thanh long, xoài, ổi….)",
+              "Tưới đẫm từ gốc ra theo tán cây từ 3-8 lít/gốc tuỳ theo tuổi cây, tán cây.",
+              "Phòng tưới 3-4 lần/năm.",
+              "Cây bị bệnh tưới 3-4 lần cách nhau 15-20 ngày/lần.",
+              "Đối với cây ngắn ngày: (dưa, bầu, bí, ớt cay, cà chua, rau màu…)",
+              "Tưới từ 0,5-1 lít/ cây tuỳ các loại cây trồng."
+            ],
+            "luu_y": "Tưới hoặc phun vào thời tiết chiều mát. | Nên cắt cành, tỉa tán cho những cây đang bị bệnh trước khi tưới. | Sau khi tưới nên duy trì độ ẩm cho cây, có thể bổ sung phân bón lá. hữu cơ hoặc phân bón gốc hữu cơ để cây nhanh phục hồi.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/cheatumig-phuc-hoi-vang-la-thoi-re/",
+            "website_product_ids": [
+              "150"
+            ],
+            "website_categories": [
+              "Cải tạo đất",
+              "Dinh dưỡng hữu cơ",
+              "Phòng trừ bệnh",
+              "Trừ côn trùng"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-08-27T09:51:13",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/06/DONE-11.png"
+          },
+          {
+            "san_pham_id": "WEB-826",
+            "ten_san_pham": "TRICHODERMA – Ủ phân, cải tạo đất tơi xốp",
+            "ten_tren_website": "TRICHODERMA – Ủ phân, cải tạo đất tơi xốp",
+            "thanh_phan_dang_ky": [
+              "Vi sinh ts: Trichoderma spp,",
+              "Bacillus subtilis:……….1×106 CFU/g,",
+              "Phụ gia đặc biệt."
+            ],
+            "cong_dung": [
+              "Cải tạo và xử lý nấm bệnh tồn dư trong đất;",
+              "Phục hồi và phòng ngừa vàng lá thối rễ, tuyến trùng rễ;",
+              "Phục hồi đất bị thoái hóa do sử dụng phân bón hóa học lâu năm;",
+              "Trị lở cổ rễ, nghẹt rễ, héo xanh vi khuẩn;",
+              "Tăng cường hệ vi sinh vật có ích giúp cải tạo đất;",
+              "Giúp ủ phân chuồng, rơm rạ, vỏ cà phê."
+            ],
+            "huong_dan_su_dung": [
+              "Đối với tưới, rải gốc: Hòa 1kg với nước hoặc trộn chung với phân bón khác để rải.",
+              "Đối với ủ phân chuồng: Hòa 1kg với 4-5m3 nước tưới trực tiếp, đảo đều và tủ bạt 20-25 ngày là sử dụng được.",
+              "Đối với ủ xác thực vật làm phân bón: Hòa 1kg với 3-4m3 nước tưới đều lên nguyên liệu và tủ bạt kín, sau 30-40 ngày hoại mục là sử dụng được."
+            ],
+            "luu_y": "Trộn đều với đống ủ hoặc khuấy với nước rồi tưới đều lên nguyên liệu | Bổ sung nước để đạt độ ẩm 50-60% | Đánh đống ủ cao từ 1-1.5m, phủ bạt để giữ nhiệt",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/jialeton-diet-nam/",
+            "website_product_ids": [
+              "826"
+            ],
+            "website_categories": [
+              "Cải tạo đất",
+              "Dinh dưỡng hữu cơ",
+              "Phòng trừ bệnh",
+              "Trừ côn trùng"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-08-27T09:56:40",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-15.png"
+          },
+          {
+            "san_pham_id": "WEB-828",
+            "ten_san_pham": "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml)",
+            "ten_tren_website": "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml)",
+            "thanh_phan_dang_ky": [
+              "Đồng (Cu):……….15.000mg/l;",
+              "pHh20:6;",
+              "Tỷ trọng: 1,1."
+            ],
+            "cong_dung": [
+              "Giúp xanh lá, mát cây;",
+              "Tẩy rửa, phục hồi vườn sau thu hoạch;",
+              "Đánh bật rong rêu, nấm hồng, sương mai, ghẻ sẹo, loét vi khuẩn;",
+              "Trị thối trái, thán thư, vàng lá trên các loại cây trồng;",
+              "Phòng chống đạo ôn, cháy bìa lá, bạc lá, vàng lá trên cây lúa."
+            ],
+            "uu_diem_website": [
+              "Được sản xuất dưới dạng Nano tiên tiến nhất hiện nay cùng phụ gia cao cấp;",
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 250ml với khoảng 100-200 lít nước",
+              "Phun đều trên bề mặt thân, cành, lá, quả"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-dong-tay-rua-vuon-day-lui-nam-benh/",
+            "website_product_ids": [
+              "828"
+            ],
+            "website_categories": [
+              "Cải tạo đất",
+              "Dinh dưỡng hữu cơ",
+              "Phòng trừ bệnh",
+              "Trừ côn trùng"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-08-27T10:00:42",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-10-2.png"
+          },
+          {
+            "san_pham_id": "WEB-830",
+            "ten_san_pham": "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại",
+            "ten_tren_website": "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại",
+            "thanh_phan_dang_ky": [
+              "Vi sinh ts: Chaetomium spp,",
+              "Bacillus sp:……….1×108 cfu/ml,",
+              "Additives: Bổ sung enzyme (hoạt chất kháng sinh sinh học)."
+            ],
+            "cong_dung": [
+              "Chữa thán thư, thối trái, vàng lá, héo xanh;",
+              "Chữa gỉ sắt, thối nhũn, sương mai, nứt thân, xì mủ;",
+              "Tiêu diệt ngay lập tức các nấm và vi khuẩn gây hại;",
+              "Phục hồi các vết thương khô nhanh;",
+              "Ngăn chặn dịch bệnh bùng phát;",
+              "Giúp xanh lá, cây sinh trưởng phát triển tốt hơn;",
+              "Chống nhờn kháng thuốc."
+            ],
+            "uu_diem_website": [
+              "Thay thế các loại thuốc trừ sâu hóa học gây hại cho con người và môi trường sống;",
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 30g/bình 20-25 lít nước",
+              "Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/rydoxin-tieu-diet-nam-benh-vi-khuan-gay-hai-sao-chep/",
+            "website_product_ids": [
+              "830"
+            ],
+            "website_categories": [
+              "Phòng trừ bệnh",
+              "Trừ côn trùng"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-08-27T09:55:24",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-16-1.png"
+          },
+          {
+            "san_pham_id": "WEB-832",
+            "ten_san_pham": "JIALETON – Xử lý sương mai, thán thư, đốm lá",
+            "thanh_phan_dang_ky": [
+              "Vi sinh ts: Chaetomium spp;",
+              "Trichoderma spp, Bacillus sp….2×109 cfu/kg;",
+              "Additives: Bổ sung enzyme (hoạt chất kháng sinh sinh học)."
+            ],
+            "cong_dung": [
+              "Chữa phấn trắng, rỉ sắt trên thân, lá, quả;",
+              "Phòng thối gốc, thối củ;",
+              "Trị đốm lá, thán thư;",
+              "Ngăn chặn chết dây, chết cây con;",
+              "Chống nhờn thuốc."
+            ],
+            "uu_diem_website": [
+              "Hấp thu nhanh, lưu dẫn mạnh;",
+              "Hiệu quả rõ rệt, giúp tăng năng suất và giá trị thương phẩm;",
+              "Sản phẩm an toàn, lành tính đối với sức khỏe con người và môi trường"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 35g/bình với khoảng 20-25lít nước",
+              "Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác. Hiệu quả hơn khi phun chung với Nano Đồng.",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/jialeton-suong-mai-than-thu/",
+            "website_product_ids": [
+              "832"
+            ],
+            "website_categories": [
+              "Cải tạo đất",
+              "Dinh dưỡng hữu cơ",
+              "Phòng trừ bệnh",
+              "Trừ côn trùng"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-08-27T09:49:55",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-19.png"
+          },
+          {
+            "san_pham_id": "WEB-833",
+            "ten_san_pham": "ĐẶC TRỊ RUỒI VÀNG – Xua đuổi, ung trứng, tiêu diệt ấu trùng",
+            "thanh_phan_dang_ky": [
+              "Vi sinh ts: Metarhizium sp, Beauverria sp, Bacillus sp …2×10^9 CFU/l",
+              "Bổ sung giấm gỗ, tinh dầu quế và các tinh dầu thực vật khác"
+            ],
+            "cong_dung": [
+              "Tiêu diệt ruồi vàng, kiến, mối, xua đuổi côn trùng.",
+              "Làm khuếch tán mùi tinh dầu gây dị ứng để xua đuổi ruồi vàng trưởng thành không bám cây chích quả.",
+              "Làm ức chế cho sâu và côn trùng ngán ăn, tiêu diệt con non và làm ung trứng."
+            ],
+            "huong_dan_su_dung": [
+              "Pha 30ml cho bình 16 lít hoặc 40ml cho bình 20 – 25 lít nước",
+              "Phun phòng cách nhau 7- 15 ngày",
+              "Khi xuất hiện ruồi vàng phun cách nhau 2-3 lần cách nhau 5- 7 ngày",
+              "Phun toàn bộ thân, cành lá và xung quanh khu vực trồng",
+              "Trang chủ"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/dac-tri-ruoi-vang/",
+            "website_product_ids": [
+              "833"
+            ],
+            "website_categories": [
+              "Cải tạo đất",
+              "Dinh dưỡng hữu cơ",
+              "Phòng trừ bệnh",
+              "Trừ côn trùng"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:57:15",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-9.png"
+          },
+          {
+            "san_pham_id": "WEB-896",
+            "ten_san_pham": "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân",
+            "ten_tren_website": "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân",
+            "thanh_phan_dang_ky": [
+              "Nano Chitosan…..1.000 ppm",
+              "Enzym chiết xuất từ Chaetomium",
+              "Bổ sung phụ gia kích kháng đặc biệt",
+              "Tỷ trọng 1 – 1.05",
+              "PH 4 – 6.5"
+            ],
+            "cong_dung": [
+              "Phục hồi các trường hợp xoăn lá, xoắn ngọn, khảm lá, sượng trái trên cây ớt, cà chua, nghoảnh đầu lân trên dưa hấu",
+              "Giúp cây bật chồi nhanh, đẻ nhánh khoẻ",
+              "Tăng sức đề kháng cho cây trồng"
+            ],
+            "huong_dan_su_dung": [
+              "Bình 16 lít: 25 – 30ml",
+              "Bình 25 lít: 40 – 50ml",
+              "Phuy 200 lít: 500ml"
+            ],
+            "luu_y": "Sử dụng sau 4h chiều để đạt hiệu quả tốt nhất",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-tonic/",
+            "website_product_ids": [
+              "896"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:56:31",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/11/DONE-1.png"
+          },
+          {
+            "san_pham_id": "WEB-900",
+            "ten_san_pham": "NANO AMINO A6 – Bung chồi, vọt đọt, thúc bật mầm hoa, xanh lá, dày lá",
+            "ten_tren_website": "NANO AMINO A6 – Bung chồi, vọt đọt, thúc bật mầm hoa, xanh lá, dày lá",
+            "thanh_phan_dang_ky": [
+              "Zn 15.000 ppm bổ sung:",
+              "N: 33, P2O5: 11, K2O: 11, GA3: 10ppm, NAA: 10ppm, Fe: 100ppm; Mn: 50ppm",
+              "Độ ẩm 5%",
+              "Phụ gia đặc biệt kích kháng cây trồng"
+            ],
+            "cong_dung": [
+              "Là sản phẩm số 1 chuyên dùng cho cây lúa, rau màu và các loại cây ăn quả, trong các thời kỳ ra rễ, đẻ nhánh, ra hoa đậu quả, cân bằng dinh dưỡng giúp cây phát triển tốt, phục hồi cây sau thu hoạch"
+            ],
+            "huong_dan_su_dung": [
+              "Cho 50gr vào bình 16 – 30 lít nước, phun hoặc tưới cho cây trồng định kỳ 5- 7 ngày/lần"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-amino-a6/",
+            "website_product_ids": [
+              "900"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:56:08",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/11/DONE-5.png"
+          },
+          {
+            "san_pham_id": "WEB-902",
+            "ten_san_pham": "NANO KALI CANXI BO – Lớn trái, bóng quả, chống rụng hoa",
+            "ten_tren_website": "NANO KALI CANXI BO – Lớn trái, bóng quả, chống rụng hoa",
+            "thanh_phan_dang_ky": [
+              "Zn 5000ppm bổ sung (g/l)",
+              "Cao :18, MgO: 3, B2O3: 1",
+              "Cu 50ppm, Zn 50ppm, Fe 50ppm, Mn 50ppm",
+              "Bổ sung phụ gia đặc biệt axit amin, chelate"
+            ],
+            "cong_dung": [
+              "Bổ sung dinh dưỡng cho cây, giúp nuôi trái lớn, bóng trái, chắc trái, tăng cường sức đề kháng, chống rụng, rụng quả sinh lý, siêu ra hoa, đậu quả, to bông, dai cuống, hạn chế các trường hợp thối trái, nứt trái, chống cong vẹo, tạo độ ngọt đều.",
+              "Sử dụng hiệu quả cho các loại cây trồng như: dưa hấu, dưa leo, khổ qua, ớt cay, cà chưa, bầu, bí, xoài, nhãn, thanh long,…"
+            ],
+            "huong_dan_su_dung": [
+              "Cây ăn trái: Thời kỳ trước khi ra hoa phun 30 – 50ml cho bình 16 – 30 lít",
+              "Rau ăn trái và lúa ( Cà chua, ớt, bầu, bí, dưa leo,..): Khi cây có chồi hoa và trái non phun 30 – 50ml cho bình 16 – 30 lít",
+              "Cây Công nghiệp ( Cà phê, điều, cacao, cao su,..): Chống rụng trái non, phun phun 30 – 50ml cho bình 16 – 30 lít"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-kali-canxi-bo/",
+            "website_product_ids": [
+              "902"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:55:40",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/11/DONE.png"
+          },
+          {
+            "san_pham_id": "WEB-958",
+            "ten_san_pham": "ĐẠM CÁ HỮU CƠ AMINO (5 lít)",
+            "ten_tren_website": "ĐẠM CÁ HỮU CƠ AMINO (5 lít)",
+            "thanh_phan_dang_ky": [
+              "Chất hữu cơ: 20%, tỷ lệ C/N: 12%, pHH20: 5.5",
+              "Sử dụng nguồn nguyên liệu: Đạm cá nguyên chất : 45%, amino acid: 10%, vitamin C, vitamin B6, Tryptophan, Rong biển, Chlomequat Chloride và chất điều hoá sinh trưởng Auxin"
+            ],
+            "cong_dung": [
+              "Phục hồi cây sau thu hoạch, hay khi cây bị hạn hán, mưa dầm, ngập úng, nhiễm độc phèn, mặn hữu cơ",
+              "Xanh cây, mập đọt, tăng sức dề kháng cho cây trồng, hạn chế 1 số sâu bệnh gây hại",
+              "Tăng tỷ lệ đậu trái, chống rụng hoa, quả non, thối trái, nứt trái",
+              "Tăng năng suất cây trồng, nâng cao chất lượng nông sản"
+            ],
+            "huong_dan_su_dung": [
+              "Giai đoạn cây con: Pha 30 – 50ml cho 20 lít nước",
+              "Giai đoạn trước ra hoa: Pha 70 – 100ml cho 20 lít nước",
+              "Giai đoạn cây đang mang trái, phục hồi sau thu hoạch: pha 80 – 100ml cho 20 lít nước",
+              "Tưới ướt đẫm rễ cây, sử dụng định kỳ 10 – 15 ngày/lần. Tưới vào buổi sáng sớm hoặc chiều tối"
+            ],
+            "luu_y": "Dùng đúng liều theo giai đoạn cây.",
+            "phan_khuc": "Dinh dưỡng hữu cơ cho phục hồi, dưỡng rễ và nuôi đọt",
+            "mo_ta_ngan": "Đạm hữu cơ 5L cho cây sau thu hoạch, giai đoạn nuôi đọt và dưỡng trái",
+            "doi_tuong_cay_trong": [
+              "Cây ăn trái: sầu riêng, bưởi, cam, xoài (phục hồi sau thu hoạch)",
+              "Cây công nghiệp: cà phê, hồ tiêu (cải tạo đất, dưỡng rễ)",
+              "Cây rau màu: bổ sung dinh dưỡng hữu cơ",
+              "Cây hoa kiểng & bonsai (duy trì đất chậu phì nhiêu)"
+            ],
+            "hieu_qua_chinh": "Dinh dưỡng hữu cơ cho phục hồi, dưỡng rễ và nuôi đọt",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/dam-ca-huu-co/",
+            "website_product_ids": [
+              "958"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:55:13",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/06/DONE-14.png"
+          },
+          {
+            "san_pham_id": "WEB-960",
+            "ten_san_pham": "ĐỒNG GOLD – Sạch bệnh, xanh lá, mát cây, tiêu diệt nấm khuẩn",
+            "thanh_phan_dang_ky": [
+              "Zn 15.000ppm bổ sung",
+              "Cu 150.000ppm, Fe :10ppm, MgO: 10ppm, Mn: 10ppm",
+              "Các vi lượng Chelate dạng vết",
+              "Phụ gia đặt biệt tăng sức đề kháng cho cây trồng"
+            ],
+            "cong_dung": [
+              "Tiêu diệt nấm, vi khuẩn",
+              "Tẩy rửa rong rêu, nấm hồng, thán thư, thối trái, phấn trắng, sương mai, rỉ sắt",
+              "Hỗ trợ phòng và xử lý vàng lá, khô lá, đạo ôn lúa",
+              "Lưu dẫn 2 chiều, hấp thu nhanh"
+            ],
+            "huong_dan_su_dung": [
+              "Cây rau màu như rau má, khổ qua, bầu bí,..: Pha 20 – 30 ml/ 16 lít phun hay tưới 3 – 4 ngày sau khi trồng. Phun khi cây 4-5 lá, phun 1-2 lần cách nhau 7 – 10 ngày",
+              "Cây ăn quả, cây công nghiệp: Pha 20 – 30ml/ 16 lít phun hay tưới khi chuẩn bị vào vụ mới, đầu mùa mưa, khi nhú trái non, khi có dâu hiệu bệnh trên cây trồng, Phun định kỳ 7 – 10 ngày/lần",
+              "Cây lấy củ: Pha 20 – 30ml/16 lít phun hay tưới trước và sau khi cây cho củ. Phun 7- 10 ngày/lần"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/donggold-tieudietnamkhuan/",
+            "website_product_ids": [
+              "960"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:54:38",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/06/DONE-7.png"
+          },
+          {
+            "san_pham_id": "WEB-964",
+            "ten_san_pham": "ĐẠM CÁ HỒI NAUY – Dinh dưỡng thiết yếu cho cây trồng",
+            "ten_tren_website": "ĐẠM CÁ HỒI NAUY – Dinh dưỡng thiết yếu cho cây trồng",
+            "thanh_phan_dang_ky": [
+              "Zn 15.000ppm bổ sung đạm cá hồi đậm đặc 99,99%",
+              "N: 5, CaO: 6, S: 7, FeO:1, MgO: 0.5, P2O5: 0.5, K2O: 1",
+              "Phụ gia acid humic: 9 + amino acid: 6"
+            ],
+            "cong_dung": [
+              "Làm đất tới xốp, thoáng khí, hạ phèn, giải ngộ độc hữu cơ",
+              "Ra rễ cực mạnh, giúp cây bung chồi, vọt đọt, mỡ lá, dày và xanh lá",
+              "Kích bông, nuôi trái, lớn trái, phục hồi cây còi cọc, kém phát triển, tăng năng suất, chất lượng nông sản"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 50 ml với bình 15 – 25 lít nước tưới gốc hoặc tưới nhỏ giọt ( 500ml pha 200 lít nước)"
+            ],
+            "luu_y": "Có thể trộn với các loại phân bón và thuốc BVTV khác tuỳ vào các giai đoạn của cây trồng",
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/dam-ca-hoi-nauy/",
+            "website_product_ids": [
+              "964"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:53:52",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/06/DONE-13.png"
+          },
+          {
+            "san_pham_id": "WEB-965",
+            "ten_san_pham": "ROOTS – Bung rễ, ra rễ cực mạnh (250ml)",
+            "ten_tren_website": "ROOTS – Bung rễ, ra rễ cực mạnh (250ml)",
+            "thanh_phan_dang_ky": [
+              "Zn 15.000ppm bổ sung",
+              "Total Nitrogen ( N) water soluble ….10w/v",
+              "Phosphorus ( P2O5) water soluble….60w/v",
+              "Potassium (K2O) water soluble……..10w/v",
+              "Boron ( B) water soluble…………….0.01w/v",
+              "Copper ( Cu) water soluble………….0.01w/v",
+              "Calcium ( CaO) water soluble….……0.01w/v",
+              "Iron( Fe) water soluble………………0.01w/v",
+              "Zinc ( Zn) water soluble……………..0.01w/v",
+              "Magnesio ( MgO) water soluble……..0.01w/v",
+              "NAA water soluble…………………..0.01w/v"
+            ],
+            "cong_dung": [
+              "Ra rễ cây con cực mạnh",
+              "Loại bỏ , tiêu diệt nấm vi khuẩn",
+              "Cải tạo đất, ra rễ nhanh , xử lý tuyến trùng , thối rễ, lỡ cổ rễ,",
+              "Giúp rễ to khỏe, phục hồi cây bị vàng lá và thiếu chất dinh dưỡng."
+            ],
+            "huong_dan_su_dung": [
+              "Đối với phun: Dùng 50ml cho bình 15 – 25 lít nước, phun đẫm lên cây",
+              "Đối với tưới trực tiếp hoặc tưới nhỏ giọt: Dùng 250ml hoà 150 – 200 lít nước đổ trực tiếp vào gốc",
+              "Đối với giâm cành: Nhúng trực tiếp vào sản phẩm 5- 10 phút khi giâm cành hoặc bôi trực tiếp vào vị trí cần ra rễ"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/bung-re-cuc-manh/",
+            "website_product_ids": [
+              "965"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:53:26",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/06/DONE-12-1.png"
+          },
+          {
+            "san_pham_id": "WEB-986",
+            "ten_san_pham": "ROOTS – Sạch bệnh, xanh cây, tốt quả",
+            "ten_tren_website": "ROOTS – Sạch bệnh, xanh cây, tốt quả",
+            "thanh_phan_dang_ky": [
+              "Vi sinh ts: Chaetomium spp; Trichoderma spp, Bacillus sp, saccharomyces serevisiae….2×10^9 cfu/kg;",
+              "Bổ sung: acid humic, acid fuvic, Humic, Chelate và các chủng VSV có ích khác"
+            ],
+            "cong_dung": [
+              "Tăng cường hệ vi sinh vật có ích, giúp cải tạo đất, đặc biệt hiệu quả trong việc phục hồi đất bị thoái hóa do sử dụng phân bón hóa học lâu năm.",
+              "Phân giải các xác hữu cơ và xác thực vật chuyển hóa thành các chất dễ tiêu cho cây trồng.",
+              "Đặc biệt hiệu quả trong việc phục hồi vàng lá, thối rễ, chết nhanh, chết chậm, xì mũ, lỡ cổ rễ ( cà phê, hồ tiêu, cam quýt, sầu riêng,…), do nấm bệnh (phytopthora sp, fusarium sp, Rhizoctonia, sclerotium, pythium sp,…) và tuyến trùng hại rễ"
+            ],
+            "huong_dan_su_dung": [
+              "Sử dụng 1 gói cho 500m2",
+              "Cây rau màu, hoa kiểng: Trộn với phân hữu cơ để bón lót trước khi gieo trồng hoặc hoà nước tưới thẳng vào gốc",
+              "Cây lương thực: Rải, hoà nước phun, tưới lên gốc rạ sau thu hoạch, trộn 1 – 2 gói với phân rải lúc bón thúc đợt 1 và đợt 2, bón cho 1000m2",
+              "Cây công nghiệp, cây ăn trái: Trộn với phân hữu cơ bón trực tiếp 1- 2 lần/năm Hoặc hoà với nước tưới thẳng vào gốc"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/roots-sach-benh-xanh-cay-tot-qua-1kg/",
+            "website_product_ids": [
+              "986"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:52:35",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/DONE-17.png"
+          },
+          {
+            "san_pham_id": "WEB-988",
+            "ten_san_pham": "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI",
+            "ten_tren_website": "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI",
+            "thanh_phan_dang_ky": [
+              "Bo(B): 2011ppm. Bổ sung: N: 7, P2O2: 4, K2O: 45, B: 100ppm, Mn: 60ppm, Fe: 90ppm, Cu: 70ppm, 16 loại amino acid và các phụ gia đặc biệt sử dụng cho các loại cây vào thời ra hoa đậu quả và nuôi trái"
+            ],
+            "cong_dung": [
+              "Kích bông, chống rụng hoa, quả non",
+              "Chống cong vẹo, giúp lớn trái, bóng quả",
+              "Chống thối trái, nứt trái, giúp chắc trái",
+              "Sử dụng hiệu quả cho các loại cây trồng như: bầu, bí, khổ qua, dưa leo, ớt, dưa hấu, cà chua, xoài, nhãn, thanh long,…"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 30 – 50ml với bình 16 – 30 lít nước phun thời kỳ trước khi ra hoa"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sieu-ra-hoa-dau-qua-duong-trai-500ml/",
+            "website_product_ids": [
+              "988"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:52:11",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/DONE-3.png"
+          },
+          {
+            "san_pham_id": "WEB-991",
+            "ten_san_pham": "VUA BỌ TRĨ NOFARA 350SC- Đặc trị bọ trĩ, rầy, rệp, côn trùng chích hút (500ml)",
+            "ten_tren_website": "VUA BỌ TRĨ NOFARA 350SC- Đặc trị bọ trĩ, rầy, rệp, côn trùng chích hút (500ml)",
+            "thanh_phan_dang_ky": [
+              "Thiamethoxam:…350g/lit",
+              "Additives Special:…650g/lit"
+            ],
+            "cong_dung": [
+              "Bọ trĩ, bọ xít, bọ xít muỗi, bọ cánh",
+              "Nhện đỏ, ruồi vàng, sâu vẽ bùa Rệp sáp, rầy nâu, rầy xanh",
+              "Rầy chổng cánh, rầy lưng trắng"
+            ],
+            "huong_dan_su_dung": [
+              "Pha 20ml với bình 16 – 25 lít nước. Lượng nước phun 400 lít/ha, phun thuốc khi rầy cám ra rộ.",
+              "Thời gian cách ly 14 ngày"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/vua-bo-tri-dac-tri-bo-tri-ray-rep-con-trung/",
+            "website_product_ids": [
+              "991"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2026-04-01T08:51:49",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/DONE.png"
+          },
+          {
+            "san_pham_id": "WEB-995",
+            "ten_san_pham": "VUA HÀNH – Cứng dọc, đứng lá, ngăn ngừa vàng lá, tóp đầu lá",
+            "ten_tren_website": "VUA HÀNH – Cứng dọc, đứng lá, ngăn ngừa vàng lá, tóp đầu lá",
+            "thanh_phan_dang_ky": [
+              "Mg: 16%, S: 12%, độ ẩm: 4%",
+              "Bổ sung vi lượng chelate dạng vết: Bo, Fe, Mn, Cu,…",
+              "Và các Acid Amin, Auxin, Ga3, Naa… Đặc hiệu cho cây hành"
+            ],
+            "cong_dung": [
+              "Phục hồi nhanh sau khi bệnh hoặc gặp thời tiết bất lợi",
+              "Ra rễ mạnh, nở bụi, nhánh khỏe, cứng dọc, đứng lá.",
+              "Ngăn ngừa vàng lá, tóp đầu lá, khô đầu lá"
+            ],
+            "huong_dan_su_dung": [
+              "Cho 50 gr vào bình 16 – 32 lít nước, phun hoặc tưới cho các loại cây trồng định kỳ 5 – 7 ngày",
+              "Thời kỳ sử dụng: Từ khi trồng đến khi thu hoạch"
+            ],
+            "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/vua-hanh-50gr/",
+            "website_product_ids": [
+              "995"
+            ],
+            "website_categories": [
+              "sản phẩm bán chạy nhất"
+            ],
+            "source_kind": "company_website",
+            "source_modified": "2025-06-30T11:08:56",
+            "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/DONE-20.png"
+          },
+          {
+            "san_pham_id": "COMBO-WEB-828-WEB-830",
+            "ten_san_pham": "Combo WEB-828 + WEB-830",
+            "thanh_phan_dang_ky": {
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml)": [
+                "Đồng (Cu):……….15.000mg/l;",
+                "pHh20:6;",
+                "Tỷ trọng: 1,1."
+              ],
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại": [
+                "Vi sinh ts: Chaetomium spp,",
+                "Bacillus sp:……….1×108 cfu/ml,",
+                "Additives: Bổ sung enzyme (hoạt chất kháng sinh sinh học)."
+              ]
+            },
+            "cong_dung": [
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Giúp xanh lá, mát cây;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Tẩy rửa, phục hồi vườn sau thu hoạch;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Đánh bật rong rêu, nấm hồng, sương mai, ghẻ sẹo, loét vi khuẩn;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Trị thối trái, thán thư, vàng lá trên các loại cây trồng;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Phòng chống đạo ôn, cháy bìa lá, bạc lá, vàng lá trên cây lúa.",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Chữa thán thư, thối trái, vàng lá, héo xanh;",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Chữa gỉ sắt, thối nhũn, sương mai, nứt thân, xì mủ;",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Tiêu diệt ngay lập tức các nấm và vi khuẩn gây hại;",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Phục hồi các vết thương khô nhanh;",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Ngăn chặn dịch bệnh bùng phát;",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Giúp xanh lá, cây sinh trưởng phát triển tốt hơn;",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Chống nhờn kháng thuốc."
+            ],
+            "huong_dan_su_dung": [
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Pha 250ml với khoảng 100-200 lít nước",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Phun đều trên bề mặt thân, cành, lá, quả",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Pha 30g/bình 20-25 lít nước",
+              "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại: Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Đây là combo thương mại. Hai sản phẩm ĐÁNH CHUNG MỘT BÌNH, mỗi loại giữ nguyên liều của chính nó trên cùng thể tích nước — không cộng liều hai loại lại thành một con số, cũng không chia đôi. (Chủ dự án xác nhận 11/09/2026.)",
+            "nguon_chinh_thuc": [
+              "https://nongduoctoancaugroup.com/san-pham/nano-dong-tay-rua-vuon-day-lui-nam-benh/",
+              "https://nongduoctoancaugroup.com/san-pham/rydoxin-tieu-diet-nam-benh-vi-khuan-gay-hai-sao-chep/"
+            ],
+            "website_product_ids": [
+              "828",
+              "830"
+            ],
+            "source_kind": "company_website_and_live_catalog",
+            "is_combo": true,
+            "combo_components": [
+              {
+                "website_product_id": "828",
+                "ten_san_pham": "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml)",
+                "thanh_phan_dang_ky": [
+                  "Đồng (Cu):……….15.000mg/l;",
+                  "pHh20:6;",
+                  "Tỷ trọng: 1,1."
+                ],
+                "cong_dung": [
+                  "Giúp xanh lá, mát cây;",
+                  "Tẩy rửa, phục hồi vườn sau thu hoạch;",
+                  "Đánh bật rong rêu, nấm hồng, sương mai, ghẻ sẹo, loét vi khuẩn;",
+                  "Trị thối trái, thán thư, vàng lá trên các loại cây trồng;",
+                  "Phòng chống đạo ôn, cháy bìa lá, bạc lá, vàng lá trên cây lúa."
+                ],
+                "huong_dan_su_dung": [
+                  "Pha 250ml với khoảng 100-200 lít nước",
+                  "Phun đều trên bề mặt thân, cành, lá, quả"
+                ],
+                "luu_y": [
+                  "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác"
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-dong-tay-rua-vuon-day-lui-nam-benh/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-10-2.png"
+              },
+              {
+                "website_product_id": "830",
+                "ten_san_pham": "RYDOXIN – Tiêu diệt nấm bệnh, vi khuẩn gây hại",
+                "thanh_phan_dang_ky": [
+                  "Vi sinh ts: Chaetomium spp,",
+                  "Bacillus sp:……….1×108 cfu/ml,",
+                  "Additives: Bổ sung enzyme (hoạt chất kháng sinh sinh học)."
+                ],
+                "cong_dung": [
+                  "Chữa thán thư, thối trái, vàng lá, héo xanh;",
+                  "Chữa gỉ sắt, thối nhũn, sương mai, nứt thân, xì mủ;",
+                  "Tiêu diệt ngay lập tức các nấm và vi khuẩn gây hại;",
+                  "Phục hồi các vết thương khô nhanh;",
+                  "Ngăn chặn dịch bệnh bùng phát;",
+                  "Giúp xanh lá, cây sinh trưởng phát triển tốt hơn;",
+                  "Chống nhờn kháng thuốc."
+                ],
+                "huong_dan_su_dung": [
+                  "Pha 30g/bình 20-25 lít nước",
+                  "Phun đều trên thân, cành, lá"
+                ],
+                "luu_y": [
+                  "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác."
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/rydoxin-tieu-diet-nam-benh-vi-khuan-gay-hai-sao-chep/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-16-1.png"
+              }
+            ]
+          },
+          {
+            "san_pham_id": "COMBO-WEB-828-WEB-832",
+            "ten_san_pham": "Combo WEB-828 + WEB-832",
+            "thanh_phan_dang_ky": {
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml)": [
+                "Đồng (Cu):……….15.000mg/l;",
+                "pHh20:6;",
+                "Tỷ trọng: 1,1."
+              ],
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá": [
+                "Vi sinh ts: Chaetomium spp;",
+                "Trichoderma spp, Bacillus sp….2×109 cfu/kg;",
+                "Additives: Bổ sung enzyme (hoạt chất kháng sinh sinh học)."
+              ]
+            },
+            "cong_dung": [
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Giúp xanh lá, mát cây;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Tẩy rửa, phục hồi vườn sau thu hoạch;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Đánh bật rong rêu, nấm hồng, sương mai, ghẻ sẹo, loét vi khuẩn;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Trị thối trái, thán thư, vàng lá trên các loại cây trồng;",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Phòng chống đạo ôn, cháy bìa lá, bạc lá, vàng lá trên cây lúa.",
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá: Chữa phấn trắng, rỉ sắt trên thân, lá, quả;",
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá: Phòng thối gốc, thối củ;",
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá: Trị đốm lá, thán thư;",
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá: Ngăn chặn chết dây, chết cây con;",
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá: Chống nhờn thuốc."
+            ],
+            "huong_dan_su_dung": [
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Pha 250ml với khoảng 100-200 lít nước",
+              "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml): Phun đều trên bề mặt thân, cành, lá, quả",
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá: Pha 35g/bình với khoảng 20-25lít nước",
+              "JIALETON – Xử lý sương mai, thán thư, đốm lá: Phun đều trên thân, cành, lá"
+            ],
+            "luu_y": "Đây là combo thương mại. Hai sản phẩm ĐÁNH CHUNG MỘT BÌNH, mỗi loại giữ nguyên liều của chính nó trên cùng thể tích nước — không cộng liều hai loại lại thành một con số, cũng không chia đôi. (Chủ dự án xác nhận 11/09/2026.)",
+            "nguon_chinh_thuc": [
+              "https://nongduoctoancaugroup.com/san-pham/nano-dong-tay-rua-vuon-day-lui-nam-benh/",
+              "https://nongduoctoancaugroup.com/san-pham/jialeton-suong-mai-than-thu/"
+            ],
+            "website_product_ids": [
+              "828",
+              "832"
+            ],
+            "source_kind": "company_website_and_live_catalog",
+            "is_combo": true,
+            "combo_components": [
+              {
+                "website_product_id": "828",
+                "ten_san_pham": "NANO ĐỒNG – Tẩy rửa vườn, sát khuẩn, đẩy lùi nấm bệnh (250ml)",
+                "thanh_phan_dang_ky": [
+                  "Đồng (Cu):……….15.000mg/l;",
+                  "pHh20:6;",
+                  "Tỷ trọng: 1,1."
+                ],
+                "cong_dung": [
+                  "Giúp xanh lá, mát cây;",
+                  "Tẩy rửa, phục hồi vườn sau thu hoạch;",
+                  "Đánh bật rong rêu, nấm hồng, sương mai, ghẻ sẹo, loét vi khuẩn;",
+                  "Trị thối trái, thán thư, vàng lá trên các loại cây trồng;",
+                  "Phòng chống đạo ôn, cháy bìa lá, bạc lá, vàng lá trên cây lúa."
+                ],
+                "huong_dan_su_dung": [
+                  "Pha 250ml với khoảng 100-200 lít nước",
+                  "Phun đều trên bề mặt thân, cành, lá, quả"
+                ],
+                "luu_y": [
+                  "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác"
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-dong-tay-rua-vuon-day-lui-nam-benh/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-10-2.png"
+              },
+              {
+                "website_product_id": "832",
+                "ten_san_pham": "JIALETON – Xử lý sương mai, thán thư, đốm lá",
+                "thanh_phan_dang_ky": [
+                  "Vi sinh ts: Chaetomium spp;",
+                  "Trichoderma spp, Bacillus sp….2×109 cfu/kg;",
+                  "Additives: Bổ sung enzyme (hoạt chất kháng sinh sinh học)."
+                ],
+                "cong_dung": [
+                  "Chữa phấn trắng, rỉ sắt trên thân, lá, quả;",
+                  "Phòng thối gốc, thối củ;",
+                  "Trị đốm lá, thán thư;",
+                  "Ngăn chặn chết dây, chết cây con;",
+                  "Chống nhờn thuốc."
+                ],
+                "huong_dan_su_dung": [
+                  "Pha 35g/bình với khoảng 20-25lít nước",
+                  "Phun đều trên thân, cành, lá"
+                ],
+                "luu_y": [
+                  "Sản phẩm có thể pha chung với các loại thuốc BVTV và phân bón lá khác. Hiệu quả hơn khi phun chung với Nano Đồng."
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/jialeton-suong-mai-than-thu/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/07/DONE-19.png"
+              }
+            ]
+          },
+          {
+            "san_pham_id": "COMBO-WEB-896-WEB-900",
+            "ten_san_pham": "Combo WEB-896 + WEB-900",
+            "thanh_phan_dang_ky": {
+              "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân": [
+                "Nano Chitosan…..1.000 ppm",
+                "Enzym chiết xuất từ Chaetomium",
+                "Bổ sung phụ gia kích kháng đặc biệt",
+                "Tỷ trọng 1 – 1.05",
+                "PH 4 – 6.5"
+              ],
+              "NANO AMINO A6 – Bung chồi, vọt đọt, thúc bật mầm hoa, xanh lá, dày lá": [
+                "Zn 15.000 ppm bổ sung:",
+                "N: 33, P2O5: 11, K2O: 11, GA3: 10ppm, NAA: 10ppm, Fe: 100ppm; Mn: 50ppm",
+                "Độ ẩm 5%",
+                "Phụ gia đặc biệt kích kháng cây trồng"
+              ]
+            },
+            "cong_dung": [
+              "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân: Phục hồi các trường hợp xoăn lá, xoắn ngọn, khảm lá, sượng trái trên cây ớt, cà chua, nghoảnh đầu lân trên dưa hấu",
+              "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân: Giúp cây bật chồi nhanh, đẻ nhánh khoẻ",
+              "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân: Tăng sức đề kháng cho cây trồng",
+              "NANO AMINO A6 – Bung chồi, vọt đọt, thúc bật mầm hoa, xanh lá, dày lá: Là sản phẩm số 1 chuyên dùng cho cây lúa, rau màu và các loại cây ăn quả, trong các thời kỳ ra rễ, đẻ nhánh, ra hoa đậu quả, cân bằng dinh dưỡng giúp cây phát triển tốt, phục hồi cây sau thu hoạch"
+            ],
+            "huong_dan_su_dung": [
+              "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân: Bình 16 lít: 25 – 30ml",
+              "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân: Bình 25 lít: 40 – 50ml",
+              "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân: Phuy 200 lít: 500ml",
+              "NANO AMINO A6 – Bung chồi, vọt đọt, thúc bật mầm hoa, xanh lá, dày lá: Cho 50gr vào bình 16 – 30 lít nước, phun hoặc tưới cho cây trồng định kỳ 5- 7 ngày/lần"
+            ],
+            "luu_y": "Đây là combo thương mại. Hai sản phẩm ĐÁNH CHUNG MỘT BÌNH, mỗi loại giữ nguyên liều của chính nó trên cùng thể tích nước — không cộng liều hai loại lại thành một con số, cũng không chia đôi. (Chủ dự án xác nhận 11/09/2026.)",
+            "nguon_chinh_thuc": [
+              "https://nongduoctoancaugroup.com/san-pham/nano-tonic/",
+              "https://nongduoctoancaugroup.com/san-pham/nano-amino-a6/"
+            ],
+            "website_product_ids": [
+              "896",
+              "900"
+            ],
+            "source_kind": "company_website_and_live_catalog",
+            "is_combo": true,
+            "combo_components": [
+              {
+                "website_product_id": "896",
+                "ten_san_pham": "NANO TONIC – Phục hồi xoăn ngọn, xoắn lá, khảm lá, ngoảnh đầu lân",
+                "thanh_phan_dang_ky": [
+                  "Nano Chitosan…..1.000 ppm",
+                  "Enzym chiết xuất từ Chaetomium",
+                  "Bổ sung phụ gia kích kháng đặc biệt",
+                  "Tỷ trọng 1 – 1.05",
+                  "PH 4 – 6.5"
+                ],
+                "cong_dung": [
+                  "Phục hồi các trường hợp xoăn lá, xoắn ngọn, khảm lá, sượng trái trên cây ớt, cà chua, nghoảnh đầu lân trên dưa hấu",
+                  "Giúp cây bật chồi nhanh, đẻ nhánh khoẻ",
+                  "Tăng sức đề kháng cho cây trồng"
+                ],
+                "huong_dan_su_dung": [
+                  "Bình 16 lít: 25 – 30ml",
+                  "Bình 25 lít: 40 – 50ml",
+                  "Phuy 200 lít: 500ml"
+                ],
+                "luu_y": [
+                  "Sử dụng sau 4h chiều để đạt hiệu quả tốt nhất"
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-tonic/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/11/DONE-1.png"
+              },
+              {
+                "website_product_id": "900",
+                "ten_san_pham": "NANO AMINO A6 – Bung chồi, vọt đọt, thúc bật mầm hoa, xanh lá, dày lá",
+                "thanh_phan_dang_ky": [
+                  "Zn 15.000 ppm bổ sung:",
+                  "N: 33, P2O5: 11, K2O: 11, GA3: 10ppm, NAA: 10ppm, Fe: 100ppm; Mn: 50ppm",
+                  "Độ ẩm 5%",
+                  "Phụ gia đặc biệt kích kháng cây trồng"
+                ],
+                "cong_dung": [
+                  "Là sản phẩm số 1 chuyên dùng cho cây lúa, rau màu và các loại cây ăn quả, trong các thời kỳ ra rễ, đẻ nhánh, ra hoa đậu quả, cân bằng dinh dưỡng giúp cây phát triển tốt, phục hồi cây sau thu hoạch"
+                ],
+                "huong_dan_su_dung": [
+                  "Cho 50gr vào bình 16 – 30 lít nước, phun hoặc tưới cho cây trồng định kỳ 5- 7 ngày/lần"
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/nano-amino-a6/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2022/11/DONE-5.png"
+              }
+            ]
+          },
+          {
+            "san_pham_id": "COMBO-WEB-958-WEB-1016",
+            "ten_san_pham": "Combo WEB-958 + WEB-1016",
+            "thanh_phan_dang_ky": {
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít)": [
+                "Chất hữu cơ: 20%, tỷ lệ C/N: 12%, pHH20: 5.5",
+                "Sử dụng nguồn nguyên liệu: Đạm cá nguyên chất : 45%, amino acid: 10%, vitamin C, vitamin B6, Tryptophan, Rong biển, Chlomequat Chloride và chất điều hoá sinh trưởng Auxin"
+              ],
+              "HUMIC – Vọt đọt, xanh lá, mập cây": [
+                "Zn 15.000ppm bổ sung",
+                "Chất hữu cơ 30, humic accid: 65",
+                "Canxi 3.5, Mg 1.5",
+                "Tỷ lệ C/N: 12, pH20: 5",
+                "Độ ẩm ( dạng rắn): 28",
+                "Tỷ trọng ( dạng lỏng): 1.2"
+              ]
+            },
+            "cong_dung": [
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Phục hồi cây sau thu hoạch, hay khi cây bị hạn hán, mưa dầm, ngập úng, nhiễm độc phèn, mặn hữu cơ",
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Xanh cây, mập đọt, tăng sức dề kháng cho cây trồng, hạn chế 1 số sâu bệnh gây hại",
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Tăng tỷ lệ đậu trái, chống rụng hoa, quả non, thối trái, nứt trái",
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Tăng năng suất cây trồng, nâng cao chất lượng nông sản",
+              "HUMIC – Vọt đọt, xanh lá, mập cây: Cải tạo đất tơi xốp, thoáng khí, giải độc, giảm phèn, kích thích rễ phát triển",
+              "HUMIC – Vọt đọt, xanh lá, mập cây: Làm lớn lá, dày lá, màu xanh đậm, phát triển nhanh",
+              "HUMIC – Vọt đọt, xanh lá, mập cây: Kích thích hoa nở ( giảm thiểu hoa nghẹn), nụ hoa mập mạnh.",
+              "HUMIC – Vọt đọt, xanh lá, mập cây: Nuôi dưỡng hoa, quả nhanh chóng phát triển",
+              "HUMIC – Vọt đọt, xanh lá, mập cây: Trái to, tăng năng suất",
+              "HUMIC – Vọt đọt, xanh lá, mập cây: Phục hồi cây còi cọc, kém phát triển"
+            ],
+            "huong_dan_su_dung": [
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Giai đoạn cây con: Pha 30 – 50ml cho 20 lít nước",
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Giai đoạn trước ra hoa: Pha 70 – 100ml cho 20 lít nước",
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Giai đoạn cây đang mang trái, phục hồi sau thu hoạch: pha 80 – 100ml cho 20 lít nước",
+              "ĐẠM CÁ HỮU CƠ AMINO (5 lít): Tưới ướt đẫm rễ cây, sử dụng định kỳ 10 – 15 ngày/lần. Tưới vào buổi sáng sớm hoặc chiều tối",
+              "HUMIC – Vọt đọt, xanh lá, mập cây: Sử dụng cho tất cả các loại cây trồng từ cây con, sau khi thu hoạch, giai đoạn cần ra hoa, đậu quả. 1.000ml dùng cho 1.000m2, bón gốc hoặc ngâm pha nước tưới( 1000ml pha 400 lít nước). Có thể pha chung với các loại phân bón khác, tùy thuộc vào từng giai đoạn cây trồng."
+            ],
+            "luu_y": "Đây là combo thương mại. Hai sản phẩm ĐÁNH CHUNG MỘT BÌNH, mỗi loại giữ nguyên liều của chính nó trên cùng thể tích nước — không cộng liều hai loại lại thành một con số, cũng không chia đôi. (Chủ dự án xác nhận 11/09/2026.)",
+            "nguon_chinh_thuc": [
+              "https://nongduoctoancaugroup.com/san-pham/dam-ca-huu-co/",
+              "https://nongduoctoancaugroup.com/san-pham/phanbonhumic/"
+            ],
+            "website_product_ids": [
+              "1016",
+              "958"
+            ],
+            "source_kind": "company_website_and_live_catalog",
+            "is_combo": true,
+            "combo_components": [
+              {
+                "website_product_id": "958",
+                "ten_san_pham": "ĐẠM CÁ HỮU CƠ AMINO (5 lít)",
+                "thanh_phan_dang_ky": [
+                  "Chất hữu cơ: 20%, tỷ lệ C/N: 12%, pHH20: 5.5",
+                  "Sử dụng nguồn nguyên liệu: Đạm cá nguyên chất : 45%, amino acid: 10%, vitamin C, vitamin B6, Tryptophan, Rong biển, Chlomequat Chloride và chất điều hoá sinh trưởng Auxin"
+                ],
+                "cong_dung": [
+                  "Phục hồi cây sau thu hoạch, hay khi cây bị hạn hán, mưa dầm, ngập úng, nhiễm độc phèn, mặn hữu cơ",
+                  "Xanh cây, mập đọt, tăng sức dề kháng cho cây trồng, hạn chế 1 số sâu bệnh gây hại",
+                  "Tăng tỷ lệ đậu trái, chống rụng hoa, quả non, thối trái, nứt trái",
+                  "Tăng năng suất cây trồng, nâng cao chất lượng nông sản"
+                ],
+                "huong_dan_su_dung": [
+                  "Giai đoạn cây con: Pha 30 – 50ml cho 20 lít nước",
+                  "Giai đoạn trước ra hoa: Pha 70 – 100ml cho 20 lít nước",
+                  "Giai đoạn cây đang mang trái, phục hồi sau thu hoạch: pha 80 – 100ml cho 20 lít nước",
+                  "Tưới ướt đẫm rễ cây, sử dụng định kỳ 10 – 15 ngày/lần. Tưới vào buổi sáng sớm hoặc chiều tối"
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/dam-ca-huu-co/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/06/DONE-14.png"
+              },
+              {
+                "website_product_id": "1016",
+                "ten_san_pham": "HUMIC – Vọt đọt, xanh lá, mập cây",
+                "thanh_phan_dang_ky": [
+                  "Zn 15.000ppm bổ sung",
+                  "Chất hữu cơ 30, humic accid: 65",
+                  "Canxi 3.5, Mg 1.5",
+                  "Tỷ lệ C/N: 12, pH20: 5",
+                  "Độ ẩm ( dạng rắn): 28",
+                  "Tỷ trọng ( dạng lỏng): 1.2"
+                ],
+                "cong_dung": [
+                  "Cải tạo đất tơi xốp, thoáng khí, giải độc, giảm phèn, kích thích rễ phát triển",
+                  "Làm lớn lá, dày lá, màu xanh đậm, phát triển nhanh",
+                  "Kích thích hoa nở ( giảm thiểu hoa nghẹn), nụ hoa mập mạnh.",
+                  "Nuôi dưỡng hoa, quả nhanh chóng phát triển",
+                  "Trái to, tăng năng suất",
+                  "Phục hồi cây còi cọc, kém phát triển"
+                ],
+                "huong_dan_su_dung": [
+                  "Sử dụng cho tất cả các loại cây trồng từ cây con, sau khi thu hoạch, giai đoạn cần ra hoa, đậu quả. 1.000ml dùng cho 1.000m2, bón gốc hoặc ngâm pha nước tưới( 1000ml pha 400 lít nước). Có thể pha chung với các loại phân bón khác, tùy thuộc vào từng giai đoạn cây trồng."
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/phanbonhumic/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/11/DONE-6.png"
+              }
+            ]
+          },
+          {
+            "san_pham_id": "COMBO-WEB-965-WEB-1061",
+            "ten_san_pham": "Combo WEB-965 + WEB-1061",
+            "thanh_phan_dang_ky": {
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml)": [
+                "Zn 15.000ppm bổ sung",
+                "Total Nitrogen ( N) water soluble ….10w/v",
+                "Phosphorus ( P2O5) water soluble….60w/v",
+                "Potassium (K2O) water soluble……..10w/v",
+                "Boron ( B) water soluble…………….0.01w/v",
+                "Copper ( Cu) water soluble………….0.01w/v",
+                "Calcium ( CaO) water soluble….……0.01w/v",
+                "Iron( Fe) water soluble………………0.01w/v",
+                "Zinc ( Zn) water soluble……………..0.01w/v",
+                "Magnesio ( MgO) water soluble……..0.01w/v",
+                "NAA water soluble…………………..0.01w/v"
+              ],
+              "MIG 38 – Vọt đọt, bung chồi, vượt tược": [
+                "Zn 15.000ppm bổ sung",
+                "PHH2O: 6.5, Tỷ trọng (dạng lingr) 1:1",
+                "Bổ sung Amino Acid 45, acid fulvic 2, N, P205",
+                "K2O: Bo, Cu, Fe, Mg, Mn, Ca…",
+                "Các axit amin thiết yếu nhằm bổ sung đầy đủ chất dinh dưỡng cho các loại cây trồng"
+              ]
+            },
+            "cong_dung": [
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml): Ra rễ cây con cực mạnh",
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml): Loại bỏ , tiêu diệt nấm vi khuẩn",
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml): Cải tạo đất, ra rễ nhanh , xử lý tuyến trùng , thối rễ, lỡ cổ rễ,",
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml): Giúp rễ to khỏe, phục hồi cây bị vàng lá và thiếu chất dinh dưỡng.",
+              "MIG 38 – Vọt đọt, bung chồi, vượt tược: Bung chồi, vọt đọt, mở lá, xanh lá, dày lá",
+              "MIG 38 – Vọt đọt, bung chồi, vượt tược: Kích hoạt cây ra hoa sớm, đồng loạt, tránh rụng hoa, tăng khả năng thụ phấn cho hoa",
+              "MIG 38 – Vọt đọt, bung chồi, vượt tược: Nuôi dưỡng trái, giúp trái lớn nhanh, màu sắc bóng đẹp, hạn chế tối đa hiện tượng rụng trái.",
+              "MIG 38 – Vọt đọt, bung chồi, vượt tược: Tăng sinh lực cho cây, khắc phục cây xoắn ngọn, còi cọc, kém phát triển, ngoảnh đầu lân.",
+              "MIG 38 – Vọt đọt, bung chồi, vượt tược: Kích thích bộ rễ phát triển mạnh, đề kháng các bệnh về rễ."
+            ],
+            "huong_dan_su_dung": [
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml): Đối với phun: Dùng 50ml cho bình 15 – 25 lít nước, phun đẫm lên cây",
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml): Đối với tưới trực tiếp hoặc tưới nhỏ giọt: Dùng 250ml hoà 150 – 200 lít nước đổ trực tiếp vào gốc",
+              "ROOTS – Bung rễ, ra rễ cực mạnh (250ml): Đối với giâm cành: Nhúng trực tiếp vào sản phẩm 5- 10 phút khi giâm cành hoặc bôi trực tiếp vào vị trí cần ra rễ",
+              "MIG 38 – Vọt đọt, bung chồi, vượt tược: Pha 30-50ml cho bình 20-25 lít (chai 250ml pha cho 100-150 lít nước). Dùng cho tất cả các loại cây trồng, phun định kỳ 7 đến 10 ngày 1 lần."
+            ],
+            "luu_y": "Đây là combo thương mại. Hai sản phẩm ĐÁNH CHUNG MỘT BÌNH, mỗi loại giữ nguyên liều của chính nó trên cùng thể tích nước — không cộng liều hai loại lại thành một con số, cũng không chia đôi. (Chủ dự án xác nhận 11/09/2026.)",
+            "nguon_chinh_thuc": [
+              "https://nongduoctoancaugroup.com/san-pham/bung-re-cuc-manh/",
+              "https://nongduoctoancaugroup.com/san-pham/mig-38-vot-dot-bung-choi-vuot-tuoc/"
+            ],
+            "website_product_ids": [
+              "1061",
+              "965"
+            ],
+            "source_kind": "company_website_and_live_catalog",
+            "is_combo": true,
+            "combo_components": [
+              {
+                "website_product_id": "965",
+                "ten_san_pham": "ROOTS – Bung rễ, ra rễ cực mạnh (250ml)",
+                "thanh_phan_dang_ky": [
+                  "Zn 15.000ppm bổ sung",
+                  "Total Nitrogen ( N) water soluble ….10w/v",
+                  "Phosphorus ( P2O5) water soluble….60w/v",
+                  "Potassium (K2O) water soluble……..10w/v",
+                  "Boron ( B) water soluble…………….0.01w/v",
+                  "Copper ( Cu) water soluble………….0.01w/v",
+                  "Calcium ( CaO) water soluble….……0.01w/v",
+                  "Iron( Fe) water soluble………………0.01w/v",
+                  "Zinc ( Zn) water soluble……………..0.01w/v",
+                  "Magnesio ( MgO) water soluble……..0.01w/v",
+                  "NAA water soluble…………………..0.01w/v"
+                ],
+                "cong_dung": [
+                  "Ra rễ cây con cực mạnh",
+                  "Loại bỏ , tiêu diệt nấm vi khuẩn",
+                  "Cải tạo đất, ra rễ nhanh , xử lý tuyến trùng , thối rễ, lỡ cổ rễ,",
+                  "Giúp rễ to khỏe, phục hồi cây bị vàng lá và thiếu chất dinh dưỡng."
+                ],
+                "huong_dan_su_dung": [
+                  "Đối với phun: Dùng 50ml cho bình 15 – 25 lít nước, phun đẫm lên cây",
+                  "Đối với tưới trực tiếp hoặc tưới nhỏ giọt: Dùng 250ml hoà 150 – 200 lít nước đổ trực tiếp vào gốc",
+                  "Đối với giâm cành: Nhúng trực tiếp vào sản phẩm 5- 10 phút khi giâm cành hoặc bôi trực tiếp vào vị trí cần ra rễ"
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/bung-re-cuc-manh/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/06/DONE-12-1.png"
+              },
+              {
+                "website_product_id": "1061",
+                "ten_san_pham": "MIG 38 – Vọt đọt, bung chồi, vượt tược",
+                "thanh_phan_dang_ky": [
+                  "Zn 15.000ppm bổ sung",
+                  "PHH2O: 6.5, Tỷ trọng (dạng lingr) 1:1",
+                  "Bổ sung Amino Acid 45, acid fulvic 2, N, P205",
+                  "K2O: Bo, Cu, Fe, Mg, Mn, Ca…",
+                  "Các axit amin thiết yếu nhằm bổ sung đầy đủ chất dinh dưỡng cho các loại cây trồng"
+                ],
+                "cong_dung": [
+                  "Bung chồi, vọt đọt, mở lá, xanh lá, dày lá",
+                  "Kích hoạt cây ra hoa sớm, đồng loạt, tránh rụng hoa, tăng khả năng thụ phấn cho hoa",
+                  "Nuôi dưỡng trái, giúp trái lớn nhanh, màu sắc bóng đẹp, hạn chế tối đa hiện tượng rụng trái.",
+                  "Tăng sinh lực cho cây, khắc phục cây xoắn ngọn, còi cọc, kém phát triển, ngoảnh đầu lân.",
+                  "Kích thích bộ rễ phát triển mạnh, đề kháng các bệnh về rễ."
+                ],
+                "huong_dan_su_dung": [
+                  "Pha 30-50ml cho bình 20-25 lít (chai 250ml pha cho 100-150 lít nước). Dùng cho tất cả các loại cây trồng, phun định kỳ 7 đến 10 ngày 1 lần."
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/mig-38-vot-dot-bung-choi-vuot-tuoc/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2024/01/DONE-4.png"
+              }
+            ]
+          },
+          {
+            "san_pham_id": "COMBO-WEB-988-WEB-1267",
+            "ten_san_pham": "Combo WEB-988 + WEB-1267",
+            "thanh_phan_dang_ky": {
+              "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI": [
+                "Bo(B): 2011ppm. Bổ sung: N: 7, P2O2: 4, K2O: 45, B: 100ppm, Mn: 60ppm, Fe: 90ppm, Cu: 70ppm, 16 loại amino acid và các phụ gia đặc biệt sử dụng cho các loại cây vào thời ra hoa đậu quả và nuôi trái"
+              ],
+              "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa": [
+                "Canxi (Ca):………………………………………………………………..10.7%",
+                "Bo (B):……………………………………………………………….40.000 ppm",
+                "Kẽm (Zn):…………………………………………………………….1.000 ppm",
+                "Đồng (Cu):………………………………………………………………500 ppm",
+                "Tỷ trọng:………………………………………………………………………….1.1"
+              ]
+            },
+            "cong_dung": [
+              "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI: Kích bông, chống rụng hoa, quả non",
+              "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI: Chống cong vẹo, giúp lớn trái, bóng quả",
+              "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI: Chống thối trái, nứt trái, giúp chắc trái",
+              "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI: Sử dụng hiệu quả cho các loại cây trồng như: bầu, bí, khổ qua, dưa leo, ớt, dưa hấu, cà chua, xoài, nhãn, thanh long,…",
+              "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa: Sản phẩm cung cấp kịp thời Canxi-bo ở dạng dễ hấp thụ cho cây trồng trong thời kỳ sinh trưởng.",
+              "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa: Đặc biệt, giai đoạn cây ra hoa đậu trái giúp bóng trái, đẹp trái.",
+              "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa: Làm dai cuống trái và bông, chống hiện tượng rụng bông và trái.",
+              "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa: Sử dụng hiệu quả cho các loại cây trồng như: dưa hấu, dưa leo, khổ qua, ớt cay, cà chưa, bầu, bí, xoài, nhãn, thanh long,…"
+            ],
+            "huong_dan_su_dung": [
+              "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI: Pha 30 – 50ml với bình 16 – 30 lít nước phun thời kỳ trước khi ra hoa",
+              "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa: Pha 20-25ml cho bình 16 lít nước (Chai 500ml pha 400 lít nước)."
+            ],
+            "luu_y": "Đây là combo thương mại. Hai sản phẩm ĐÁNH CHUNG MỘT BÌNH, mỗi loại giữ nguyên liều của chính nó trên cùng thể tích nước — không cộng liều hai loại lại thành một con số, cũng không chia đôi. (Chủ dự án xác nhận 11/09/2026.)",
+            "nguon_chinh_thuc": [
+              "https://nongduoctoancaugroup.com/san-pham/sieu-ra-hoa-dau-qua-duong-trai-500ml/",
+              "https://nongduoctoancaugroup.com/san-pham/canxi-bo-sua-ra-hoa-dau-qua-bong-qua-chong-rung-hoa/"
+            ],
+            "website_product_ids": [
+              "1267",
+              "988"
+            ],
+            "source_kind": "company_website_and_live_catalog",
+            "is_combo": true,
+            "combo_components": [
+              {
+                "website_product_id": "988",
+                "ten_san_pham": "SIÊU RA HOA, ĐẬU QUẢ – DƯỠNG TRÁI",
+                "thanh_phan_dang_ky": [
+                  "Bo(B): 2011ppm. Bổ sung: N: 7, P2O2: 4, K2O: 45, B: 100ppm, Mn: 60ppm, Fe: 90ppm, Cu: 70ppm, 16 loại amino acid và các phụ gia đặc biệt sử dụng cho các loại cây vào thời ra hoa đậu quả và nuôi trái"
+                ],
+                "cong_dung": [
+                  "Kích bông, chống rụng hoa, quả non",
+                  "Chống cong vẹo, giúp lớn trái, bóng quả",
+                  "Chống thối trái, nứt trái, giúp chắc trái",
+                  "Sử dụng hiệu quả cho các loại cây trồng như: bầu, bí, khổ qua, dưa leo, ớt, dưa hấu, cà chua, xoài, nhãn, thanh long,…"
+                ],
+                "huong_dan_su_dung": [
+                  "Pha 30 – 50ml với bình 16 – 30 lít nước phun thời kỳ trước khi ra hoa"
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/sieu-ra-hoa-dau-qua-duong-trai-500ml/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2023/09/DONE-3.png"
+              },
+              {
+                "website_product_id": "1267",
+                "ten_san_pham": "CANXI BO SỮA – Ra hoa đậu quả, bóng quả, chống rụng hoa",
+                "thanh_phan_dang_ky": [
+                  "Canxi (Ca):………………………………………………………………..10.7%",
+                  "Bo (B):……………………………………………………………….40.000 ppm",
+                  "Kẽm (Zn):…………………………………………………………….1.000 ppm",
+                  "Đồng (Cu):………………………………………………………………500 ppm",
+                  "Tỷ trọng:………………………………………………………………………….1.1"
+                ],
+                "cong_dung": [
+                  "Sản phẩm cung cấp kịp thời Canxi-bo ở dạng dễ hấp thụ cho cây trồng trong thời kỳ sinh trưởng.",
+                  "Đặc biệt, giai đoạn cây ra hoa đậu trái giúp bóng trái, đẹp trái.",
+                  "Làm dai cuống trái và bông, chống hiện tượng rụng bông và trái.",
+                  "Sử dụng hiệu quả cho các loại cây trồng như: dưa hấu, dưa leo, khổ qua, ớt cay, cà chưa, bầu, bí, xoài, nhãn, thanh long,…"
+                ],
+                "huong_dan_su_dung": [
+                  "Pha 20-25ml cho bình 16 lít nước (Chai 500ml pha 400 lít nước)."
+                ],
+                "luu_y": [
+                  "Phun trước khi ra hoa 7-10 ngày để tăng đậu trái và sau khi đậu trái non 5-7 ngày để trái chắc khỏe, chống nứt trái giai đoạn nuôi trái giúp trái lớn nhanh vỏ dày."
+                ],
+                "nguon_chinh_thuc": "https://nongduoctoancaugroup.com/san-pham/canxi-bo-sua-ra-hoa-dau-qua-bong-qua-chong-rung-hoa/",
+                "featured_image_url": "https://nongduoctoancaugroup.com/wp-content/uploads/2026/08/DONE.jpg"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "content_sha256": "63fdb46970499c999873f193ac29bfee1ccbbc95ee6f43644af35781f1455912",
+  "published_at": "2026-09-13T05:12:09.849144+00:00"
+}

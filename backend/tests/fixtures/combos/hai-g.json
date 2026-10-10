@@ -1,0 +1,20 @@
+{
+ "sku": "COMBO-HAI-G",
+ "name": "Hai bột",
+ "combo_components": [
+  {
+   "name": "Bột 1",
+   "method": "phun",
+   "amount": 8,
+   "unit": "g",
+   "per_volume": 16
+  },
+  {
+   "name": "Bột 2",
+   "method": "ngâm",
+   "amount": 12,
+   "unit": "g",
+   "per_volume": 16
+  }
+ ]
+}

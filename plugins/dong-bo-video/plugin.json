@@ -1,0 +1,13 @@
+{
+  "id": "dong-bo-video",
+  "ten": "Đồng bộ vị trí video",
+  "loai": "dich-vu",
+  "phien_ban": "1.1.0",
+  "can_loi_toi_thieu": "1.0.0",
+  "mo_ta": "Theo dõi riêng Shopee qua Media Source OBS và TikTok qua âm thanh TikTok Studio.",
+  "dung_toi": ["thiet-bi-am-thanh", "mang"],
+  "lenh": ["chay.py"],
+  "tu_khoi_dong_lai": false,
+  "kiem_tra_song": "pid",
+  "phu_thuoc_plugin": []
+}

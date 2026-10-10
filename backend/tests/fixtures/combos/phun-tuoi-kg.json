@@ -1,0 +1,20 @@
+{
+ "sku": "COMBO-PHUN-TUOI-KG",
+ "name": "Gốc + lá",
+ "combo_components": [
+  {
+   "name": "Phân gốc",
+   "method": "tưới",
+   "amount": 1,
+   "unit": "kg",
+   "per_volume": 16
+  },
+  {
+   "name": "Vi lượng",
+   "method": "phun",
+   "amount": 25,
+   "unit": "ml",
+   "per_volume": 16
+  }
+ ]
+}

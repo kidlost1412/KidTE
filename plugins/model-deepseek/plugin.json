@@ -1,0 +1,13 @@
+{
+  "id": "model-deepseek",
+  "ten": "Nhà cung cấp DeepSeek",
+  "loai": "bo-xu-ly",
+  "phien_ban": "1.0.0",
+  "can_loi_toi_thieu": "1.0.0",
+  "mo_ta": "Gọi model, kiểm số dư, retry ladder và trả metrics chuẩn cho lõi.",
+  "dung_toi": ["mang"],
+  "lenh": ["processor.py"],
+  "tu_khoi_dong_lai": false,
+  "kiem_tra_song": "pid",
+  "phu_thuoc_plugin": []
+}

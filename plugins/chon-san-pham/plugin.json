@@ -1,0 +1,13 @@
+{
+  "id": "chon-san-pham",
+  "ten": "Chọn SKU từ câu hỏi",
+  "loai": "bo-xu-ly",
+  "phien_ban": "1.0.0",
+  "can_loi_toi_thieu": "1.0.0",
+  "mo_ta": "Chấm điểm IDF, giảm trọng số đuôi SEO và giữ sản phẩm ghim khi câu hỏi mơ hồ.",
+  "dung_toi": [],
+  "lenh": ["processor.py"],
+  "tu_khoi_dong_lai": false,
+  "kiem_tra_song": "pid",
+  "phu_thuoc_plugin": []
+}

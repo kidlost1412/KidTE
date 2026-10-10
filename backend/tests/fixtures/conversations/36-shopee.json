@@ -1,0 +1,20 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "phí ship bao nhiêu vậy",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "shipping",
+        "resolved_question_contains": [
+          "phí ship bao nhiêu vậy"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "36-shopee"
+}

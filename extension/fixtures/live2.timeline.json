@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "video_id": "live2",
+  "title": "Live 2 — Top One, TC01, Đạm cá, Humic và Nano Đồng",
+  "source_file": "live 2.mp4",
+  "source_sha256": "D5042E372700D011F96F0525AA74FDE8DA8885B4D8157E8431DCE8969D9E1D80",
+  "cycle_ms": 2573588,
+  "repin_every_ms": 20000,
+  "products": {
+    "tc01": {
+      "bag_index": 1,
+      "short_name": "TC01",
+      "title": "Kích Rễ Cực Mạnh TC01 100ml",
+      "include_all": ["tc01"],
+      "exclude_any": []
+    },
+    "fish1": {
+      "bag_index": 2,
+      "short_name": "Đạm cá 1L",
+      "title": "Đạm Cá Amino 1L Chất Hữu Cơ 20%",
+      "include_all": ["dam ca", "1l"],
+      "exclude_any": ["5 lit", "5l", "can 5"]
+    },
+    "topone": {
+      "bag_index": 3,
+      "short_name": "Top Bo One",
+      "title": "BO TRI ONE | Chế Phẩm Top Bo One Tri 200ml",
+      "include_all": ["bo tri one"],
+      "exclude_any": []
+    },
+    "fish5": {
+      "bag_index": 4,
+      "short_name": "Đạm cá 5L",
+      "title": "Đạm Cá Hữu Cơ Amino Can 5 Lít",
+      "include_all": ["dam ca", "5 lit"],
+      "exclude_any": []
+    },
+    "nano_dong_500": {
+      "bag_index": 7,
+      "short_name": "Nano Đồng 500ml",
+      "title": "Sạch Rong Rêu Nano Đồng Nấm Hồng 500ml",
+      "include_all": ["nano dong", "500ml"],
+      "exclude_any": ["250 500ml"]
+    },
+    "combo_fish_humic": {
+      "bag_index": 11,
+      "short_name": "Combo Đạm Cá + Humic",
+      "title": "Combo Đạm Cá + Humic Nông Dược Toàn Cầu",
+      "include_all": ["combo", "dam ca", "humic"],
+      "exclude_any": []
+    }
+  },
+  "events": [
+    { "at_ms": 0, "product": "topone" },
+    { "at_ms": 180000, "product": "tc01" },
+    { "at_ms": 441000, "product": "fish1" },
+    { "at_ms": 600000, "product": "fish5" },
+    { "at_ms": 757000, "product": "combo_fish_humic", "alternate_with": "fish5", "alternate_every_ms": 60000 },
+    { "at_ms": 917000, "product": "tc01" },
+    { "at_ms": 1328000, "product": "combo_fish_humic" },
+    { "at_ms": 1356000, "product": "tc01" },
+    { "at_ms": 1513000, "product": "combo_fish_humic", "alternate_with": "fish5", "alternate_every_ms": 60000 },
+    { "at_ms": 1745000, "product": "topone" },
+    { "at_ms": 2053000, "product": "fish5" },
+    { "at_ms": 2136000, "product": "tc01" },
+    { "at_ms": 2252000, "product": "fish1" },
+    { "at_ms": 2372000, "product": "nano_dong_500" },
+    { "at_ms": 2470000, "product": "topone" }
+  ],
+  "script_contexts": [
+    { "at_ms": 0, "topic": "Top Bo One và nhóm côn trùng chích hút", "facts": [] },
+    { "at_ms": 180000, "topic": "TC01 và chăm sóc bộ rễ", "facts": [] },
+    { "at_ms": 441000, "topic": "Đạm cá Amino 1L", "facts": [] },
+    { "at_ms": 600000, "topic": "Đạm cá Amino 5L", "facts": [] },
+    { "at_ms": 757000, "topic": "Combo Đạm Cá + Humic, luân phiên can Đạm cá 5L", "facts": [] },
+    { "at_ms": 917000, "topic": "TC01 và chăm sóc bộ rễ", "facts": [] },
+    { "at_ms": 1328000, "topic": "Combo Đạm Cá + Humic", "facts": [] },
+    { "at_ms": 1356000, "topic": "TC01 và chăm sóc bộ rễ", "facts": [] },
+    { "at_ms": 1513000, "topic": "Combo Đạm Cá + Humic, luân phiên can Đạm cá 5L", "facts": [] },
+    { "at_ms": 1745000, "topic": "Top Bo One và nhóm côn trùng chích hút", "facts": [] },
+    { "at_ms": 2053000, "topic": "Đạm cá Amino 5L", "facts": [] },
+    { "at_ms": 2136000, "topic": "TC01 và chăm sóc bộ rễ", "facts": [] },
+    { "at_ms": 2252000, "topic": "Đạm cá Amino 1L", "facts": [] },
+    { "at_ms": 2372000, "topic": "Nano Đồng 500ml và vệ sinh vườn", "facts": [] },
+    { "at_ms": 2470000, "topic": "Top Bo One và nhóm côn trùng chích hút", "facts": [] }
+  ]
+}

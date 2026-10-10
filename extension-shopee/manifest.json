@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Kid TE - Shopee LIVE",
+  "version": "0.12.2",
+  "description": "Ghim sản phẩm và trả lời DeepSeek trên Shopee LIVE theo Kid TE.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://live.shopee.vn/*",
+    "http://127.0.0.1:8793/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://live.shopee.vn/*"
+      ],
+      "js": [
+        "live-widget.js",
+        "core.js",
+        "message-delivery.js",
+        "controller.js",
+        "ai-controller.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_icon": {"16":"icons/kid-te-16.png","32":"icons/kid-te-32.png","48":"icons/kid-te-48.png","128":"icons/kid-te-128.png"},
+    "default_title": "Kid TE - Shopee LIVE",
+    "default_popup": "popup.html"
+  },
+  "icons": {"16":"icons/kid-te-16.png","32":"icons/kid-te-32.png","48":"icons/kid-te-48.png","128":"icons/kid-te-128.png"}
+}

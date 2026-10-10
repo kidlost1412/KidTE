@@ -1,0 +1,20 @@
+{
+ "sku": "COMBO-ML-ML",
+ "name": "Hai nước",
+ "combo_components": [
+  {
+   "name": "Nước 1",
+   "method": "phun",
+   "amount": 20,
+   "unit": "ml",
+   "per_volume": 16
+  },
+  {
+   "name": "Nước 2",
+   "method": "tưới",
+   "amount": 40,
+   "unit": "ml",
+   "per_volume": 16
+  }
+ ]
+}

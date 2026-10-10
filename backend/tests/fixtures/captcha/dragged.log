@@ -1,0 +1,5 @@
+2026-10-05 10:00:10 | INFO     | tiktok_live_studio_captcha_solver.solver | modern puzzle captcha detected (confidence 1.000)
+2026-10-05 10:00:11 | INFO     | tiktok_live_studio_captcha_solver.solver | got response for puzzle captcha: PuzzleCaptchaResponse(slide_x_proportion=0.59)
+2026-10-05 10:00:17 | INFO     | tiktok_live_studio_captcha_solver.solver | dragged puzzle slider by 207 pixels; awaiting TikTok verification
+2026-10-05 10:00:50 | INFO     | tiktok_live_studio_captcha_solver.solver | puzzle no longer visible after drag; TikTok result is not confirmed
+2026-10-05 10:01:00 | INFO     | tiktok_live_studio_captcha_solver.solver | scanning screen for puzzle/shapes captcha (2560x1440)

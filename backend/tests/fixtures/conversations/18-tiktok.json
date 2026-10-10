@@ -1,0 +1,38 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "đạm cá có giá sao em",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "đạm cá có giá sao em"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "em có đạm cá loại nào",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "compare",
+        "resolved_question_contains": [
+          "em có đạm cá loại nào"
+        ],
+        "original_preserved": true,
+        "must_not_contain": [
+          "—"
+        ]
+      }
+    }
+  ],
+  "id": "18-tiktok"
+}

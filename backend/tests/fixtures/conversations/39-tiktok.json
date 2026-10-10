@@ -1,0 +1,20 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "mình nhập sai, đổi qua đạm cá nha",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "correction",
+        "resolved_question_contains": [
+          "mình nhập sai, đổi qua đạm cá nha"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "39-tiktok"
+}

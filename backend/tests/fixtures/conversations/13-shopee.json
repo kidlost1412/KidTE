@@ -1,0 +1,35 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "liều dùng sao em",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "dose",
+        "resolved_question_contains": [
+          "liều dùng sao em"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "follow-up",
+        "resolved_question_contains": [
+          "liều dùng sao em",
+          "TC01"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "13-shopee"
+}

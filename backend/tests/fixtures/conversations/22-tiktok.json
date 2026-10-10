@@ -1,0 +1,38 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "liều dùng sao",
+      "response": "Anh hỏi loại nào ạ?",
+      "delivery_status": "sent",
+      "awaiting_fields": [
+        "product"
+      ],
+      "expect": {
+        "intent": "price",
+        "resolved_question_contains": [
+          "liều dùng sao"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    },
+    {
+      "comment": "TC01 liều dùng sao em",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "dose",
+        "resolved_question_contains": [
+          "TC01 liều dùng sao em"
+        ],
+        "original_preserved": true,
+        "must_not_contain": [
+          "—"
+        ]
+      }
+    }
+  ],
+  "id": "22-tiktok"
+}

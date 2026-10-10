@@ -1,0 +1,63 @@
+# ---- Python / công cụ
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+.venv-cpu-build/
+backend/.venv/
+pip.log
+pip.err
+
+# ---- Bản dựng / bộ cài (packaging/build.ps1 tạo lại)
+build/
+dist/
+build-*/
+dist-candidate-*/
+smoke-profile-*/
+
+# ---- Bí mật & cấu hình riêng của máy
+*.dpapi
+*.pfx
+release-signing/
+.env
+.env.*
+!.env.example
+
+# ---- Tệp vận hành sinh ra tự động
+/backend/data/
+backend/logs/
+backend/backups/
+backend/runtime/
+backend/reports/
+backend/exports/
+backend/models/
+backend/data/*.sqlite3*
+backend/data/machine/live_sources.json
+# Database được sao lưu nhất quán tại backend/data/snapshots/.
+# Video gốc giữ trên máy; metadata và fingerprint được lưu trong Git.
+backend/data/video_uploads/**/*.mp4
+backend/data/video_uploads/**/*.mov
+backend/data/video_uploads/**/*.mkv
+backend/data/video_uploads/**/*.webm
+/backend/captcha/
+/tiktok-captcha-solver-logs/
+
+# Ban phat hanh (bo cai moi nhat) do packaging/build.ps1 tao ra
+/PhatHanh/
+# EXE gọn cho bản mã nguồn; tạo lại bằng packaging/build-source-launcher.ps1
+/KidTE.exe
+
+# Bí mật và trạng thái máy sinh khi chạy (không bao giờ commit)
+backend/data/machine/privacy_key
+backend/data/machine/live_state.json
+backend/data/machine/queue_mode.json
+backend/data/journal.jsonl
+backend/backups/
+test-artifacts/ui/
+test-artifacts/eval/
+test-artifacts/soak/
+
+ab_report*
+
+test-artifacts/backup-ui/

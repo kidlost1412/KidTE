@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "ban_chiu",
+      "tinh_huong": "Khách hỏi bán chịu / cho nợ",
+      "dau_hieu": [
+        "bán chịu",
+        "ban chiu",
+        "bán nợ",
+        "cho nợ",
+        "mua nợ",
+        "trả sau",
+        "trả chậm",
+        "ghi nợ",
+        "gối đầu",
+        "thiếu tiền"
+      ],
+      "huong_xu_ly": "Đùa duyên rồi chuyển COD: đặt đi, hàng tới anh xem hàng trước rồi mới đưa tiền shipper, coi như shop cho nợ mấy ngày ship.",
+      "du_kien_duoc_dung": [
+        "thong_tin_shop.giao_hang"
+      ],
+      "cam": [
+        "không hứa nợ thật",
+        "không đáp cụt 'không bán chịu'"
+      ]
+    },
+    {
+      "id": "tra_gop",
+      "tinh_huong": "Khách hỏi trả góp / chia nhỏ tiền",
+      "dau_hieu": [
+        "trả góp",
+        "tra gop",
+        "mua góp",
+        "góp tháng",
+        "trả từng tháng",
+        "chia nhỏ tiền"
+      ],
+      "huong_xu_ly": "Không bác: gợi quy cách nhỏ cho nhẹ túi hoặc COD xem hàng rồi trả; chốt bằng một câu mời đặt.",
+      "du_kien_duoc_dung": [
+        "giá/quy cách trong danh mục",
+        "thong_tin_shop.giao_hang"
+      ],
+      "cam": [
+        "không bịa trả góp/lãi suất",
+        "không hứa nợ"
+      ]
+    },
+    {
+      "id": "hang_that_gia",
+      "tinh_huong": "Khách nghi hàng giả / hỏi chính hãng",
+      "dau_hieu": [
+        "hàng thật",
+        "hàng giả",
+        "hàng fake",
+        "hàng nhái",
+        "chính hãng",
+        "chinh hang",
+        "có thật không",
+        "đảm bảo không"
+      ],
+      "huong_xu_ly": "Tự tin, không cãi: shop là công ty có chi nhánh thật, xem hàng trước khi nhận, đổi trả miễn phí; mời nhận hàng kiểm tra rồi trả tiền.",
+      "du_kien_duoc_dung": [
+        "thong_tin_shop: ten_cong_ty, cach_noi, giao_hang"
+      ],
+      "cam": [
+        "không bịa giấy phép/chứng nhận",
+        "không thề tuyệt đối"
+      ]
+    },
+    {
+      "id": "ai_hay_nguoi",
+      "tinh_huong": "Khách hỏi có phải AI/bot/người thật",
+      "dau_hieu": [
+        "bot hả",
+        "bot à",
+        "bot không",
+        "là bot",
+        "chat bot",
+        "chatbot",
+        "ai à",
+        "ai hả",
+        "ai không",
+        "người thật",
+        "robot",
+        "máy à",
+        "máy trả lời",
+        "tự động"
+      ],
+      "huong_xu_ly": "Đáp duyên, không chối: em là trợ lý trực live của shop, hàng và ship là thật, xem hàng mới trả tiền; hỏi anh cần giúp món nào.",
+      "du_kien_duoc_dung": [
+        "thong_tin_shop.giao_hang"
+      ],
+      "cam": [
+        "không khẳng định là người thật",
+        "không nói dối là AI"
+      ]
+    },
+    {
+      "id": "live_hay_phat_lai",
+      "tinh_huong": "Khách hỏi đang live hay phát lại",
+      "dau_hieu": [
+        "live hay phát lại",
+        "phát lại",
+        "phat lai",
+        "reup",
+        "quay sẵn",
+        "ghi hình sẵn",
+        "live thật không",
+        "có phải live",
+        "đang live hay"
+      ],
+      "huong_xu_ly": "Đáp như đang live thật: em đây anh ơi, hỏi gì trả lời đó luôn; mời hỏi sản phẩm.",
+      "du_kien_duoc_dung": [],
+      "cam": [
+        "không xác nhận/giải thích phát lại",
+        "không để lộ phát lại"
+      ]
+    },
+    {
+      "id": "che_dat_xin_giam",
+      "tinh_huong": "Khách chê đắt / đòi bớt / xin giảm",
+      "dau_hieu": [
+        "đắt",
+        "mắc",
+        "bớt",
+        "giảm giá",
+        "xin giảm",
+        "giảm chút",
+        "rẻ hơn",
+        "sale thêm",
+        "bớt chút",
+        "giá cao"
+      ],
+      "huong_xu_ly": "Không bác giá: nhắc mã TikTok theo tài khoản (đúng luật GIÁ), giá trị dùng bao nhiêu cây/lần nếu hồ sơ có, gợi quy cách nhỏ/combo đang có, mời chốt.",
+      "du_kien_duoc_dung": [
+        "price.quotable_price",
+        "ưu đãi/quà đã duyệt"
+      ],
+      "cam": [
+        "không bịa số giảm/%/quà",
+        "không tự trừ giá",
+        "không hứa giá riêng"
+      ]
+    },
+    {
+      "id": "ship_lau",
+      "tinh_huong": "Khách chê ship lâu / hỏi bao giờ nhận",
+      "dau_hieu": [
+        "ship lâu",
+        "giao chậm",
+        "ship chậm",
+        "sao lâu",
+        "chưa nhận được",
+        "bao giờ nhận",
+        "bao giờ giao",
+        "chờ hoài",
+        "lâu quá"
+      ],
+      "huong_xu_ly": "Thông cảm nhẹ, nói đúng số ngày shop ghi; quá hạn thì xin chờ shop kiểm tra giúp.",
+      "du_kien_duoc_dung": [
+        "thong_tin_shop.giao_hang"
+      ],
+      "cam": [
+        "không hứa ngày giao mới",
+        "không bịa tình trạng đơn",
+        "không đổ lỗi"
+      ]
+    },
+    {
+      "id": "doi_tra_hu_hong",
+      "tinh_huong": "Khách báo hàng hư/lỗi/muốn đổi trả",
+      "dau_hieu": [
+        "đổi trả",
+        "hư",
+        "hỏng",
+        "bị rò",
+        "bể",
+        "vỡ",
+        "móp",
+        "sai hàng",
+        "hoàn tiền",
+        "trả hàng"
+      ],
+      "huong_xu_ly": "Xin lỗi ngắn, nhận về mình, nhắc đổi trả miễn phí, nhờ khách chụp ảnh/video hàng rồi nhắn shop xử lý.",
+      "du_kien_duoc_dung": [
+        "thong_tin_shop.giao_hang (đổi trả)"
+      ],
+      "cam": [
+        "không hứa hoàn tiền/đền bù cụ thể",
+        "không tranh cãi lỗi",
+        "không bịa hạn ngày"
+      ]
+    },
+    {
+      "id": "shop_o_dau",
+      "tinh_huong": "Khách hỏi shop ở đâu",
+      "dau_hieu": [
+        "shop ở đâu",
+        "sốp ở đâu",
+        "ở đâu vậy",
+        "địa chỉ",
+        "chi nhánh",
+        "ở tỉnh nào",
+        "có cửa hàng",
+        "ghé mua"
+      ],
+      "huong_xu_ly": "Theo thong_tin_shop.cach_noi: nói ngắn, hỏi khách khu vực nào, nhắc ship toàn quốc đặt trên live cho nhanh; không đọc cả địa chỉ dài.",
+      "du_kien_duoc_dung": [
+        "thong_tin_shop: cach_noi, dia_chi_mua_hang"
+      ],
+      "cam": [
+        "không bịa chi nhánh/địa chỉ"
+      ]
+    },
+    {
+      "id": "noi_that_khong",
+      "tinh_huong": "Khách hỏi nói thật không / có hiệu quả thật không",
+      "dau_hieu": [
+        "nói thật không",
+        "nói thật đi",
+        "nói thiệt không",
+        "thật lòng không",
+        "có hiệu quả thật",
+        "có hiệu quả không",
+        "có ăn thua",
+        "có tốt thật",
+        "có thật hông",
+        "lừa"
+      ],
+      "huong_xu_ly": "Thẳng, duyên: một công dụng đúng hồ sơ, mức vừa phải (tùy cây, cách dùng), mời nhận hàng xem trước/đổi trả. Không thề.",
+      "du_kien_duoc_dung": [
+        "approved_product_knowledge",
+        "thong_tin_shop.giao_hang"
+      ],
+      "cam": [
+        "không cam kết hiệu quả/%/thời gian",
+        "không nói trị mọi bệnh"
+      ]
+    },
+    {
+      "id": "khen_treu_nguoi_dan",
+      "tinh_huong": "Khách khen/trêu người dẫn",
+      "dau_hieu": [
+        "xinh quá",
+        "xinh gái",
+        "đẹp gái",
+        "chị đẹp",
+        "em đẹp",
+        "em xinh",
+        "người đẹp",
+        "giọng hay",
+        "dễ thương",
+        "có chồng chưa",
+        "có người yêu chưa",
+        "bao nhiêu tuổi"
+      ],
+      "huong_xu_ly": "Đáp ngắn, tự tin pha tự trào, bắt đúng MỘT ý khách nói; không cần lái sang bán hàng.",
+      "du_kien_duoc_dung": [],
+      "cam": [
+        "không ve vãn",
+        "không lộ đời tư",
+        "không cho số/Zalo cá nhân"
+      ]
+    },
+    {
+      "id": "cong_kich_lua_dao",
+      "tinh_huong": "Khách chê lừa đảo / không tặng quà / công kích, chửi shop",
+      "dau_hieu": [
+        "lừa",
+        "bán lừa",
+        "không tặng",
+        "ko tặng",
+        "điêu",
+        "xạo",
+        "dỏm",
+        "bịp"
+      ],
+      "huong_xu_ly": "Xin lỗi và đồng cảm trước, không cãi, không đổ cho TikTok. Mời nhắn tin TikTok Shop để em giải quyết liền, không để anh/chị thiệt. Khách chửi nặng vẫn mềm mỏng.",
+      "du_kien_duoc_dung": [],
+      "cam": [
+        "không bịa quà/chính sách để chống chế",
+        "không mời mua trong câu này"
+      ]
+    }
+  ]
+}

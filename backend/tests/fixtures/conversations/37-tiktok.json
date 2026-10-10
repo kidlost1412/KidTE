@@ -1,0 +1,20 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "đạm cá hay kích rễ tốt hơn",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "compare",
+        "resolved_question_contains": [
+          "đạm cá hay kích rễ tốt hơn"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "37-tiktok"
+}

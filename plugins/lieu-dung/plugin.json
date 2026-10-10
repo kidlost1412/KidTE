@@ -1,0 +1,13 @@
+{
+  "id": "lieu-dung",
+  "ten": "Tính liều theo nhãn đã duyệt",
+  "loai": "bo-xu-ly",
+  "phien_ban": "1.0.0",
+  "can_loi_toi_thieu": "1.0.0",
+  "mo_ta": "Quy đổi liều ml, g và kg theo đúng thể tích bình khách hỏi.",
+  "dung_toi": [],
+  "lenh": ["processor.py"],
+  "tu_khoi_dong_lai": false,
+  "kiem_tra_song": "pid",
+  "phu_thuoc_plugin": []
+}

@@ -1,0 +1,27 @@
+{
+ "sku": "COMBO-TRI-3",
+ "name": "Combo 3",
+ "combo_components": [
+  {
+   "name": "X",
+   "method": "phun",
+   "amount": 15,
+   "unit": "ml",
+   "per_volume": 16
+  },
+  {
+   "name": "Y",
+   "method": "phun",
+   "amount": 10,
+   "unit": "g",
+   "per_volume": 16
+  },
+  {
+   "name": "Z",
+   "method": "tưới",
+   "amount": 2,
+   "unit": "kg",
+   "per_volume": 16
+  }
+ ]
+}

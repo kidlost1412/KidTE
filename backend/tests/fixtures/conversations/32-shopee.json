@@ -1,0 +1,20 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "cách dùng cho cây sầu riêng",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "usage",
+        "resolved_question_contains": [
+          "cách dùng cho cây sầu riêng"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "32-shopee"
+}

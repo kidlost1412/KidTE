@@ -1,0 +1,20 @@
+{
+  "platform": "shopee",
+  "turns": [
+    {
+      "comment": "đừng lưu số điện thoại của mình nữa",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "forget-me",
+        "resolved_question_contains": [
+          "đừng lưu số điện thoại của mình nữa"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "40-shopee"
+}

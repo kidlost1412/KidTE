@@ -1,0 +1,8 @@
+# Only needed to RUN THE TESTS and BUILD THE INSTALLER. Keep ASCII-only.
+#
+#   backend\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+#   backend\.venv\Scripts\python.exe backend\tools\run_tests.py --suite all
+-r requirements.txt
+pytest>=8,<9
+ruff==0.16.9
+pyinstaller==6.15.0

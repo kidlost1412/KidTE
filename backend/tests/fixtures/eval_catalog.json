@@ -1,0 +1,20 @@
+{
+  "_note": "Small realistic catalog used only by tools/eval_conversations.py. Prices in VND.",
+  "products": [
+    {"id": "SP-03", "title": "Kích Rễ Giâm Cành TC01", "aliases": "TC01 Kích Rễ Cực Mạnh kích rễ",
+     "price": 120000, "tiktok_product_id": "p1", "shopee_shop_id": "10", "shopee_product_id": "20",
+     "uses": "Hỗ trợ kích rễ cho cây mới trồng và giâm cành",
+     "usage": "Cây mới trồng: sau khoảng 7–10 ngày có thể bắt đầu phun; pha 10ml cho bình 16 lít",
+     "promotion": "Mua 5 tặng 1"},
+    {"id": "SP-05", "title": "Đạm Cá Thủy Phân 500ml", "aliases": "đạm cá 500ml",
+     "price": 95000, "tiktok_product_id": "p2", "shopee_shop_id": "10", "shopee_product_id": "21",
+     "uses": "Bổ sung dinh dưỡng hữu cơ cho lúa, rau màu và cây ăn trái",
+     "usage": "Pha 20ml cho bình 16 lít nước, phun định kỳ 7–10 ngày một lần; nên phun sáng sớm hoặc chiều mát",
+     "promotion": ""},
+    {"id": "SP-06", "title": "Đạm Cá Thủy Phân 1 lít", "aliases": "đạm cá 1 lít",
+     "price": 170000, "tiktok_product_id": "p3", "shopee_shop_id": "10", "shopee_product_id": "22",
+     "uses": "Bổ sung dinh dưỡng hữu cơ cho lúa, rau màu và cây ăn trái",
+     "usage": "Pha 20ml cho bình 16 lít nước, phun định kỳ 7–10 ngày một lần; nên phun sáng sớm hoặc chiều mát",
+     "promotion": ""}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "change": "legacy puzzle challenge verification after delayed API, before mouse input; per-episode attempt limit (7) with manual-solve pause; merged upstream df40bfc (identify_captcha, finer scale step, full-piece crop) + 400 body/crop diagnostics; skip blank shapes matches (no API call); detection threshold 0.8 + blank guard for puzzle",
+  "solver_before_sha256": "e3fd4b09b53b89cc1f8cc5fce0e81d305c13cc3590e97c01caf832971f9bbdc1",
+  "solver_after_sha256": "6580cc0b499a15c2c84389d1c3cfc528cf041ddad512f96b172b7d2406e51f84",
+  "legacy_guard_sha256": "cf67485f93872e800a5199d0dbea5a26d00100151ee4b3ac6e9cf472ead31986",
+  "integration_verified": false,
+  "solver_prior_after_sha256": [
+    "24d894fcb2112902a7a298a70d7040827af24061fda33c7af20f8442b1d13054",
+    "da458f85ffbb29a69d6e10144c46374e4a6e3aa8f3bf5d56c6c21e4daf0891d9",
+    "f98079069e748650e629c6e9b777694fbb0cc771a6ca970176b8e5b53ebe1893",
+    "03f802896478aee382720a3cd8db7927bd98a2431358312006b997299e43c90a",
+    "eb11d68d26a86757934380d34bf5bc5ddb013b1e543ca9e34b10927629ed4a4b"
+  ],
+  "episode_guard_sha256": "5a88e34c5d62f1fe97670aac9553628f40784e2fccc76da5851eb48f6a824a59"
+}

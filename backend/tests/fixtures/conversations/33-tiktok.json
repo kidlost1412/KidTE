@@ -1,0 +1,20 @@
+{
+  "platform": "tiktok",
+  "turns": [
+    {
+      "comment": "nhầm rồi, em lấy loại 500ml",
+      "response": "",
+      "delivery_status": "none",
+      "awaiting_fields": [],
+      "expect": {
+        "intent": "correction",
+        "resolved_question_contains": [
+          "nhầm rồi, em lấy loại 500ml"
+        ],
+        "original_preserved": true,
+        "must_not_contain": []
+      }
+    }
+  ],
+  "id": "33-tiktok"
+}

@@ -1,0 +1,83 @@
+"use strict";
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const core = require('./core.js');
+const pause = () => new Promise(r => setTimeout(r, 10));
+(async () => {
+  let tick, clock = 100000, fail = false, paused = false, owner = true, pauseOnHide = false, revisionOnHide = false;
+  const storage = {}, calls = [];
+  const location = {href:'https://live.shopee.vn/pc/preview?session=123'};
+  const position = {ok:true, available:true, video_id:'v1', position_s:1, margin:0.2, age_s:1};
+  const timelines = Object.fromEntries(['v1','v2'].map(id=>[id,{title:id,cycle_ms:10000,events:[{at_ms:0,product:'p'}],products:{p:{short_name:'TC01'}}}]));
+  const records = {v1:{mappings:{p:{shop_id:'10',product_id:'1'}}},v2:{mappings:{p:{shop_id:'10',product_id:'2'}}}};
+  const config = {enabled:false,videoId:'v1'};
+  const chrome = {runtime:{id:'test',async sendMessage(m) {
+    calls.push(m);
+    if (fail) throw Error('Kid TE chưa mở');
+    if (m.type==='KIDTE_SHOPEE_CONNECT') {
+      Object.assign(config,{enabled:!paused && !!core.liveSession(location.href), videoId:position.video_id});
+      return {ok:true,controller:owner,position,config,paused};
+    }
+    if (m.resource==='timelines') return {ok:true,timelines};
+    if (m.resource==='heartbeat') return {ok:true};
+    if (m.resource==='sync') return {ok:true,videos:records};
+    if (m.request?.action==='catalog') return {ok:true,product_count:2,products:[]};
+    if (m.request?.action==='state') return {ok:true,available:true,product_id:position.video_id==='v1'?'1':'2',shop_id:'10'};
+    if (m.request?.action==='hide' && pauseOnHide) paused=true;
+    if (m.request?.action==='hide' && revisionOnHide) position.revision = (position.revision || 0) + 1;
+    if (m.request?.action==='show' || m.request?.action==='hide') return {ok:true,accepted:true};
+    throw Error('Unexpected request');
+  }},storage:{local:{async get(){return storage;},async set(x){Object.assign(storage,x);}}}};
+  function element(){return {style:{},querySelector(){return this;},addEventListener(){},classList:{toggle(){}},setAttribute(){},appendChild(x){this.firstChild=x;},attachShadow(){return this.shadowRoot=element();}};}
+  let removedWidgets=0;
+  const document = {documentElement:element(),createElement:element,
+    querySelectorAll:()=>[{remove(){removedWidgets++;}},{remove(){removedWidgets++;}}]};
+  class TestDate extends Date { static now(){return clock;} }
+  const context={chrome,location,document,KidTEShopeeCore:core,Date:TestDate,setTimeout(fn){fn();},setInterval(fn){tick=fn;},clearInterval(){}};
+  vm.runInNewContext(fs.readFileSync(__dirname+'/live-widget.js','utf8'),context);
+  vm.runInNewContext(fs.readFileSync(__dirname+'/controller.js','utf8'),context);
+  await pause();
+  assert.equal(removedWidgets,2,'Remove every stale widget when replacing an extension context');
+  assert.equal(calls.filter(x=>x.request?.action==='show').length,0);
+  assert.equal(calls.filter(x=>x.resource==='sync').length,1);
+  assert.match(storage.shopeeStatus.label,/Chuẩn bị LIVE/);
+  location.href='https://live.shopee.vn/pc/live?session=123'; clock+=3000;
+  await tick();
+  assert.equal(calls.filter(x=>x.request?.action==='show').length,1);
+  assert.equal(storage.shopeeStatus.confirmed,true);
+  assert.match(storage.shopeeStatus.label,/UI Shopee xác nhận/);
+  clock+=20000;
+  await tick();
+  assert.equal(calls.filter(x=>x.request?.action==='hide').length,1);
+  assert.equal(calls.filter(x=>x.request?.action==='hide').at(-1).request.refresh,true);
+  assert.equal(calls.filter(x=>x.request?.action==='show').length,2);
+  assert.equal(storage.shopeePinLog.slice(-2).map(x=>x.action).join(','),'hide,show');
+  await tick();
+  assert.equal(calls.filter(x=>x.request?.action==='show').length,2);
+  clock+=20000; pauseOnHide=true;
+  await tick();
+  assert.equal(calls.filter(x=>x.request?.action==='show').length,2,'pause after hide cancels repin');
+  assert.equal(storage.shopeeStatus.ok,false);
+  pauseOnHide=false; paused=false;
+  clock+=3000; await tick();
+  const beforeRevisionChange = calls.filter(x=>x.request?.action==='show').length;
+  clock+=20000; revisionOnHide=true;
+  await tick();
+  assert.equal(calls.filter(x=>x.request?.action==='show').length,beforeRevisionChange,'source revision after hide cancels repin');
+  revisionOnHide=false;
+  position.video_id='v2'; clock+=3000; await tick();
+  assert.equal(calls.filter(x=>x.request?.action==='show').at(-1).request.product_id,'2');
+  paused=true; position.position_s=2; await tick();
+  assert.match(storage.shopeeStatus.label,/tạm dừng/);
+  const sends=calls.filter(x=>x.request?.action==='show').length;
+  fail=true; await tick(); assert.equal(storage.shopeeStatus.ok,false);
+  fail=false; paused=false; await tick(); assert.equal(storage.shopeeStatus.ok,true);
+  owner=false; position.video_id='v1'; await tick();
+  assert.doesNotMatch(storage.shopeeStatus.label,/Tab theo dõi/);
+  assert.equal(calls.filter(x=>x.request?.action==='show').length,sends+1);
+  owner=true; location.href='https://live.shopee.vn/pc/preview?session=456'; clock+=3000; await tick();
+  assert.equal(calls.filter(x=>x.resource==='sync').at(-1).payload.session_id,'456');
+  assert.match(storage.shopeeStatus.label,/Chuẩn bị LIVE/);
+  console.log('Shopee automatic start, video/session switch, retry and pause passed');
+})().catch(e=>{console.error(e);process.exitCode=1;});

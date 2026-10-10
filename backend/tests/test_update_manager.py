@@ -111,6 +111,39 @@ def test_gpu_preparation_retains_active_core_until_launcher_activation(tmp_path,
     assert __import__("os").environ["KIDTE_GPU_RUNTIME_SHA256"] == gpu["files"][0]["sha256"]
 
 
+def test_installing_current_core_is_a_noop_and_later_feature_install_still_works(tmp_path):
+    core_archive, core = package(tmp_path)
+    gpu_archive, gpu = package(tmp_path, "gpu-cuda12")
+    root = tmp_path / "App"
+    store = ComponentStore(root)
+    store.stage_package(core, core_archive)
+    initial = store.prepare({"core": core}, 1)
+    store.activate_pending()
+    store.confirm_active(initial["generation"])
+    raw, keys = signed([core, gpu])
+    transport = Transport(raw, {gpu["url"]: gpu_archive})
+    manager = UpdateManager(root, transport=transport, trusted_keys=keys, store=store)
+
+    manager.action("check", {})
+    assert done(manager)["error"] == ""
+    plan = manager.action("plan", {"components": {"core": core["version"]}})
+    assert plan["download_bytes"] == 0
+    assert plan["packages"] == []
+    manager.action("install", {"components": {"core": core["version"]}})
+    assert done(manager)["error"] == ""
+    assert store.load_active()["generation"] == initial["generation"]
+    assert store.load_pending() is None
+    assert transport.calls == ["check"]
+
+    manager.action("install", {"components": {"gpu-cuda12": gpu["version"]}})
+    state = done(manager)
+    assert state["error"] == ""
+    assert state["restart_required"]
+    assert store.load_active()["generation"] == initial["generation"]
+    assert set(store.load_pending()["components"]) == {"core", "gpu-cuda12"}
+    assert transport.calls == ["check", gpu["url"]]
+
+
 def test_expired_catalog_and_unsigned_payload_never_prepare(tmp_path):
     archive, core = package(tmp_path)
     raw, keys = signed([core], expired=True)

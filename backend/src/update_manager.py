@@ -162,6 +162,11 @@ class UpdateManager:
 
     def _install(self, store, requested):
         catalog, selection = self._plan(store, requested)
+        if not selection:
+            # The catalog and replay floor were still revalidated by _plan,
+            # but there is no package work to stage or restart for.
+            self._set(progress=None)
+            return
         components = dict((store.load_active() or {}).get("components", {}))
         download_root = store.download_root()
         for component_id, package in selection.items():

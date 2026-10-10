@@ -15,17 +15,16 @@ trang rồi khởi động lại solver. Key và token cần nhập lại trên 
 
 ## Cài đặt
 
-1. Chạy `KidTE-Setup-<phiên bản>.exe` (nhận trực tiếp từ chủ dự án).
+1. Tải `KidTE-Setup-<phiên bản>-cpu-p3.exe` và `SHA256SUMS.txt` từ [GitHub Releases chính thức](https://github.com/kidlost1412/KidTE/releases), rồi chạy bộ cài. Bản P3 hiện là bản thử nghiệm để nghiệm thu từng đợt.
 2. **Windows hiện màn hình xanh "Windows protected your PC" (SmartScreen)**: bấm
    **More info → Run anyway**. Việc này bình thường với phần mềm nội bộ chưa mua chữ ký
    số (xem cuối trang). Muốn chắc file không bị sửa: đối chiếu mã SHA-256 trong file
-   `KidTE-Setup-<phiên bản>.exe.sha256.txt` đi kèm (PowerShell:
+   `SHA256SUMS.txt` cùng release (PowerShell:
    `Get-FileHash .\KidTE-Setup-*.exe`).
 3. **Chọn thư mục cài** — mặc định là thư mục đã cài trước đó, nếu chưa có thì `D:\KidTE` khi máy có ổ D (không phải ổ Windows), không thì
    `%LOCALAPPDATA%\KidTE`. Nên chọn ổ còn nhiều chỗ trống. Không cài vào Program Files
    (bộ cài sẽ từ chối, vì app cần ghi dữ liệu ngay cạnh chương trình).
-4. Mở Kid TE → **Cài đặt**: dán khoá DeepSeek; **Chép lời**: tải model được đánh dấu
-   "Hợp với máy này" (một lần, cần mạng); cài tiện ích Chrome theo
+4. Mở Kid TE → **Cài đặt → Cập nhật → Thử nghiệm**: cài **Bộ chép lời trên máy** nếu cần phân tích video; **Công cụ video** được chọn tự động theo phụ thuộc. Đóng và mở lại app để áp dụng. Sau đó ở **Chép lời**, tải model được đánh dấu "Hợp với máy này" (một lần, cần mạng). Dán khoá DeepSeek ở **Cài đặt** nếu dùng AI; cài tiện ích Chrome theo
    `CAI-DAT-TIEN-ICH-CHROME.md`.
 
 ## Mọi thứ nằm trong MỘT thư mục
@@ -66,7 +65,7 @@ kho đã có. Mở lần đầu,
 người dùng tự làm theo thứ tự (trang **Chẩn đoán** liệt kê đủ và gợi ý cách sửa từng mục):
 
 1. **Cài đặt**: dán khoá DeepSeek; điền **Thông tin shop** (tên, địa chỉ, hotline, giao hàng).
-2. **Cài đặt → Chép lời**: tải model được đánh dấu "Hợp với máy này".
+2. **Cài đặt → Cập nhật → Thử nghiệm**: chọn những gói tính năng cần dùng, đóng/mở lại app để áp dụng; sau đó ở **Chép lời**, tải model được đánh dấu "Hợp với máy này".
 3. Cài tiện ích Chrome rồi mở TikTok LIVE Manager; tiện ích tự đọc giỏ hàng.
 4. **Sản phẩm**: kiểm hồ sơ chính thức và liên kết với sản phẩm trong giỏ. Với sản phẩm
    chưa có hồ sơ, bấm **Tạo hồ sơ cho sản phẩm này**, điền công dụng, cách dùng, liều lượng
@@ -80,9 +79,7 @@ người dùng tự làm theo thứ tự (trang **Chẩn đoán** liệt kê đ�
 Chi tiết mã, dữ liệu và cài đặt thực tế của máy vận hành: `docs/kien-thuc/06-HOC-VA-TRI-THUC.md`
 và `07-DU-LIEU-CAU-HINH.md` trong kho nguồn. Hướng dẫn cài đặt này cũng được đưa vào bộ cài.
 
-**Card đồ hoạ**: có card NVIDIA thì chép lời chạy bằng GPU (thư viện CUDA đã đi kèm bộ cài);
-chỉ máy không có card NVIDIA mới chạy bằng CPU. Card có mà chưa dùng được thì trang Chép lời
-hướng dẫn cập nhật driver.
+**Card đồ hoạ**: gói CUDA không nằm trong bộ cài lõi. Nếu có NVIDIA và muốn tăng tốc chép lời, cài **Tăng tốc chép lời NVIDIA** ở Cập nhật rồi mở lại app; worker và driver cũng phải tương thích. Khi GPU chưa sẵn sàng, chép lời dùng CPU và trang Chép lời báo tình trạng thực tế.
 
 ## Về chữ ký số (SmartScreen)
 

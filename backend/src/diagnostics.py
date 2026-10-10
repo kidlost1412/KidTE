@@ -121,6 +121,20 @@ def run_setup_checks(*, include_audio=True, key_configured=None):
             ("webview", True, "mở cửa sổ ứng dụng"), ("numpy", False, "đồng bộ video"),
             ("soundcard", False, "nghe âm thanh video"),
             ("faster_whisper", False, "chép lời video tải lên"), ("PIL", False, "ảnh sản phẩm")):
+        if IS_FROZEN and module == "faster_whisper":
+            from component_runtime import component_path
+            try:
+                worker = component_path("video-analysis-cpu", "KidTETranscription.exe")
+                found = worker is not None
+                detail = str(worker) if found else "Chưa cài"
+            except (OSError, RuntimeError, ValueError) as exc:
+                found = False
+                detail = str(exc)
+            checks.append(_check("module-faster_whisper", "Bộ chép lời trên máy",
+                                 "ok" if found else "warn", detail,
+                                 fix=fix("Mở Cài đặt → Cập nhật → Bộ chép lời trên máy để cài hoặc cập nhật gói.",
+                                         "Mở Cập nhật", page="system", sub="updates")))
+            continue
         found = importlib.util.find_spec(module) is not None
         checks.append(_check("module-" + module, f"Thành phần {module} ({why})",
                              "ok" if found else "error" if required else "warn",

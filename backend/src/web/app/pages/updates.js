@@ -41,6 +41,10 @@ export async function updates(ctx, host, owner) {
                 const selection = {components: {[pkg.id]: pkg.version}};
                 const plan = await request('/api/updates/plan', {method: 'POST', body: selection});
                 if (disposed) return;
+                if (!plan.packages.length) {
+                  toast('Đang dùng phiên bản này; không cần cập nhật.');
+                  return;
+                }
                 const items = plan.packages.map(p => `${names[p.id] || p.id} ${p.version}: ${bytes(p.download_bytes)}`).join('; ');
                 const approved = await confirmDialog({title: `Tải ${names[pkg.id] || pkg.id}?`,
                   body: `Tổng tải ${bytes(plan.download_bytes)}. ${items}. Sau khi kiểm tra, hãy đóng Kid TE và mở lại bằng biểu tượng Kid TE để áp dụng.`,

@@ -21,7 +21,7 @@ import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
-from update_catalog import COMPONENT_POLICIES
+from update_catalog import COMPONENT_POLICIES, _range_satisfies
 
 try:  # Windows uses a byte-range lock; POSIX keeps the module testable.
     import msvcrt  # type: ignore
@@ -304,6 +304,7 @@ class ComponentStore:
             uuid.UUID(mapping["generation"])
         except ValueError as exc:
             raise ComponentStoreError("invalid generation id") from exc
+        records = {}
         for component_id, component in mapping["components"].items():
             if (not isinstance(component, dict) or
                     set(component) != {"package", "path", "record_sha256", "manifest_sha256",
@@ -339,6 +340,18 @@ class ComponentStore:
                 raise ComponentStoreError("package is not staged: stored directory is missing")
             if verify_files and not self._verify_existing(full, record):
                 raise ComponentStoreError("stored package files failed inventory verification")
+            records[component_id] = record
+
+        # A generation is activated as one unit, so validate dependency closure
+        # here as well as in catalog planning. This also protects persisted
+        # active/pending mappings that did not originate in UpdateManager.
+        for component_id, record in records.items():
+            for dependency, version_range in record["dependencies"].items():
+                target = records.get(dependency)
+                if target is None:
+                    raise ComponentStoreError("component dependency is missing")
+                if not _range_satisfies(target["version"], version_range):
+                    raise ComponentStoreError("component dependency version mismatch")
 
     def _verify_existing(self, target: Path, record: dict) -> bool:
         if not target.exists():

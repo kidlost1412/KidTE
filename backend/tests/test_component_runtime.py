@@ -10,7 +10,7 @@ import pytest
 from component_store import ComponentStore, ComponentStoreError
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from update_catalog import canonical_json, verify_catalog
+from update_catalog import CORE_DATA_SCHEMA, canonical_json, verify_catalog
 
 
 def _signed_media_package(tmp_path):
@@ -70,12 +70,42 @@ def _signed_media_package(tmp_path):
     return verified, archive, files
 
 
+def _signed_core_package(tmp_path):
+    content = b"core-fixture-binary"
+    archive = tmp_path / "core.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("KidTE.exe", content)
+    package = {
+        "id": "core",
+        "kind": "core",
+        "version": "1.14.255",
+        "platform": "windows",
+        "architecture": "x86_64",
+        "core_api": ">=1.0.0,<2.0.0",
+        "dependencies": {},
+        "url": "https://github.com/kidlost1412/KidTE/releases/download/test/core.zip",
+        "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        "archive_bytes": archive.stat().st_size,
+        "unpacked_bytes": len(content),
+        "files": [{"path": "KidTE.exe", "size": len(content),
+                   "sha256": hashlib.sha256(content).hexdigest()}],
+        "entrypoint": "KidTE.exe",
+        "restart_required": True,
+        "migration": "none",
+        "source_commit": "a" * 40,
+        "compatibility": {"data_schema": CORE_DATA_SCHEMA},
+    }
+    return package, archive
+
+
 def _store_with_pending_media(tmp_path, monkeypatch):
     app_root = tmp_path / "App"
     store = ComponentStore(app_root)
+    core, core_archive = _signed_core_package(tmp_path)
     package, archive, files = _signed_media_package(tmp_path)
+    store.stage_package(core, core_archive)
     store.stage_package(package, archive)
-    pending = store.prepare({"media-tools": package}, catalog_sequence=1)
+    pending = store.prepare({"core": core, "media-tools": package}, catalog_sequence=1)
     monkeypatch.setenv("KIDTE_APP_ROOT", str(app_root))
     return app_root, store, pending, package, files
 

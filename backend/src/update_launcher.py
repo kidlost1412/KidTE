@@ -38,25 +38,36 @@ def _prepare_installer_core(app_root, store):
     if not request.is_file():
         return
     from component_store import _check_ancestry
-    from update_catalog import resolve_components, verify_catalog
+    from update_catalog import _version_key, resolve_components, verify_catalog
     from update_trust import TRUSTED_KEYS
 
     _check_ancestry(request)
     if request.stat().st_size > 2 * 1024 * 1024:
         raise LauncherError("Installer bootstrap catalog is too large.")
     raw = request.read_bytes()
-    # Installer bootstrap uses the same pinned signature policy as network updates.
-    catalog = verify_catalog(raw, TRUSTED_KEYS, channel="beta", minimum_sequence=store.read_highwater())
+    # A downloaded installer remains usable offline after its feed expires.
+    # Signature, high-water mark, exact baseline and downgrade checks still apply;
+    # expiration remains mandatory for catalogs fetched by the network updater.
+    catalog = verify_catalog(raw, TRUSTED_KEYS, channel="beta",
+                             minimum_sequence=store.read_highwater(), allow_expired=True)
     core = next(p for p in catalog["components"] if p["id"] == "core")
     if not store.baseline_matches(core):
         raise LauncherError("Installer files do not match the signed bootstrap catalog.")
-    current = (store.load_active() or {}).get("components", {})
+    active = store.load_active()
+    pending = store.load_pending()
+    for mapping in (active, pending):
+        selected_core = (mapping or {}).get("components", {}).get("core")
+        if selected_core and _version_key(core["version"]) < _version_key(selected_core["version"]):
+            raise LauncherError("Installer core is older than an active or pending core.")
+    # Keep feature installs/removals that the user has already prepared.
+    current = (pending or active or {}).get("components", {})
     installed = {key: row["package"] for key, row in current.items()}
     selection = resolve_components(catalog, {"core": core["version"]}, installed)
     if set(selection) - {"core"}:
         raise LauncherError("Installer bootstrap requires separate feature updates; use the updater.")
     store.stage_baseline(core)
-    store.cancel_pending()
+    # prepare replaces pending atomically only after validating every package.
+    # Cancelling it first would lose a previous update if preparation failed.
     store.prepare({**current, "core": core}, catalog_sequence=catalog["sequence"])
     _check_ancestry(request)
     request.unlink()

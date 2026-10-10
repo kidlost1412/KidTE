@@ -223,7 +223,13 @@ def _valid_range(expr):
     return all(re.fullmatch(r"(>=|<=|>|<|==|=)?\s*\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", x.strip()) for x in expr.split(","))
 
 
-def verify_catalog(raw, trusted_keys: dict[str, str], repository=REPOSITORY, channel="stable", minimum_sequence=0, now=None):
+def verify_catalog(raw, trusted_keys: dict[str, str], repository=REPOSITORY, channel="stable", minimum_sequence=0, now=None, *, allow_expired=False):
+    """Verify a feed, or an embedded installer inventory with explicit expiry policy.
+
+    Only the installer bootstrap may allow expiration: its caller must verify
+    the exact local baseline and reject a downgrade before staging any files.
+    Network update feeds always use the default strict expiration policy.
+    """
     envelope = _parse(raw)
     if not isinstance(envelope, dict) or set(envelope) != {"schema_version", "key_id", "signed", "signature"} or envelope["schema_version"] != 2:
         raise CatalogError("invalid_envelope")
@@ -251,7 +257,7 @@ def verify_catalog(raw, trusted_keys: dict[str, str], repository=REPOSITORY, cha
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
-    if issued > current or expires <= current or expires <= issued:
+    if issued > current or (expires <= current and not allow_expired) or expires <= issued:
         raise CatalogError("catalog_expired_or_not_yet_valid")
     if not isinstance(s["components"], list) or not s["components"] or len(s["components"]) > 100:
         raise CatalogError("invalid_components")

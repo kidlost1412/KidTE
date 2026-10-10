@@ -29,6 +29,10 @@ Ví dụ sửa CAPTCHA: build và phát hành phiên bản mới của `captcha-
 
 P2 launcher chỉ nhận core/GPU. Cài installer P3 một lần để nâng launcher; catalog P2 được giữ ở `updates-beta`, còn P3 dùng `updates-beta-p3` hoặc `updates-stable-p3`. Hai feed tránh gửi ID mới cho launcher cũ. Installer chính thức mang `bootstrap-request.json` đã ký: sau kiểm khóa/cổng/LIVE, launcher kiểm file lõi cài sẵn theo inventory, sao chép vào thư mục phiên bản và chuẩn bị mapping mới, giữ GPU đã chọn. Bootstrap cũng qua kiểm readiness/rollback. Không sao chép bằng hardlink, không migrate DB.
 
+Bản vá P3 `1.14.256` giữ nguyên pending nếu chuẩn bị bootstrap thất bại, giữ các lựa chọn cài/gỡ tính năng đã chuẩn bị và từ chối core trong installer thấp hơn core active hoặc pending. Lớp lưu gói kiểm cả tập phụ thuộc trước khi chuẩn bị hoặc áp dụng mapping; một package có inventory đúng nhưng thiếu dependency vẫn bị từ chối.
+
+Catalog tải từ mạng luôn phải còn hạn. Riêng inventory đã ký nằm trong installer được dùng sau ngày hết hạn để cài offline: launcher vẫn kiểm chữ ký ghim, ngày phát hành không ở tương lai, sequence không thấp hơn mốc đã nhận, toàn bộ file lõi khớp và không hạ phiên bản active/pending. Đây chỉ là sử dụng các file đã có trong bộ cài, không cho phép tải gói từ feed hết hạn.
+
 ## Build và phiên bản
 
 Sau khi bắt đầu lịch sử Git mới, dùng số phát hành rõ ràng để không làm phiên bản giảm về số commit nhỏ:

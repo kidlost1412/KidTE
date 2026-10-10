@@ -20,6 +20,14 @@ sys.modules[spec.name] = captcha_entry
 spec.loader.exec_module(captcha_entry)
 
 
+@pytest.fixture(autouse=True)
+def _restore_app_root_environment(monkeypatch):
+    # The sidecar intentionally derives this variable in its own process.
+    # Track it even when initially absent, so that mutation cannot leak into
+    # unrelated portable-data layout tests in the same pytest process.
+    monkeypatch.setenv("KIDTE_APP_ROOT", os.environ.get("KIDTE_APP_ROOT", ""))
+
+
 def _solver_executable(app_root: Path) -> Path:
     return app_root / "packages" / "captcha-solver" / "1.0.0" / "Captcha" / "KidTECaptcha.exe"
 

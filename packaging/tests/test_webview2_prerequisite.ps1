@@ -97,5 +97,35 @@ $case = Invoke-MockedCase 'runtime after nonzero bootstrapper exit passes and lo
 Assert-True ($case.Result.ExitCode -eq 0 -and $case.Result.ResultLine -eq 'OK|runtime-present|120.0.2210.91|bootstrapper-exit-code=23') 'Registered Runtime is authoritative even with nonzero bootstrapper exit, which must be logged.'
 $cases += $case.Name
 
+# Exercise the actual on-disk ASCII protocol consumed by Inno Setup. Mock-only
+# checks above stop at ResultLine and would miss delimiters changed while writing.
+$probeResultPath = Join-Path ([System.IO.Path]::GetTempPath()) (
+    'KidTE-WebView2-result-test-' + [Guid]::NewGuid().ToString('N') + '.txt'
+)
+try {
+    $ResultFile = $probeResultPath
+    $serializedCases = @(
+        [pscustomobject]@{ Name = 'existing-runtime protocol'; Input = 'OK|already-installed|155.0.4283.45'; Expected = 'OK|already-installed|155.0.4283.45' },
+        [pscustomobject]@{ Name = 'installed-runtime protocol with bootstrapper exit'; Input = 'OK|runtime-present|155.0.4283.45|bootstrapper-exit-code=23'; Expected = 'OK|runtime-present|155.0.4283.45|bootstrapper-exit-code=23' },
+        [pscustomobject]@{ Name = 'failure protocol delimiters'; Input = 'FAIL|signature|publisher check failed'; Expected = 'FAIL|signature|publisher check failed' },
+        [pscustomobject]@{ Name = 'non-ASCII and controls sanitized'; Input = ('FAIL|download|bad' + [char]1 + 'caf' + [char]233); Expected = 'FAIL|download|bad caf ' }
+    )
+    foreach ($serializedCase in $serializedCases) {
+        Set-ProbeResult $serializedCase.Input
+        $written = [System.IO.File]::ReadAllText($probeResultPath, [System.Text.Encoding]::ASCII)
+        Assert-True ($written -ceq $serializedCase.Expected) ($serializedCase.Name + ' should match the on-disk protocol.')
+        $bytes = [System.IO.File]::ReadAllBytes($probeResultPath)
+        foreach ($byte in $bytes) {
+            Assert-True ($byte -ge 0x20 -and $byte -le 0x7E) ($serializedCase.Name + ' must contain printable ASCII only.')
+        }
+    }
+    $cases += 'serialized probe result preserves protocol delimiters and sanitizes text'
+}
+finally {
+    if (Test-Path -LiteralPath $probeResultPath) {
+        Remove-Item -LiteralPath $probeResultPath -Force
+    }
+}
+
 Write-Output ('PASS: ' + $cases.Count + ' mocked WebView2 prerequisite cases')
 foreach ($name in $cases) { Write-Output ('  - ' + $name) }

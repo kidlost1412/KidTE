@@ -10,7 +10,8 @@ $runtimeClientId = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
 
 function Set-ProbeResult([string]$line) {
     $safeLine = $line -replace '[^\x20-\x7E]', ' '
-    $safeLine = $safeLine.Replace('|', '/')
+    # Keep protocol separators: Inno Setup recognizes the serialized OK| prefix.
+    # Exception text is sanitized separately before constructing ResultLine.
     if ($safeLine.Length -gt 500) { $safeLine = $safeLine.Substring(0, 500) }
     [System.IO.File]::WriteAllText($ResultFile, $safeLine, [System.Text.Encoding]::ASCII)
 }

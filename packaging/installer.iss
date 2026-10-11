@@ -63,6 +63,8 @@ SelectDirLabel3=Kid TE sẽ đặt TOÀN BỘ chương trình và dữ liệu (k
 SelectDirBrowseLabel=Nên chọn ổ còn nhiều chỗ trống (model chép lời 0,2–3 GB, video tải lên). Bấm Next để tiếp tục.
 
 [Files]
+; Extracted only for the setup-time WebView2 prerequisite check; not installed with the app.
+Source: "{#ProjectRoot}packaging\ensure-webview2.ps1"; Flags: dontcopy
 Source: "{#ProjectRoot}dist\KidTE\*"; DestDir: "{app}\App"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Cùng AppId với bản cũ: thay tên chương trình và lối tắt, giữ nguyên DuLieu.
@@ -109,6 +111,56 @@ Type: filesandordirs; Name: "{app}\App"
 [Code]
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8CF58DC0-2347-4A62-BE48-5C1104E6740F}_is1';
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ScriptPath, ResultFile, PowerShellPath, Parameters: String;
+  ProbeResult: AnsiString;
+  ExecOk: Boolean;
+  ExitCode: Integer;
+begin
+  Result := '';
+  NeedsRestart := False;
+  Log('Checking for the Microsoft WebView2 Runtime prerequisite.');
+
+  ExtractTemporaryFile('ensure-webview2.ps1');
+  ScriptPath := ExpandConstant('{tmp}\ensure-webview2.ps1');
+  ResultFile := ExpandConstant('{tmp}\kidte-webview2-result.txt');
+  DeleteFile(ResultFile);
+  PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  Parameters := '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' +
+    AddQuotes(ScriptPath) + ' -ResultFile ' + AddQuotes(ResultFile);
+
+  ExecOk := Exec(PowerShellPath, Parameters, '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+  ProbeResult := '';
+  if FileExists(ResultFile) then
+    LoadStringFromFile(ResultFile, ProbeResult);
+  DeleteFile(ResultFile);
+
+  if ExecOk and (ExitCode = 0) and (Pos('OK|', ProbeResult) = 1) then
+  begin
+    Log('WebView2 prerequisite: ' + ProbeResult);
+    Result := '';
+    Exit;
+  end;
+
+  if not ExecOk then
+    ProbeResult := 'FAIL|launch|Windows PowerShell could not start.'
+  else if ProbeResult = '' then
+    ProbeResult := 'FAIL|setup|The prerequisite helper returned no result (exit code ' + IntToStr(ExitCode) + ').'
+  else if ExitCode <> 0 then
+    Log('WebView2 prerequisite helper exit code: ' + IntToStr(ExitCode));
+
+  Log('WebView2 prerequisite failed: ' + ProbeResult);
+  Result := 'Kid TE cần Microsoft Edge WebView2 Runtime, nhưng chưa xác nhận được runtime đã cài thành công.' + #13#10#13#10 +
+    ProbeResult + #13#10#13#10 +
+    'Bộ cài Evergreen Bootstrapper chính thức của Microsoft:' + #13#10 +
+    'https://go.microsoft.com/fwlink/p/?LinkId=2124703' + #13#10#13#10 +
+    'Nếu lỗi ở bước download, kiểm tra kết nối mạng rồi chạy lại bộ cài. ' +
+    'Để cài ngoại tuyến, cài trước Evergreen Standalone Runtime x64 từ:' +
+    'https://developer.microsoft.com/en-us/microsoft-edge/webview2/' + #13#10#13#10 +
+    'Sau khi cài WebView2, chạy lại bộ cài Kid TE.';
+end;
 
 function PreviousRoot(): String;
 var

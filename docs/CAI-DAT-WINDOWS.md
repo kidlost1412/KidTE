@@ -2,6 +2,8 @@
 
 Cần Windows 10/11 64-bit. Không cần quyền quản trị.
 
+Từ bộ cài 1.14.257, trình cài kiểm tra Microsoft Edge WebView2 trước khi cài Kid TE. Nếu máy chưa có runtime này, trình cài tải bootstrapper từ Microsoft, xác minh chữ ký rồi cài bằng quyền người dùng hiện tại; lần này cần kết nối mạng. Máy đã có WebView2 không tải lại. Khi tải/cài runtime thất bại, trình cài báo bước lỗi và dừng để anh xử lý rồi chạy lại. Muốn cài ngoại tuyến, cài trước **Evergreen Standalone Installer x64** từ [trang WebView2 của Microsoft](https://developer.microsoft.com/en-us/microsoft-edge/webview2/). Runtime được Windows quản lý riêng, không nằm trong thư mục Kid TE.
+
 P3 cài lõi nhỏ trước. Công cụ video, giải CAPTCHA/monitor, đồng bộ video và bộ chép lời được tải riêng ở **Cài đặt → Cập nhật**; NVIDIA và model cũng tải riêng. Bản thử dùng kênh **Thử nghiệm**. Khi nâng từ P2, cài installer P3 một lần để nâng launcher rồi mới tải các tính năng này.
 
 Trình giải CAPTCHA nằm trong `App\packages\captcha-solver\<phiên bản>\Captcha`.

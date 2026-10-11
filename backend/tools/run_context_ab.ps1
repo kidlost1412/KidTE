@@ -2,10 +2,11 @@
 # Dùng: run_context_ab.ps1 [ab|router]   (mặc định ab = gói A; router = gói B, router tắt vs bật)
 param([ValidateSet('ab','router')][string]$Mode = 'ab')
 $ErrorActionPreference = 'Stop'
-$src  = 'D:\KidTE\src\backend'
-$repo = 'D:\KidTE\implementation-20261001'
+# Nguon du lieu that (CHI DOC) = D:\KidTE\DuLieu; chi dung ban sao trong %TEMP%, khong chay tren du lieu that.
+$src  = 'D:\KidTE\DuLieu'
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $r    = Join-Path $env:TEMP 'kidte_ab'
-robocopy $src $r /E /XD video_uploads backups schema_backups snapshots trash .venv logs runtime captcha /NFL /NDL /NJH /NJS /NP | Out-Null
+robocopy $src $r /E /XD video_uploads backups schema_backups snapshots trash .venv logs runtime captcha models reports /NFL /NDL /NJH /NJS /NP | Out-Null
 Copy-Item (Join-Path $src '.env') (Join-Path $r '.env')
 try {
     $env:PYTHONIOENCODING = 'utf-8'

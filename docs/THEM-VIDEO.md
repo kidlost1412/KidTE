@@ -28,7 +28,7 @@ Phím tắt Studio: `?`.
 
 ## Cách làm bằng dòng lệnh (người phát triển)
 
-    backend\.venv\Scripts\python.exe backend\tools\add_video.py --id live3 ^
+    .venv\Scripts\python.exe backend\tools\add_video.py --id live3 ^
         --video "D:\...\live3.mp4" --transcript "D:\...\transcript.json" --title "Live 3"
 
 Tạo vân tay + lịch nháp; rồi mở Studio để rà. Chỉ dựng lại vân tay (video bị cắt
@@ -36,7 +36,7 @@ lại / đổi nhạc nền): thêm `--only-fingerprint` — `timeline.json` đ�
 
 CLI ghi vân tay trước bước kiểm timeline đã tồn tại. `--force` bảo vệ việc ghi
 timeline, không bảo vệ vân tay; kiểm video đích trước khi chạy lại lệnh. Đối chiếu
-`backend/tools/add_video.py` và [chương04](kien-thuc/04-VIDEO-AM-THANH.md).
+`backend/tools/add_video.py` và chương video và âm thanh của tài liệu kiến thức nội bộ của người vận hành (không nằm trong kho công khai vì mô tả cấu hình thật).
 
 ## Cấu trúc timeline.json
 

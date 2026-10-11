@@ -11,11 +11,11 @@ Tạo môi trường core riêng bằng Python 3.11 x64, cài `backend/requireme
 Từ gốc checkout phát triển, chạy:
 
 ```powershell
-& D:\KidTE\implementation-20261001\.venv\Scripts\python.exe backend\tools\run_tests.py --suite all
+& .\.venv\Scripts\python.exe backend\tools\run_tests.py --suite all
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 .\packaging\build.ps1 -Profile CPU `
-  -Python .\.venv-cpu-build\Scripts\python.exe `
-  -CaptchaPython D:\KidTE\src\backend\.venv\Scripts\python.exe `
+  -Python .\.venv\Scripts\python.exe `
+  -CaptchaPython D:\TikTokCaptchaSolver-clean-20260926\venv\Scripts\python.exe `
   -SkipTests -KeepBuild
 ```
 
@@ -30,8 +30,8 @@ CPU là mặc định cả trong script và spec. `-Profile GPU` là bộ cài k
 Chỉ tạo từ bộ dependencies đã kiểm, không từ ZIP source của GitHub. Ví dụ cho môi trường NVIDIA đã dùng trong bản 249:
 
 ```powershell
-.\.venv-cpu-build\Scripts\python.exe packaging\gpu_pack.py build `
-  D:\KidTE\src\backend\.venv\Lib\site-packages `
+.\.venv\Scripts\python.exe packaging\gpu_pack.py build `
+  <moi-truong-NVIDIA-da-kiem>\Lib\site-packages `
   PhatHanh\gpu-cuda12-1.0.0.zip `
   --version 1.0.0 --python-abi cp311 `
   --source-commit 2d23e544c0e29f9a4cf9d39d52316fe022e6c417 `
@@ -49,9 +49,9 @@ Nhận SHA256 của ZIP và manifest từ người phát hành đã xác minh. S
 Mở Kid TE từ PowerShell với hai biến chỉ áp dụng cho tiến trình được mở:
 
 ```powershell
-$env:KIDTE_GPU_RUNTIME_ROOT = 'D:\KidTE-Cai\App\components\gpu-cuda12\1.0.0'
+$env:KIDTE_GPU_RUNTIME_ROOT = 'D:\KidTE\App\components\gpu-cuda12\1.0.0'
 $env:KIDTE_GPU_RUNTIME_SHA256 = '<SHA256 manifest do nguoi phat hanh cung cap>'
-& 'D:\KidTE-Cai\App\KidTE.exe'
+& 'D:\KidTE\App\KidTE.exe'
 ```
 
 Không lấy hash của một manifest chưa được xác minh rồi tự coi đó là nguồn tin cậy. P1 có kiểm integrity bằng digest do người vận hành cung cấp; chưa có chữ ký người phát hành hoặc cập nhật mạng tự động. P2 sẽ dùng catalog ký số và kho GitHub công khai không yêu cầu đăng nhập theo lựa chọn của chủ dự án.
@@ -65,8 +65,8 @@ Runtime chỉ kiểm toàn gói khi cần GPU lần đầu trong tiến trình, 
 `packaging/smoke_gpu_runtime.py` chạy HTTP trên cổng localhost riêng, tạo dữ liệu mới và upload video fixture ngắn. Nó kiểm health, HTML, asset, model đã chọn và device thực ghi trong metadata của transcript. Không gọi model tư vấn hoặc sàn thật, không dùng DB shop, không xuất nội dung transcript vào báo cáo.
 
 ```powershell
-.\.venv-cpu-build\Scripts\python.exe packaging\smoke_gpu_runtime.py `
-  --app-dir D:\KidTE\modular-implementation\dist\KidTE `
+.\.venv\Scripts\python.exe packaging\smoke_gpu_runtime.py `
+  --app-dir .\dist\KidTE `
   --model '<thu muc model local da co>' --audio '<fixture WAV PCM16>' `
   --work-dir '<thu muc thu moi chua ton tai>' --expected-device cpu
 ```

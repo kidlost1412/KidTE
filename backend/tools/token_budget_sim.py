@@ -3,7 +3,7 @@
     python backend/tools/token_budget_sim.py --root <bản-sao-backend> [--platform tiktok|shopee]
                                              [--flags on|off|both]
 
-Từ chối chạy trực tiếp trên D:\\KidTE\\src (cần một bản sao). Ước lượng token = ký tự / 2,6.
+Từ chối chạy trực tiếp trên D:\\KidTE\\DuLieu (cần một bản sao). Ước lượng token = ký tự / 2,6.
 """
 from __future__ import annotations
 

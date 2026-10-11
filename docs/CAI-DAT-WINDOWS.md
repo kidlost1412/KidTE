@@ -80,8 +80,7 @@ người dùng tự làm theo thứ tự (trang **Chẩn đoán** liệt kê đ�
    trong Trí nhớ AI khi cần; tự học lại mặc định tắt. Lựa chọn tự kích hoạt kiến thức
    là cài đặt riêng, không đồng nghĩa tự học lại.
 
-Chi tiết mã, dữ liệu và cài đặt thực tế của máy vận hành: `docs/kien-thuc/06-HOC-VA-TRI-THUC.md`
-và `07-DU-LIEU-CAU-HINH.md` trong kho nguồn. Hướng dẫn cài đặt này cũng được đưa vào bộ cài.
+Chi tiết mã, dữ liệu và cài đặt thực tế của máy vận hành nằm trong tài liệu kiến thức nội bộ của người vận hành (không nằm trong kho công khai vì mô tả cấu hình thật). Hướng dẫn cài đặt này cũng được đưa vào bộ cài.
 
 **Card đồ hoạ**: gói CUDA không nằm trong bộ cài lõi. Nếu có NVIDIA và muốn tăng tốc chép lời, cài **Tăng tốc chép lời NVIDIA** ở Cập nhật rồi mở lại app; worker và driver cũng phải tương thích. Khi GPU chưa sẵn sàng, chép lời dùng CPU và trang Chép lời báo tình trạng thực tế.
 

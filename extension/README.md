@@ -36,7 +36,7 @@ ghim và vị trí video; câu trả lời gửi lên TikTok có `@tên khách`,
 tự, cách nhau tối thiểu 2,5 giây. TikTok đòi xác minh (captcha) hoặc chặn gửi thì
 tiện ích tạm dừng gửi và báo trên widget/popup. Một lượt có thể gồm 1–3 tin (giao thức v2). Nếu `data/machine/queue_mode.json` bật (`{"enabled": true}`),
 tiện ích đưa bình luận vào hàng chờ của Kid TE ngay khi nhận và lấy việc qua `queue/next`; bình luận chưa gửi được tin đầu sau 120 giây
-thì bỏ. Các điều kiện dữ kiện và chính sách giá được kiểm trước và sau sinh câu; một số vi phạm sau model chỉ được ghi advisory, nên chưa bảo đảm chặn tuyệt đối mọi câu sai. Chi tiết mã và giới hạn kiểm chứng nằm trong `docs/kien-thuc/01-LUONG-TIKTOK.md` và `03-AI-VA-PROMPT.md`.
+thì bỏ. Các điều kiện dữ kiện và chính sách giá được kiểm trước và sau sinh câu; một số vi phạm sau model chỉ được ghi advisory, nên chưa bảo đảm chặn tuyệt đối mọi câu sai. Chi tiết mã và giới hạn kiểm chứng nằm trong tài liệu kiến thức nội bộ của người vận hành (không nằm trong kho công khai vì mô tả cấu hình thật).
 
 ## Popup và widget 3.10.1
 
@@ -57,4 +57,4 @@ endpoint nếu TikTok đổi mã module sau một đợt phát hành.
 ## Kiểm thử (người phát triển)
 
     node test-comments.cjs      (và các test-*.cjs khác; test-content và test-popup cần Playwright)
-    backend\.venv\Scripts\python.exe backend\tools\run_tests.py --suite extension
+    .venv\Scripts\python.exe backend\tools\run_tests.py --suite extension

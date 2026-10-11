@@ -1,6 +1,6 @@
 # Kid TE · Shopee LIVE 0.12.2
 
-Nguồn kiến thức dùng chung: `docs/kien-thuc/02-LUONG-SHOPEE.md`. Mặc định cấu hình khác trạng thái dữ liệu đang vận hành; xem chương07 và11 trước khi suy luận trạng thái thực tế từ README này.
+Mặc định cấu hình trong README này có thể khác trạng thái dữ liệu đang vận hành; chi tiết thực tế nằm trong tài liệu kiến thức nội bộ của người vận hành (không nằm trong kho công khai vì mô tả cấu hình thật).
 
 Mở trang quản lý Shopee, tiện ích tự kết nối Kid TE và tự đọc giỏ. Bộ nghe của Kid TE nhận ra video nào thì dùng kịch bản đã lưu của video đó. Không cần mở popup để quét giỏ, chọn video hoặc chọn từng sản phẩm.
 

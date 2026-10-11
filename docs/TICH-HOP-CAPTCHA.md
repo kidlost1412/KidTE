@@ -63,8 +63,7 @@ và hệ số kéo giữ nguyên. Build solver dùng snapshot/hash tại
 trước đóng gói và từ chối nguồn không khớp; build không tự chạy `install_guard.py`.
 Trong đợt bảo trì này solver ngoài và toàn bộ solver-patches chỉ được đọc: không
 chạy công cụ vá trên solver đang vận hành. Khi hash lệch, báo rõ sai lệch; không
-sửa nguồn hoặc manifest để vượt kiểm tra. Bộ kiến thức trong kho nguồn:
-`docs/kien-thuc/05-CAPTCHA.md`.
+sửa nguồn hoặc manifest để vượt kiểm tra. Chi tiết vận hành nằm trong tài liệu kiến thức nội bộ của người vận hành (không nằm trong kho công khai vì mô tả cấu hình thật).
 
 ## Vòng đời khi đóng Kid TE
 

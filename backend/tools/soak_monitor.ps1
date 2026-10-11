@@ -14,8 +14,8 @@ while ($true) {
         $s = Invoke-RestMethod "http://127.0.0.1:8793/api/video/position?platform=shopee" -TimeoutSec 5
         $sp = if ($s.available) { $s.state } else { "unavailable:$($s.reason)" }
     } catch { $sp = 'backend_down' }
-    $pending = (Get-ChildItem "D:\KidTE\src\backend\captcha\screen-recordings" -Filter 'screen-*.mp4' -ErrorAction SilentlyContinue).Count
-    $logMb = [math]::Round(((Get-ChildItem D:\KidTE\src\backend -Recurse -Include *.log -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1MB, 1)
+    $pending = (Get-ChildItem "D:\KidTE\DuLieu\captcha\screen-recordings" -Filter 'screen-*.mp4' -ErrorAction SilentlyContinue).Count
+    $logMb = [math]::Round(((Get-ChildItem D:\KidTE\DuLieu\logs -Recurse -Include *.log -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1MB, 1)
     $procs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'KidTE\\src\\(KidTE.exe|backend\\src\\app_entry.py|plugins\\)|KidTECaptcha|Captcha' }
     foreach ($w in $procs) {
         $gp = Get-Process -Id $w.ProcessId -ErrorAction SilentlyContinue

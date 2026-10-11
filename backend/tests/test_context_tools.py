@@ -19,10 +19,10 @@ import token_budget_sim  # noqa: E402
 
 def test_resolve_root_refuses_live_data(tmp_path):
     with pytest.raises(SystemExit) as caught:
-        sc.resolve_root(r"D:\KidTE\src\backend\data")
+        sc.resolve_root(r"D:\KidTE\DuLieu\data")
     assert "TỪ CHỐI" in str(caught.value) or "live" in str(caught.value).lower() or caught.value.code
     with pytest.raises(SystemExit):
-        sc.resolve_root(r"D:\KidTE\src\backend")
+        sc.resolve_root(r"D:\KidTE\DuLieu")
 
 
 def test_resolve_root_requires_a_data_copy(tmp_path):

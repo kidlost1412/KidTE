@@ -4,7 +4,7 @@
 
 - Popup 440 × 600 px; thanh thương hiệu, điều hướng và liên kết trung tâm cố định. Nội dung cuộn trong từng khu vực.
 - Hai khu vực: **Điều hành LIVE**, **Công cụ**. AI hiển thị cùng phiên, nguồn và sản phẩm; Điều hành LIVE ưu tiên nguồn phát, vị trí video và sản phẩm đã quan sát trên nền tảng.
-- Nguồn thiết kế chung nằm tại `ui/extension/`: CSS popup, tương tác tab và widget shadow DOM. Chạy `backend/.venv/Scripts/python.exe packaging/sync_extension_ui.py` để đồng bộ hai gói độc lập. Đóng gói kiểm tra các bản sao bằng byte, từ chối nếu lệch.
+- Nguồn thiết kế chung nằm tại `ui/extension/`: CSS popup, tương tác tab và widget shadow DOM. Chạy `.venv/Scripts/python.exe packaging/sync_extension_ui.py` để đồng bộ hai gói độc lập. Đóng gói kiểm tra các bản sao bằng byte, từ chối nếu lệch.
 - Chuyển động 120–200 ms chỉ cho chuyển khu vực, mở chi tiết và phản hồi nút. Tôn trọng `prefers-reduced-motion`; không có hiệu ứng nhấp nháy liên tục.
 - Tab hỗ trợ mũi tên, Home/End, focus rõ và thuộc tính ARIA. Không xóa trạng thái lỗi thao tác bằng lần cập nhật nền; lỗi có phản hồi riêng.
 - “AI đã bật”, “AI sẵn sàng” và “đã gửi” là ba trạng thái khác nhau. Mất cập nhật không giữ đồng hồ hay SKU cũ làm trạng thái hiện tại.

@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 if (-not $Python) {
-    $Python = Join-Path $Here "..\backend\.venv\Scripts\python.exe"
+    $Python = Join-Path $Here "..\.venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $Python)) { $Python = "python" }
 }
 $ArgsList = @((Join-Path $Here "release_manifest.py"), "verify", $Dist)

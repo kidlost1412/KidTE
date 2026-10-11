@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-DB = sys.argv[1] if len(sys.argv) > 1 else "D:/KidTE/src/backend/data/customer_memory.sqlite3"
+DB = sys.argv[1] if len(sys.argv) > 1 else "D:/KidTE/DuLieu/data/customer_memory.sqlite3"
 OUT = Path(sys.argv[2] if len(sys.argv) > 2 else "D:/KidTE/queue-watch.csv")
 EVERY = int(sys.argv[3]) if len(sys.argv) > 3 else 120
 

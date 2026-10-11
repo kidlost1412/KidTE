@@ -12,7 +12,7 @@ import types
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src"
-LIVE_SRC = Path(r"D:\KidTE\src")
+LIVE_SRC = Path(r"D:\KidTE\DuLieu")
 CHARS_PER_TOKEN = 2.6
 
 
@@ -36,7 +36,7 @@ def resolve_root(value):
         raise SystemExit(f"{path}: không thấy data/live_products_current.json — cần một bản SAO dữ liệu backend")
     live = str(LIVE_SRC.resolve()).lower()
     if str(path).lower().startswith(live) or str(path / "data").lower().startswith(live):
-        raise SystemExit("TỪ CHỐI: đây là dữ liệu live (D:\\KidTE\\src). Hãy copy ra thư mục khác rồi chạy lại.")
+        raise SystemExit("TỪ CHỐI: đây là dữ liệu live (D:\\KidTE\\DuLieu). Hãy copy ra thư mục khác rồi chạy lại.")
     return path
 
 

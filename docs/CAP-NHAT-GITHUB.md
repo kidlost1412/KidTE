@@ -76,6 +76,8 @@ Phát hành installer chính thức: build core và các cây optional; đóng Z
 
 Installer và core ZIP mới phải được build từ commit nguồn chốt. Catalog ký đúng SHA256 đo từ artifact thực; việc ký không thay nghiệm thu máy Windows sạch, cài/nâng cấp, WebView và phiên LIVE.
 
+Nếu bản vá chỉ sửa installer, có thể phát hành riêng bộ cài với nhãn mới (ví dụ `p3-r1`) và giữ nguyên core ZIP/catalog đã phát hành. Không ghi đè asset cũ. Ghi rõ commit của installer/manifest, commit và URL/hash core được dùng lại, cùng lý do không rebuild core; xác minh diff không đổi mã hoặc nội dung core. Bộ cài sửa vẫn phải được tải từ GitHub và nghiệm thu trên snapshot Windows chưa có app/runtime phụ thuộc.
+
 ## Dữ liệu và phục hồi
 
 `App/packages/<id>/<version>` chứa gói; `.staging` chứa tải dở; `active.json`, `pending.json`, `previous.json` và `update-journal.json` thuộc metadata chương trình. Điểm chuyển phiên bản là replace atomic của mapping. Khóa hệ điều hành ngăn hai updater chuyển metadata đồng thời. Nhật ký không hoàn tất sẽ đưa về bộ trước; nhật ký cũ không xóa pending của lần cập nhật tiếp theo.

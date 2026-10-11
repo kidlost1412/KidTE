@@ -12,6 +12,8 @@ Mở bằng biểu tượng Kid TE để launcher chọn đúng phiên bản. **
 
 Từ P3, bộ cài chỉ mang lõi và các processor nhỏ. Công cụ video, CAPTCHA/monitor, đồng bộ video, worker chép lời và GPU là các gói tải theo nhu cầu. Model và dữ liệu giữ riêng. Processor nghiệp vụ vẫn cập nhật cùng lõi cho tới đợt hợp đồng plugin tiếp theo. [Cơ chế cập nhật và phát hành](docs/CAP-NHAT-GITHUB.md).
 
+Với 1.14.257, dùng [bộ cài P3 r1](https://github.com/kidlost1412/KidTE/releases/tag/v1.14.257-p3-r1). [Nghiệm thu Windows sạch ngày 11/10/2026](docs/NGHIEM-THU-WINDOWS-SACH-20261011.md) ghi kết quả 9/9 bước cài đặt, các lỗi đã sửa và phạm vi chưa nghiệm thu.
+
 ## Phát triển
 
 Python 3.11 x64 trên Windows. Môi trường runtime CPU dùng `backend/requirements-cpu.lock.txt`; môi trường kiểm thử bổ sung `backend/requirements-dev.txt`. Test giao diện và tiện ích cần Node.js. Tránh dùng dữ liệu vận hành để chạy thử; chọn thư mục riêng bằng `KID_TE_ROOT` và cổng riêng bằng `CHAT_PORT`.

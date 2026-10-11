@@ -2,7 +2,9 @@
 
 Cần Windows 10/11 64-bit. Không cần quyền quản trị.
 
-Từ bộ cài 1.14.257, trình cài kiểm tra Microsoft Edge WebView2 trước khi cài Kid TE. Nếu máy chưa có runtime này, trình cài tải bootstrapper từ Microsoft, xác minh chữ ký rồi cài bằng quyền người dùng hiện tại; lần này cần kết nối mạng. Máy đã có WebView2 không tải lại. Khi tải/cài runtime thất bại, trình cài báo bước lỗi và dừng để anh xử lý rồi chạy lại. Muốn cài ngoại tuyến, cài trước **Evergreen Standalone Installer x64** từ [trang WebView2 của Microsoft](https://developer.microsoft.com/en-us/microsoft-edge/webview2/). Runtime được Windows quản lý riêng, không nằm trong thư mục Kid TE.
+Với bản 1.14.257, dùng [bộ cài P3 r1](https://github.com/kidlost1412/KidTE/releases/tag/v1.14.257-p3-r1). Bộ cài 257 ban đầu bị lỗi đọc kết quả WebView2 và chưa đạt nghiệm thu cài mới.
+
+Từ bộ cài 1.14.257 r1, trình cài kiểm tra Microsoft Edge WebView2 trước khi cài Kid TE. Nếu máy chưa có runtime này, trình cài tải bootstrapper từ Microsoft, xác minh chữ ký rồi cài bằng quyền người dùng hiện tại; lần này cần kết nối mạng. Máy đã có WebView2 không tải lại. Khi tải/cài runtime thất bại, trình cài báo bước lỗi và dừng để anh xử lý rồi chạy lại. Muốn cài ngoại tuyến, cài trước **Evergreen Standalone Installer x64** từ [trang WebView2 của Microsoft](https://developer.microsoft.com/en-us/microsoft-edge/webview2/). Runtime được Windows quản lý riêng, không nằm trong thư mục Kid TE. Dung lượng bộ cài không bao gồm runtime tải riêng khi máy thiếu.
 
 P3 cài lõi nhỏ trước. Công cụ video, giải CAPTCHA/monitor, đồng bộ video và bộ chép lời được tải riêng ở **Cài đặt → Cập nhật**; NVIDIA và model cũng tải riêng. Bản thử dùng kênh **Thử nghiệm**. Khi nâng từ P2, cài installer P3 một lần để nâng launcher rồi mới tải các tính năng này.
 
@@ -17,13 +19,13 @@ trang rồi khởi động lại solver. Key và token cần nhập lại trên 
 
 ## Cài đặt
 
-1. Tải `KidTE-Setup-<phiên bản>-cpu-p3.exe` và `SHA256SUMS.txt` từ [GitHub Releases chính thức](https://github.com/kidlost1412/KidTE/releases), rồi chạy bộ cài. Bản P3 hiện là bản thử nghiệm để nghiệm thu từng đợt.
+1. Tải bộ cài CPU và `SHA256SUMS.txt` từ [GitHub Releases chính thức](https://github.com/kidlost1412/KidTE/releases), rồi chạy bộ cài. Với 1.14.257, tên file là `KidTE-Setup-1.14.257-cpu-p3-r1.exe`. Bản P3 hiện là bản thử nghiệm để nghiệm thu từng đợt.
 2. **Windows hiện màn hình xanh "Windows protected your PC" (SmartScreen)**: bấm
    **More info → Run anyway**. Việc này bình thường với phần mềm nội bộ chưa mua chữ ký
    số (xem cuối trang). Muốn chắc file không bị sửa: đối chiếu mã SHA-256 trong file
    `SHA256SUMS.txt` cùng release (PowerShell:
    `Get-FileHash .\KidTE-Setup-*.exe`).
-3. **Chọn thư mục cài** — mặc định là thư mục đã cài trước đó, nếu chưa có thì `D:\KidTE` khi máy có ổ D (không phải ổ Windows), không thì
+3. **Chọn thư mục cài** — mặc định là thư mục đã cài trước đó, nếu chưa có thì `D:\KidTE` khi D là ổ đĩa cố định (không phải ổ Windows, CD/DVD hoặc ổ tháo rời), không thì
    `%LOCALAPPDATA%\KidTE`. Nên chọn ổ còn nhiều chỗ trống. Không cài vào Program Files
    (bộ cài sẽ từ chối, vì app cần ghi dữ liệu ngay cạnh chương trình).
 4. Mở Kid TE → **Cài đặt → Cập nhật → Thử nghiệm**: cài **Bộ chép lời trên máy** nếu cần phân tích video; **Công cụ video** được chọn tự động theo phụ thuộc. Đóng và mở lại app để áp dụng. Sau đó ở **Chép lời**, tải model được đánh dấu "Hợp với máy này" (một lần, cần mạng). Dán khoá DeepSeek ở **Cài đặt** nếu dùng AI; cài tiện ích Chrome theo

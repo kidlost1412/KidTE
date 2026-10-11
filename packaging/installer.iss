@@ -202,13 +202,17 @@ begin
   end;
 end;
 
+function GetDriveType(lpRootPathName: String): UINT;
+external 'GetDriveTypeW@kernel32.dll stdcall';
+
 function DefaultRoot(Param: String): String;
 begin
   Result := PreviousRoot();
   if Result <> '' then
     Exit;
-  // Ổ D (nếu có và không phải ổ Windows) để dữ liệu không chiếm ổ hệ thống.
-  if DirExists('D:\') and (UpperCase(Copy(ExpandConstant('{win}'), 1, 1)) <> 'D') then
+  // Chỉ mặc định D: khi đó là ổ cố định, tránh chọn CD/DVD hoặc ổ rời.
+  if (GetDriveType('D:\') = 3) and
+     (UpperCase(Copy(ExpandConstant('{win}'), 1, 1)) <> 'D') then
     Result := 'D:\KidTE'
   else
     Result := ExpandConstant('{localappdata}\KidTE');

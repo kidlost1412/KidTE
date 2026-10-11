@@ -73,15 +73,17 @@ class CaptchaBridge:
         return env
 
     def _processes(self):
+        # Lọc theo tên trước, chỉ đọc cmdline của vài tiến trình khớp: đọc cmdline
+        # của mọi tiến trình làm psutil chờ thử lại với tiến trình được bảo vệ (~2s/lần).
         own = []
         external = []
         own_data = os.path.normcase(os.path.abspath(self.data_dir))
-        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        for proc in psutil.process_iter(["pid", "name"]):
             try:
                 if (proc.info["name"] or "").casefold() not in {
                     "python.exe", "pythonw.exe", "kidtecaptcha.exe"}:
                     continue
-                args = [str(part).casefold() for part in (proc.info["cmdline"] or [])]
+                args = [str(part).casefold() for part in (proc.cmdline() or [])]
                 if any(arg.endswith("kidtecaptcha.exe") or
                        arg.endswith("captcha_entry.py") for arg in args):
                     try:
@@ -109,11 +111,11 @@ class CaptchaBridge:
         return own, external
 
     def _monitor_pid(self):
-        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        for proc in psutil.process_iter(["pid", "name"]):
             try:
                 if (proc.info["name"] or "").casefold() not in {"powershell.exe", "pwsh.exe"}:
                     continue
-                args = [str(item).casefold() for item in (proc.info["cmdline"] or [])]
+                args = [str(item).casefold() for item in (proc.cmdline() or [])]
                 if (any(item.endswith("captcha-monitor\\monitor.ps1") for item in args)
                         and str(self.data_dir).casefold() in args):
                     return proc.pid

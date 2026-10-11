@@ -188,6 +188,7 @@ def test_another_kid_te_instance_is_not_mistaken_for_ours(tmp_path):
     other.info = {"pid": 555, "name": "KidTECaptcha.exe", "cmdline": [
         r"C:\Other\KidTECaptcha.exe", "--data-dir", str(tmp_path / "other-instance"),
     ]}
+    other.cmdline.return_value = other.info["cmdline"]
     with mock.patch("captcha_bridge.psutil.process_iter", return_value=[other]):
         own, external = bridge._processes()
     assert own == []

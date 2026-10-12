@@ -77,6 +77,19 @@ def copy_file(source: Path, target: Path):
     shutil.copy2(source, target)
 
 
+# Version of the ``runtime`` package (interpreter + third-party libraries). Its MAJOR is
+# the runtime ABI that ``app`` packages declare (``runtime_api``). Bump it only when the
+# Python version, requirements, spec or bootstrap change; ordinary releases leave it alone.
+RUNTIME_VERSION = "1.0.0"
+# Version of the ``extensions`` package; bump it whenever extension/ or extension-shopee/ change
+# (build_catalog.py refuses a re-published package with unchanged files).
+EXTENSIONS_VERSION = "1.0.0"
+
+
+def runtime_version():
+    return RUNTIME_VERSION
+
+
 def build_version():
     """``VERSION`` (phần chính, vd 1.4) + số commit → 1.4.96. Không ghi cứng ở đâu.
 
@@ -101,13 +114,55 @@ def build_version():
     return f"{base}.{count}"
 
 
-def stage(destination: Path, profile: str = "gpu", *, minimal: bool = False):
+SPLIT_COMPONENT_IDS = ("runtime", "app", "extensions")
+NOT_PACKAGED = {"kidtelauncher.exe", "release-manifest.json", "bootstrap-request.json"}
+
+
+def component_for(relative: str):
+    """Which update component owns a file of the merged install tree (None: not in a split package)."""
+    path = str(relative).replace(chr(92), "/").lower()
+    if path in NOT_PACKAGED:
+        return None
+    if path.startswith(("extension/", "extension-shopee/")):
+        return "extensions"
+    if path.startswith(("backend/", "plugins/", "docs/")) or path == "version":
+        return "app"
+    if path.startswith(("captcha/", "tools/")) or path == "kidtevideo.exe":
+        return None  # optional components (media-tools, captcha-solver, video-sync)
+    return "runtime"
+
+
+def copy_tree(source: Path, target: Path):
+    if not source.is_dir():
+        raise FileNotFoundError(source)
+    for path in sorted(source.rglob("*")):
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
+            copy_file(path, target / path.relative_to(source))
+
+
+def copy_app_code(destination: Path):
+    """Kid TE's own backend modules, web UI and prompts: the ``app`` package payload."""
+    source = PROJECT / "backend" / "src"
+    for path in sorted(source.glob("*.py")):
+        copy_file(path, destination / "backend" / "src" / path.name)
+    copy_tree(source / "web", destination / "backend" / "src" / "web")
+    copy_tree(PROJECT / "backend" / "prompts", destination / "backend" / "prompts")
+
+
+def stage(destination: Path, profile: str = "gpu", *, minimal: bool = False, app_only: bool = False):
+    """Fill ``destination`` with the merged install tree.
+
+    ``app_only`` skips the runtime (no PyInstaller output needed) and stages just the
+    ``app`` and ``extensions`` payloads, for releases that do not touch the runtime.
+    """
     subprocess.run([sys.executable, str(PROJECT / 'packaging/apply_theme.py'), '--check'], check=True)
     subprocess.run([sys.executable, str(PROJECT / 'packaging/sync_extension_ui.py'), '--check'], check=True)
     destination = destination.resolve()
-    if not (destination / "KidTE.exe").is_file():
+    if not app_only and not (destination / "KidTE.exe").is_file():
         raise RuntimeError("Thư mục đích chưa có KidTE.exe")
+    destination.mkdir(parents=True, exist_ok=True)
     (destination / "VERSION").write_text(build_version() + "\n", encoding="utf-8")
+    copy_app_code(destination)
     for plugin_id, names in PLUGIN_FILES.items():
         for name in names:
             copy_file(PROJECT / "plugins" / plugin_id / name,
@@ -119,6 +174,8 @@ def stage(destination: Path, profile: str = "gpu", *, minimal: bool = False):
                   destination / "extension-shopee" / name)
     for name in DOC_FILES:
         copy_file(PROJECT / "docs" / name, destination / "docs" / name)
+    if app_only:
+        return validate(destination, profile=profile, minimal=True, only={"app", "extensions"})
     if not minimal:
         copy_ffmpeg(destination)
     return validate(destination, profile=profile, minimal=minimal)
@@ -186,7 +243,7 @@ def _gpu_dlls(destination: Path):
     return found
 
 
-def validate(destination: Path, profile: str = "gpu", *, minimal: bool = False):
+def validate(destination: Path, profile: str = "gpu", *, minimal: bool = False, only=None):
     """Validate CPU or legacy bundled-GPU payloads.
 
     Keep the direct API default at `gpu` for existing callers. Build scripts
@@ -207,14 +264,15 @@ def validate(destination: Path, profile: str = "gpu", *, minimal: bool = False):
                 "extension/icons/kid-te-32.png",
                 "extension/icons/kid-te-48.png",
                 "extension/icons/kid-te-128.png",
-                "_internal/backend/src/web/operator.html",
-                "_internal/backend/src/web/kid-te-icon.png",
-                "_internal/backend/src/web/app/bootstrap.js",
-                "_internal/backend/src/web/styles/tokens.css",
-                "_internal/backend/prompts/system_prompt.txt",
-                "_internal/backend/prompts/sales_playbook.default.json",
+                "backend/src/app_entry.py",
+                "backend/src/web/operator.html",
+                "backend/src/web/kid-te-icon.png",
+                "backend/src/web/app/bootstrap.js",
+                "backend/src/web/styles/tokens.css",
+                "backend/prompts/system_prompt.txt",
+                "backend/prompts/sales_playbook.default.json",
                 # Gói hồ sơ chính thức: máy trắng tự cài từ đây lần đầu mở.
-                "_internal/backend/prompts/knowledge_seed.json",
+                "backend/prompts/knowledge_seed.json",
                 "_internal/certifi/cacert.pem"]
     if profile == "gpu":
         required += ["_internal/nvidia/cublas/bin/cublas64_12.dll",
@@ -227,9 +285,11 @@ def validate(destination: Path, profile: str = "gpu", *, minimal: bool = False):
     if minimal:
         required = [name for name in required if not name.startswith(("Captcha/", "tools/"))
                     and name != "KidTEVideo.exe"]
+    if only is not None:
+        required = [item for item in required if component_for(item) in only]
     missing = [item for item in required if not (destination / item).is_file()]
     forbidden = []
-    if profile == "cpu":
+    if profile == "cpu" and (only is None or "runtime" in only):
         forbidden.extend(_gpu_dlls(destination))
     if minimal:
         for path in destination.rglob("*"):
@@ -243,6 +303,8 @@ def validate(destination: Path, profile: str = "gpu", *, minimal: bool = False):
         if not item.is_file():
             continue
         relative = item.relative_to(destination)
+        if only is not None and component_for(relative.as_posix()) not in only:
+            continue
         parts = relative.parts
         folded_parts = tuple(part.lower() for part in parts)
         private_tree = (folded_parts[0] == "dulieu"
@@ -265,7 +327,9 @@ if __name__ == "__main__":
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--profile", type=str.lower, choices=("cpu", "gpu"), default="cpu")
     parser.add_argument("--minimal", action="store_true")
+    parser.add_argument("--app-only", action="store_true",
+                        help="stage only the app + extensions payloads (no runtime needed)")
     args = parser.parse_args()
     result = (validate(args.destination.resolve(), profile=args.profile, minimal=args.minimal) if args.validate_only
-              else stage(args.destination, profile=args.profile, minimal=args.minimal))
+              else stage(args.destination, profile=args.profile, minimal=args.minimal, app_only=args.app_only))
     print(json.dumps(result, ensure_ascii=False))

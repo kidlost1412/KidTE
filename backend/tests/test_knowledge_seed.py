@@ -238,7 +238,7 @@ def _stage_runtime():
 def test_packaging_requires_the_seed_but_still_forbids_machine_catalog_files():
     stage = _stage_runtime()
     source = (PROJECT / "packaging" / "stage_runtime.py").read_text(encoding="utf-8")
-    assert "_internal/backend/prompts/knowledge_seed.json" in source
+    assert "backend/prompts/knowledge_seed.json" in source
     for name in ("product_knowledge.json", "approved_live_profiles.json", "company_catalog_mapping.json",
                  "local_product_overrides.json", "catalog_mapping.json", "shopee_live_mappings.json"):
         assert name in stage.FORBIDDEN_NAMES
@@ -246,16 +246,18 @@ def test_packaging_requires_the_seed_but_still_forbids_machine_catalog_files():
     assert "prompts" not in stage.FORBIDDEN_PARTS
 
 
-def test_pyinstaller_spec_bundles_the_prompts_folder():
+def test_prompts_ship_in_the_app_package_not_in_the_frozen_runtime():
     spec = (PROJECT / "packaging" / "KidTE.spec").read_text(encoding="utf-8")
-    assert 'str(BACKEND / "prompts"), "backend/prompts"' in spec
+    assert 'str(BACKEND / "prompts")' not in spec  # the frozen runtime carries no Kid TE resources
+    stage_source = (PROJECT / "packaging" / "stage_runtime.py").read_text(encoding="utf-8")
+    assert 'copy_tree(PROJECT / "backend" / "prompts", destination / "backend" / "prompts")' in stage_source
 
 
 def test_validate_fails_when_the_seed_is_missing_and_passes_with_it(tmp_path):
     from test_packaging_policy import _bo_khung_hop_le
     stage = _stage_runtime()
     root = _bo_khung_hop_le(tmp_path)
-    seed = root / "_internal" / "backend" / "prompts" / "knowledge_seed.json"
+    seed = root / "backend" / "prompts" / "knowledge_seed.json"
     assert seed.is_file()
     assert stage.validate(root)["ok"] is True
     seed.unlink()

@@ -84,7 +84,7 @@ def test_inventory_reports_measured_ownership_bytes_and_optional_archive(tmp_pat
 
     report = inventory_module.inventory(root, archive)
     totals = {row["component"]: row["raw_bytes"] for row in report["components"]}
-    assert totals == {"core": 5, "media-tools": 7, "captcha-monitor": 2}
+    assert totals == {"runtime": 5, "media-tools": 7, "captcha-monitor": 2}
     assert report["total_raw_bytes"] == 14
     assert report["compressed_artifact"] == {
         "filename": "setup.exe", "bytes": len(b"compressed-bytes"),
@@ -121,13 +121,14 @@ def test_cpu_profile_keeps_runtime_assets_but_rejects_gpu_payload_and_user_weigh
             "Captcha/_internal/tiktok_live_studio_captcha_solver/resources/modern_puzzle_slider.png",
             "Captcha/_internal/captcha-monitor/monitor.ps1",
             "Captcha/_internal/captcha-monitor/record-and-send.ps1",
-            "_internal/backend/src/web/operator.html",
-            "_internal/backend/src/web/kid-te-icon.png",
-            "_internal/backend/src/web/app/bootstrap.js",
-            "_internal/backend/src/web/styles/tokens.css",
-            "_internal/backend/prompts/system_prompt.txt",
-            "_internal/backend/prompts/sales_playbook.default.json",
-            "_internal/backend/prompts/knowledge_seed.json",
+            "backend/src/app_entry.py",
+            "backend/src/web/operator.html",
+            "backend/src/web/kid-te-icon.png",
+            "backend/src/web/app/bootstrap.js",
+            "backend/src/web/styles/tokens.css",
+            "backend/prompts/system_prompt.txt",
+            "backend/prompts/sales_playbook.default.json",
+            "backend/prompts/knowledge_seed.json",
             "_internal/certifi/cacert.pem",
         ):
             path = root / relative
@@ -188,10 +189,10 @@ def test_cpu_profile_rejects_weights_even_in_runtime_package_paths(tmp_path, rel
         "Captcha/_internal/tiktok_live_studio_captcha_solver/resources/modern_puzzle_slider.png",
         "Captcha/_internal/captcha-monitor/monitor.ps1",
         "Captcha/_internal/captcha-monitor/record-and-send.ps1",
-        "_internal/backend/src/web/operator.html", "_internal/backend/src/web/kid-te-icon.png",
-        "_internal/backend/src/web/app/bootstrap.js", "_internal/backend/src/web/styles/tokens.css",
-        "_internal/backend/prompts/system_prompt.txt", "_internal/backend/prompts/sales_playbook.default.json",
-        "_internal/backend/prompts/knowledge_seed.json", "_internal/certifi/cacert.pem",
+        "backend/src/app_entry.py", "backend/src/web/operator.html", "backend/src/web/kid-te-icon.png",
+        "backend/src/web/app/bootstrap.js", "backend/src/web/styles/tokens.css",
+        "backend/prompts/system_prompt.txt", "backend/prompts/sales_playbook.default.json",
+        "backend/prompts/knowledge_seed.json", "_internal/certifi/cacert.pem",
         "_internal/ctranslate2/models/model.py",
     ):
         item = root / path

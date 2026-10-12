@@ -305,13 +305,14 @@ def test_tampered_baseline_is_not_reused_and_core_is_downloaded(tmp_path):
 def _minimal_core_tree(root):
     required = [
         "KidTE.exe", "VERSION",
-        "_internal/backend/src/web/operator.html",
-        "_internal/backend/src/web/kid-te-icon.png",
-        "_internal/backend/src/web/app/bootstrap.js",
-        "_internal/backend/src/web/styles/tokens.css",
-        "_internal/backend/prompts/system_prompt.txt",
-        "_internal/backend/prompts/sales_playbook.default.json",
-        "_internal/backend/prompts/knowledge_seed.json",
+        "backend/src/app_entry.py",
+        "backend/src/web/operator.html",
+        "backend/src/web/kid-te-icon.png",
+        "backend/src/web/app/bootstrap.js",
+        "backend/src/web/styles/tokens.css",
+        "backend/prompts/system_prompt.txt",
+        "backend/prompts/sales_playbook.default.json",
+        "backend/prompts/knowledge_seed.json",
         "_internal/certifi/cacert.pem",
     ]
     for plugin_id, names in stage_runtime.PLUGIN_FILES.items():
@@ -332,11 +333,11 @@ def test_minimal_core_validation_excludes_heavy_runtime_and_requires_baseline_fi
     assert not (tmp_path / "_internal" / "ctranslate2").exists()
     assert not (tmp_path / "_internal" / "faster_whisper").exists()
 
-    seed = tmp_path / "_internal/backend/prompts/knowledge_seed.json"
+    seed = tmp_path / "backend/prompts/knowledge_seed.json"
     seed.unlink()
     with pytest.raises(RuntimeError, match="missing") as error:
         stage_runtime.validate(tmp_path, profile="cpu", minimal=True)
-    assert "_internal/backend/prompts/knowledge_seed.json" in str(error.value)
+    assert "backend/prompts/knowledge_seed.json" in str(error.value)
 
 
 @pytest.mark.parametrize("component_id", ["gpu-cuda12", "captcha-solver"])

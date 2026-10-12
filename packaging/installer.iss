@@ -65,12 +65,18 @@ SelectDirBrowseLabel=Nên chọn ổ còn nhiều chỗ trống (model chép l�
 [Files]
 ; Extracted only for the setup-time WebView2 prerequisite check; not installed with the app.
 Source: "{#ProjectRoot}packaging\ensure-webview2.ps1"; Flags: dontcopy
+; Merged install tree = runtime (KidTE.exe, _internal) + app (backend, plugins, docs, VERSION) +
+; extensions (extension, extension-shopee) + KidTELauncher.exe. The signed bootstrap-request.json lists
+; runtime/app/extensions, so the launcher registers them as the first generation (no download).
 Source: "{#ProjectRoot}dist\KidTE\*"; DestDir: "{app}\App"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Cùng AppId với bản cũ: thay tên chương trình và lối tắt, giữ nguyên DuLieu.
 [InstallDelete]
 ; Legacy optional payloads are replaced by versioned packages. DuLieu and
 ; App/packages (including the installed GPU pack) are preserved.
+; Split layout: Kid TE code now lives in App\backend (the app package); the monolithic
+; build froze it inside _internal\backend.
+Type: filesandordirs; Name: "{app}\App\_internal\backend"
 Type: filesandordirs; Name: "{app}\App\Captcha"
 Type: filesandordirs; Name: "{app}\App\tools"
 Type: files; Name: "{app}\App\KidTEVideo.exe"

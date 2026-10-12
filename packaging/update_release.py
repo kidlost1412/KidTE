@@ -1,7 +1,7 @@
 """Local-only tools for building update ZIPs and signing catalog payloads.
 
 Examples:
-  python packaging/update_release.py package dist --component core --out update.zip
+  python packaging/update_release.py package dist/KidTE --component app --out app.zip   (also: runtime, extensions)
   python packaging/update_release.py keygen --private-key %LOCALAPPDATA%\\KidTE\\release-key.dpapi --public-key release-public.json
   python packaging/update_release.py sign catalog-payload.json --private-key ... --out kidte-catalog-v2.json
 
@@ -180,14 +180,18 @@ def package_directory(source: Path, output: Path, component="core"):
     if source == output_abs or source in output_abs.parents:
         raise ValueError("output must be outside package source")
     _check_local_path(source)
-    if component == "core":
+    split = component in stage_runtime.SPLIT_COMPONENT_IDS
+    if component == "core" or split:
         for path in source.rglob("*"):
             _check_local_path(path)
-        state_names = {"active.json", "previous.json", "pending.json", "update-journal.json", "catalog-sequence.json", ".component-store.lock"}
-        if any(path.name.casefold() in state_names or {part.casefold() for part in path.relative_to(source).parts}.intersection({".staging", "packages"})
+        state_names = {"active.json", "previous.json", "pending.json", "update-journal.json", "catalog-sequence.json", ".component-store.lock",
+                       "extensions-sync.json", "launcher-startup.log"}
+        if any(path.name.casefold() in state_names or {part.casefold() for part in path.relative_to(source).parts}.intersection({".staging", "packages", ".pycache"})
                for path in source.rglob("*")):
             raise ValueError("dirty_package_source_contains_update_state")
-        stage_runtime.validate(source, profile="cpu", minimal=True)
+        # A split package is cut out of the merged install tree by ownership
+        # (runtime / app / extensions); only its own files are validated.
+        stage_runtime.validate(source, profile="cpu", minimal=True, only={component} if split else None)
     files = []
     for path in sorted(source.rglob("*"), key=lambda p: p.relative_to(source).as_posix().casefold()):
         _check_local_path(path)
@@ -195,6 +199,8 @@ def package_directory(source: Path, output: Path, component="core"):
             continue
         rel = path.relative_to(source).as_posix()
         if component == "core" and rel.casefold() in {"kidtelauncher.exe", "release-manifest.json", "bootstrap-request.json"}:
+            continue
+        if split and stage_runtime.component_for(rel) != component:
             continue
         if not _safe_path(rel) or _contains_user_data(rel):
             raise ValueError("unsafe_windows_path")

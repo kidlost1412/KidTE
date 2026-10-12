@@ -134,7 +134,7 @@ core_pyz = PYZ(core.pure)
 video_pyz = PYZ(video.pure)
 
 core_exe = EXE(core_pyz, core.scripts, [], exclude_binaries=True,
-               name="KidTE", console=True, debug=False, bootloader_ignore_signals=False,
+               name="KidTE", console=False, debug=False, bootloader_ignore_signals=False,
                strip=False, upx=True, disable_windowed_traceback=False,
                version=windows_version_info("Kid TE"),
                icon=str(PROJECT / "assets" / "kid-te.ico"))

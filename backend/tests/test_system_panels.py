@@ -233,3 +233,27 @@ def test_logs_are_translated_and_problems_filter(tmp_path):
     assert "Khoá DeepSeek sai" in out[1]["hint"]
     assert "sk-abcdefghijklmnop" not in out[0]["exception"]
     assert log_viewer.recent_logs(tmp_path)["rows"][-1]["title"] == "Ứng dụng đã mở xong"
+
+
+def test_whisper_hardware_probe_never_blocks_request(monkeypatch):
+    import threading
+    import time
+    release = threading.Event()
+
+    def slow_probe():
+        release.wait(5)
+        return {"ram_gb": 16, "cpu_cores": 8, "gpu": {"name": "X", "vram_gb": 6}, "cuda": True, "disk_free_gb": 10}
+
+    monkeypatch.setattr(whisper_models, "_HARDWARE", {})
+    monkeypatch.setattr(whisper_models, "_HW_THREAD", None)
+    monkeypatch.setattr(whisper_models, "_probe_hardware", slow_probe)
+    started = time.perf_counter()
+    first = whisper_models.hardware()
+    assert time.perf_counter() - started < 0.5          # không chờ thăm dò chậm
+    assert first["probing"] is True and first["cuda"] is False
+    again = whisper_models.hardware()                   # không sinh thêm luồng thăm dò
+    assert again["probing"] is True
+    release.set()
+    done = whisper_models.hardware(wait=True)
+    assert done["cuda"] is True and done["probing"] is False
+    assert whisper_models.hardware()["cuda"] is True    # đã nhớ, trả ngay

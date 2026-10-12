@@ -850,7 +850,7 @@ class WorkspaceStore:
         if not MEMORY_DB.exists():
             return result
         try:
-            with sqlite3.connect(str(MEMORY_DB), timeout=5) as db:
+            with closing(sqlite3.connect(str(MEMORY_DB), timeout=5)) as db:
                 db.row_factory = sqlite3.Row
                 for raw in db.execute("SELECT * FROM interactions WHERE event_type='comment'"):
                     row = dict(raw)
@@ -860,6 +860,51 @@ class WorkspaceStore:
         except (sqlite3.Error, OSError):
             pass
         return result
+
+    def _memory_only_rows(self, known_msg_ids):
+        """Bình luận có trong bộ nhớ khách nhưng KHÔNG có trong logs/raw_stream.
+
+        Cài lại / chuyển máy / tắt RAW_STREAM làm thư mục raw_stream rỗng trong khi
+        customer_memory vẫn giữ toàn bộ bình luận: Hộp thư từng trống trơn dù có
+        hàng trăm tương tác. Dựng dòng thô tổng hợp từ bộ nhớ (cùng msg_id nên id
+        ổn định, khi raw_stream xuất hiện lại sẽ không bị trùng).
+        """
+        rows = []
+        if not MEMORY_DB.exists():
+            return rows
+        try:
+            with closing(sqlite3.connect(str(MEMORY_DB), timeout=5)) as db:
+                db.row_factory = sqlite3.Row
+                query = (
+                    "SELECT i.interaction_id, i.session_id, i.happened_at, i.customer_key, i.comment, "
+                    "i.runtime_comment_id, c.platform_user_id, c.sec_uid, c.unique_id, c.display_name, "
+                    "s.channel, s.room_id FROM interactions i "
+                    "LEFT JOIN customers c ON c.customer_key=i.customer_key "
+                    "LEFT JOIN sessions s ON s.session_id=i.session_id "
+                    "WHERE i.event_type='comment'")
+                for raw in db.execute(query):
+                    item = dict(raw)
+                    msg_id = str(item.get("runtime_comment_id") or "")
+                    if not msg_id or msg_id in known_msg_ids:
+                        continue
+                    shopee = str(item.get("customer_key") or "").startswith("shopee:") or (
+                        str(item.get("channel") or "").startswith("shopee"))
+                    ts = str(item.get("happened_at") or "")
+                    row = {"msg_id": msg_id, "ts": ts, "text": item.get("comment") or "",
+                           "nickname": item.get("display_name") or item.get("unique_id") or "",
+                           "unique_id": item.get("unique_id") or "",
+                           "user_id": item.get("platform_user_id") or "",
+                           "room_id": item.get("room_id") or "",
+                           "session_id": item.get("session_id") or "",
+                           "platform": "shopee" if shopee else "tiktok",
+                           "data_source": "shopee-live" if shopee else "customer-memory",
+                           "is_host": False}
+                    rows.append({"id": hashlib.sha256(msg_id.encode("utf-8")).hexdigest()[:24],
+                                 "source_file": "customer_memory", "source_line": 0,
+                                 "_at": self._parse_at(ts), **row})
+        except (sqlite3.Error, OSError):
+            pass
+        return rows
 
     @staticmethod
     def _same_stream(left, right):
@@ -943,6 +988,10 @@ class WorkspaceStore:
 
     def _raw_events_uncached(self):
         raw_rows = self._read_raw_rows()
+        known = {str(r.get("msg_id")) for r in raw_rows if r.get("msg_id")}
+        extra = self._memory_only_rows(known)
+        if extra:
+            raw_rows = sorted(raw_rows + extra, key=lambda r: (r["_at"], r["source_file"], r["source_line"]))
         self._sessionize(raw_rows)
         products = {str(item.get("product_id")): item for item in
                     self.engine.mapping_state().get("products", [])}

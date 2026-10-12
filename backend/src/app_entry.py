@@ -255,6 +255,11 @@ def main() -> int:
                 maintenance_provider=lambda: bool(getattr(getattr(engine, "maintenance", None), "blocked", lambda: False)()),
                 logger=logger)
             auto_scheduler.start()
+        try:
+            import whisper_models
+            whisper_models.warm_up()    # đo GPU/CUDA nền, trang Chép lời không phải chờ
+        except Exception:  # noqa: BLE001 - không được làm hỏng khởi động
+            pass
         print(f"[kid-te] Ứng dụng: http://{args.host}:{args.port}/app")
         if args.no_ui:
             server.serve_forever(0.3)

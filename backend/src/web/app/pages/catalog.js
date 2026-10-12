@@ -7,6 +7,7 @@ import {toast, openDrawer, confirmDialog, promptDialog} from '../ui/overlays.js'
 import {loadCatalog, invalidateCatalog} from './video/data.js';
 import {doseRulesPanel} from './dose-rules-ui.js';
 import * as mm from './mapping-model.js';
+import * as pd from './profile-delete-model.js';
 
 const TABS = [
   {id: 'products', label: 'Sản phẩm đang bán', icon: 'cart'},
@@ -162,10 +163,14 @@ function mountProducts(ctx, host, d) {
 // ======================================================================
 function mountProfiles(ctx, host, d) {
   let profiles = null, error = null, query = '';
+  const picked = new Set();
+  const bulkBar = h('span', {});
   const search = h('input', {class: 'input', type: 'search', placeholder: 'Tìm hồ sơ theo tên, công dụng, cây trồng…'});
   const list = h('div', {class: 'card'}, skeletonRows(6, 50));
   clear(host, h('div', {class: 'toolbar'}, h('div', {class: 'search-input'}, icon('search'), search), h('span', {class: 'grow'}),
-    h('span', {class: 'fs-xs muted'}, 'Sửa và tạo ở đây chỉ áp dụng trên máy này.'),
+    h('span', {class: 'fs-xs muted'}, 'Sửa, tạo và xoá ở đây chỉ áp dụng trên máy này.'),
+    bulkBar,
+    btn('Hồ sơ đã xoá', {kind: 'ghost', icon: 'trash', onClick: () => openDeleted()}),
     btn('Tạo hồ sơ mới', {kind: 'primary', icon: 'plus', onClick: () => createProfile(ctx, null)})), list);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
 
@@ -179,12 +184,52 @@ function mountProfiles(ctx, host, d) {
           {iconName: 'fileText', action: btn('Tạo hồ sơ mới', {kind: 'primary', icon: 'plus', onClick: () => createProfile(ctx, null)})}));
       return;
     }
-    clear(list, h('div', {class: 'list'}, items.map(p => h('button', {class: 'list-row', type: 'button', onClick: () => openProfile(p.id)},
-      h('span', {class: 'pavatar', style: {'--size': '46px'}}, p.featured_image_url ? h('img', {src: p.featured_image_url, alt: '', loading: 'lazy', onError: e => e.target.remove()}) : icon('fileText')),
-      h('div', {class: 'grow'}, h('div', {class: 'title clamp-2'}, p.title), h('div', {class: 'sub clamp-2'}, listOf(p.cong_dung).slice(0, 2).join(' · ') || p.mo_ta_ngan || '')),
-      h('div', {class: 'col', style: {alignItems: 'flex-end', gap: '4px'}},
-        p.mapped_skus ? chip(`${p.mapped_skus} SP đang dùng`, 'ok') : chip('Chưa gắn SP nào', ''),
-        p.local_override ? chip('Đã sửa trên máy', 'info') : null)))));
+    clear(list, h('div', {class: 'list'}, items.map(p => h('div', {class: 'list-row'},
+      h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + p.title, checked: picked.has(p.id), onChange: e => { e.target.checked ? picked.add(p.id) : picked.delete(p.id); renderBulk(); }}),
+      h('button', {class: 'list-row', type: 'button', style: {flex: '1', border: '0', background: 'none', padding: '0'}, onClick: () => openProfile(p.id)},
+        h('span', {class: 'pavatar', style: {'--size': '46px'}}, p.featured_image_url ? h('img', {src: p.featured_image_url, alt: '', loading: 'lazy', onError: e => e.target.remove()}) : icon('fileText')),
+        h('div', {class: 'grow'}, h('div', {class: 'title clamp-2'}, p.title), h('div', {class: 'sub clamp-2'}, listOf(p.cong_dung).slice(0, 2).join(' · ') || p.mo_ta_ngan || '')),
+        h('div', {class: 'col', style: {alignItems: 'flex-end', gap: '4px'}},
+          p.mapped_skus ? chip(`${p.mapped_skus} SP đang dùng`, 'ok') : chip('Chưa gắn SP nào', ''),
+          p.local_override ? chip('Đã sửa trên máy', 'info') : null)),
+      btn('', {size: 'sm', kind: 'ghost', icon: 'trash', attrs: {title: 'Xoá hồ sơ này (vào Thùng rác 30 ngày)', 'aria-label': 'Xoá ' + p.title}, onClick: () => removeProfiles([p.id])})))));
+  }
+
+  function renderBulk() {
+    clear(bulkBar, picked.size ? btn(`Xoá ${picked.size} hồ sơ đã chọn`, {kind: 'danger', size: 'sm', icon: 'trash', onClick: () => removeProfiles([...picked])}) : null);
+  }
+
+  async function removeProfiles(ids, drawer) {
+    const chosen = (profiles || []).filter(p => ids.includes(p.id));
+    if (!chosen.length) return;
+    const {title, text} = pd.confirmTextFor(chosen);
+    const ok = await confirmDialog({title, text, confirm: 'Xoá', tone: 'danger'});
+    if (!ok) return;
+    const {done, failed} = await pd.deleteProfiles(request, ids);
+    done.forEach(id => picked.delete(id));
+    if (drawer) drawer.close();
+    if (done.length) {
+      invalidateCatalog();
+      toast(done.length === 1 ? 'Đã chuyển hồ sơ vào Thùng rác.' : `Đã chuyển ${done.length} hồ sơ vào Thùng rác.`, 'ok', {action: 'Hoàn tác', onAction: async () => { await pd.restoreProfiles(request, done); invalidateCatalog(); load(); }});
+    }
+    if (failed.length) toast(`${failed.length} hồ sơ chưa xoá được: ${friendlyError(failed[0].error)}`, 'danger');
+    load();
+  }
+
+  async function openDeleted() {
+    let items;
+    try { items = await pd.loadDeletedProfiles(request); } catch (e) { toast(friendlyError(e), 'danger'); return; }
+    const drawer = openDrawer({
+      title: 'Hồ sơ đã xoá', sub: 'Giữ 30 ngày trong Thùng rác, khôi phục bất cứ lúc nào trước hạn.', width: 560,
+      body: h('div', {class: 'card-body'}, items.length ? h('div', {class: 'list'}, items.map(t => h('div', {class: 'list-row'},
+        h('div', {class: 'grow'}, h('div', {class: 'title'}, t.label || t.record_id), h('div', {class: 'sub'}, `xoá ${relative(t.deleted_at)} · giữ tới ${dateTime(t.expires_at)}`)),
+        btn('Khôi phục', {size: 'sm', icon: 'undo', onClick: async () => {
+          const out = await pd.restoreProfiles(request, [t.record_id]);
+          if (out.failed.length) { toast(friendlyError(out.failed[0].error), 'danger'); return; }
+          invalidateCatalog(); toast('Đã khôi phục hồ sơ.', 'ok'); drawer.close(); load();
+        }})))) : empty('Không có hồ sơ nào đã xoá', '', {iconName: 'trash'})),
+      footer: [h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()})],
+    });
   }
 
   async function openProfile(id) {
@@ -225,6 +270,7 @@ function mountProfiles(ctx, host, d) {
           if (!ok) return;
           try { await request(`/api/workspace/profiles/${encodeURIComponent(id)}/rollback`, {method: 'POST', body: {}}); toast('Đã khôi phục bản trước.', 'ok'); drawer.close(); load(); } catch (e) { toast(friendlyError(e), 'danger'); }
         }}) : null,
+        btn('Xoá hồ sơ', {kind: 'ghost', icon: 'trash', onClick: () => removeProfiles([id], drawer)}),
         h('span', {class: 'grow'}),
         btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}),
         btn('Lưu hồ sơ', {kind: 'primary', icon: 'save', onClick: async () => {
@@ -250,6 +296,7 @@ function mountProfiles(ctx, host, d) {
       const first = await request('/api/workspace/profiles?limit=100');
       profiles = first.items || [];
     } catch (e) { error = e; }
+    renderBulk();
     render();
     if (ctx.route.id && profiles) openProfile(ctx.route.id);
   }

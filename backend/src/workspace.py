@@ -2500,6 +2500,9 @@ class WorkspaceStore:
                     "conversations": "Bình luận LIVE",
                 }.get(item.get("resource"), "Nội dung đã xóa")
             items.append(item)
+        only = _safe_text(query.get("resource"), 40)
+        if only:
+            items = [item for item in items if item.get("resource") == only]
         return {"ok": True, "resource": "trash", **self._paginate(
             items, query)}
 

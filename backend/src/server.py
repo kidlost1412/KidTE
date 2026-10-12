@@ -1473,7 +1473,10 @@ class ReplyEngine:
     def mapping_state(self):
         live = self.catalog.snapshot or {}
         records = self.knowledge.all_records()
-        assigned = self.knowledge.mapping_assignments()
+        hidden = self.knowledge.hidden_ids()
+        # SKU còn nối tới hồ sơ đã xoá: coi như chưa gắn (khôi phục hồ sơ thì nối lại).
+        assigned = {sid: code for sid, code in self.knowledge.mapping_assignments().items()
+                    if code not in hidden}
         approved_codes = self.knowledge.approved_product_codes()
         profiles = [{
             "id": clean(record.get("san_pham_id"), 80),

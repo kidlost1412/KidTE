@@ -22,6 +22,7 @@ from service_supervisor import ServiceSupervisor
 from structured_log import configure_logger
 from server import Handler, LoopbackHTTPServer, ReplyEngine
 from update_manager import UpdateManager, UpdateScheduler, select_active_gpu
+from update_restart import ALREADY_RUNNING_EXIT_CODE, RESTART_EXIT_CODE, write_marker
 
 
 def run_desktop_ui(server, url, *, webview_module=None):
@@ -136,6 +137,11 @@ def main() -> int:
         lock.acquire()
     except InstanceAlreadyRunning as exc:
         print(f"[kid-te] KHÔNG KHỞI ĐỘNG: {exc}")
+        if os.environ.get("KIDTE_LAUNCH_NONCE"):
+            # Started by the launcher while another core already owns this data
+            # folder: report it at once (the launcher decides what to do) instead
+            # of opening a second window onto the other instance.
+            return ALREADY_RUNNING_EXIT_CODE
         url = f"http://{args.host}:{args.port}/app"
         if notify_existing_instance(args.host, args.port):
             print("[kid-te] Đã đưa cửa sổ Kid TE đang chạy lên trước.")
@@ -150,6 +156,7 @@ def main() -> int:
     server = None
     auto_scheduler = None
     ly_do_dung = "graceful"
+    restart_requested = False
     logger = configure_logger("core", LOG_DIR)
     configure_logger("http", LOG_DIR, console=False)
     if lock.stale_lock:
@@ -223,6 +230,14 @@ def main() -> int:
                     logger.error(str(exc), extra={"event": "window_close_failed"})
 
         engine.request_shutdown = stop
+
+        def restart():
+            """Stop like ``stop`` but exit with RESTART_EXIT_CODE for the launcher."""
+            nonlocal restart_requested
+            restart_requested = True
+            stop()
+
+        engine.request_restart = restart
 
         # Windows gui Ctrl+Break thanh SIGBREAK, khong phai SIGINT. Ban cu chi
         # dang ky SIGINT/SIGTERM nen Ctrl+Break rot xuong trinh xu ly mac dinh
@@ -306,6 +321,16 @@ def main() -> int:
                 logger.error(str(exc), extra={"event": "engine_close_failed"})
         lock.release()
         logger.info(ly_do_dung, extra={"event": "backend_stopped"})
+    if restart_requested:
+        app_root = os.environ.get("KIDTE_APP_ROOT", "")
+        nonce = os.environ.get("KIDTE_LAUNCH_NONCE", "")
+        if app_root and nonce:
+            try:
+                write_marker(app_root, nonce)
+            except OSError as exc:
+                logger.error(str(exc), extra={"event": "restart_marker_failed"})
+                return 0
+            return RESTART_EXIT_CODE
     return 0
 
 

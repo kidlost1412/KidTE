@@ -1,44 +1,80 @@
-"""Restart Kid TE through KidTELauncher.exe so a prepared update takes effect.
+"""Restart Kid TE through its launcher so a prepared update takes effect.
 
-The launcher keeps the core inside a kill-on-close Windows job, so a helper
-started directly from the core would be closed with it. The helper is therefore
-created through WMI (outside the job). It waits for the core and its launcher
-to exit, then starts a fresh launcher, which activates the pending generation.
+No helper process, WMI or job-escape trick: the launcher already supervises the
+core. The core asks for a restart by
+
+1. writing ``restart-request.json`` into the App folder (carrying the launch nonce
+   the launcher put in the core's environment), then
+2. exiting with ``RESTART_EXIT_CODE``.
+
+The launcher accepts the request only when the exit code and the marker nonce both
+match the core it started, then immediately re-runs its normal selection: the
+pending generation is activated with the usual readiness handshake / rollback and
+the core is started again.
 """
 from __future__ import annotations
 
-import base64
+import json
 import os
-import subprocess
+import time
 from pathlib import Path
 
-LAUNCHER_NAME = "KidTELauncher.exe"
+RESTART_EXIT_CODE = 75           # EX_TEMPFAIL: "try again" - dedicated to launcher restarts
+ALREADY_RUNNING_EXIT_CODE = 4    # another core already owns this data folder
+MARKER_NAME = "restart-request.json"
+RESTART_CAP = "restart-exit"     # advertised in KIDTE_LAUNCHER_CAPS by launchers that honour it
 
 
-def _quote(value) -> str:
-    return "'" + str(value).replace("'", "''") + "'"
+def marker_path(app_root) -> Path:
+    return Path(app_root) / MARKER_NAME
 
 
-def helper_script(launcher: Path, pids) -> str:
-    waits = "".join(f"try {{ Wait-Process -Id {int(p)} -Timeout 90 -ErrorAction Stop }} catch {{}}; "
-                    for p in pids if p and int(p) > 0)
-    return (f"{waits}Start-Sleep -Seconds 1; "
-            f"Start-Process -FilePath {_quote(launcher)} -WorkingDirectory {_quote(launcher.parent)}")
+def write_marker(app_root, nonce: str) -> None:
+    """Record a restart request for the launcher (atomic replace)."""
+    path = marker_path(app_root)
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    body = {"schema_version": 1, "nonce": nonce, "pid": os.getpid(), "requested_at": time.time()}
+    tmp.write_text(json.dumps(body), encoding="utf-8")
+    os.replace(tmp, path)
 
 
-def schedule_restart(app_root, *, pids=None, runner=subprocess.run) -> dict:
-    """Start the detached helper. Raises ValueError('launcher_missing') if absent."""
-    launcher = Path(app_root) / LAUNCHER_NAME
-    if not launcher.is_file():
-        raise ValueError("launcher_missing")
-    pids = list(pids) if pids is not None else [os.getpid(), os.getppid()]
-    encoded = base64.b64encode(helper_script(launcher, pids).encode("utf-16-le")).decode("ascii")
-    inner = f"powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand {encoded}"
-    outer = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
-             f"-Arguments @{{CommandLine={_quote(inner)}}}; if ($r.ReturnValue -ne 0) {{ exit 3 }}")
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    result = runner(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", outer],
-                    timeout=20, creationflags=flags, capture_output=True)
-    if getattr(result, "returncode", 1) != 0:
-        raise ValueError("restart_helper_failed")
-    return {"ok": True, "pids": pids}
+def consume_marker(app_root, nonce: str, *, max_age: float = 600.0) -> bool:
+    """True when a fresh marker for ``nonce`` exists; the marker is always removed."""
+    path = marker_path(app_root)
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        body = None
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    if not isinstance(body, dict) or not nonce or body.get("nonce") != nonce:
+        return False
+    try:
+        age = time.time() - float(body.get("requested_at"))
+    except (TypeError, ValueError):
+        return False
+    return -5.0 <= age <= max_age
+
+
+def launcher_supports_restart(environ=None) -> bool:
+    environ = os.environ if environ is None else environ
+    return (RESTART_CAP in (environ.get("KIDTE_LAUNCHER_CAPS", "") or "").split()
+            and bool(environ.get("KIDTE_LAUNCH_NONCE", "")))
+
+
+def evaluate_restart(*, has_pending: bool, live: bool, payload: dict, supported: bool) -> dict:
+    """Decide what POST /api/updates/restart does. Returns {status, body, go}."""
+    if not supported:
+        return {"status": 409, "go": False,
+                "body": {"ok": False, "error": "restart_unsupported"}}
+    if not has_pending and payload.get("force") is not True:
+        return {"status": 409, "go": False,
+                "body": {"ok": False, "error": "update_nothing_to_apply"}}
+    if live and payload.get("confirm_live") is not True:
+        return {"status": 409, "go": False,
+                "body": {"ok": False, "error": "live_confirm_required",
+                         "needs_confirm": True, "live": True}}
+    return {"status": 200, "go": True,
+            "body": {"ok": True, "restarting": True, "live": bool(live)}}

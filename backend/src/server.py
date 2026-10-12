@@ -4346,6 +4346,34 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         from urllib.parse import parse_qs, unquote, urlsplit
         route = urlsplit(self.path).path
+        if route == "/api/updates/restart":
+            if not self.local_tool_request():
+                self.reject(403, "local_only")
+                return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if size < 0 or size > 10_000:
+                    raise ValueError("invalid_body_size")
+                payload = request_json_object(self.rfile.read(size)) if size else {}
+                manager = getattr(self.engine, "updates", None)
+                restart = getattr(self.engine, "request_restart", None)
+                if manager is None:
+                    raise ValueError("update_source_mode_disabled")
+                from update_restart import evaluate_restart, launcher_supports_restart
+                verdict = evaluate_restart(
+                    has_pending=bool(manager.state().get("restart_required")),
+                    live=bool(self.engine._is_live_running()), payload=payload,
+                    supported=callable(restart) and launcher_supports_restart())
+                self.send_json(verdict["status"], verdict["body"])
+                if verdict["go"]:
+                    # Reply first, then let the core exit so the launcher restarts it.
+                    threading.Timer(0.4, restart).start()
+            except (ValueError, json.JSONDecodeError) as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:
+                report_problem("api_error", f"POST {route}", exc)
+                self.send_json(500, {"ok": False, "error": "internal_error"})
+            return
         if route.startswith("/api/updates/"):
             if not self.local_tool_request():
                 self.reject(403, "local_only")

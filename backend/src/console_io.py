@@ -48,3 +48,25 @@ def force_utf8_console():
             stream.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError, OSError):
             pass
+
+
+def hide_child_consoles():
+    """App chạy không có cửa sổ console: mọi tiến trình con kiểu console (tasklist,
+    ffprobe, nvidia-smi, ...) sẽ bật một cửa sổ đen thoáng qua. Mặc định thêm
+    CREATE_NO_WINDOW cho mọi subprocess không tự đặt cờ tạo cửa sổ."""
+    import subprocess
+    import sys
+    if sys.platform != "win32" or getattr(subprocess.Popen, "_kidte_no_window", False):
+        return
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    window_flags = no_window | getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10) | 0x8  # DETACHED_PROCESS
+    original_init = subprocess.Popen.__init__
+
+    def __init__(self, *args, **kwargs):
+        flags = kwargs.get("creationflags", 0) or 0
+        if not flags & window_flags:
+            kwargs["creationflags"] = flags | no_window
+        original_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = __init__
+    subprocess.Popen._kidte_no_window = True

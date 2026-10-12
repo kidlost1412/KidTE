@@ -10,7 +10,7 @@ import threading
 import urllib.request
 
 from config import CHAT_HOST, CHAT_PORT, INSTALL_ROOT, IS_FROZEN, LOG_DIR, PLUGINS_DIR, ROOT
-from console_io import ensure_std_streams, force_utf8_console
+from console_io import ensure_std_streams, force_utf8_console, hide_child_consoles
 from instance_lock import InstanceAlreadyRunning, SingleInstanceLock
 import auto_backup
 import problems
@@ -120,6 +120,7 @@ def existing_backend_ready(host, port):
 
 def main() -> int:
     ensure_std_streams(LOG_DIR / "console.log")
+    hide_child_consoles()
     force_utf8_console()
     prepare_user_layout()
     parser = argparse.ArgumentParser(description="Kid TE")

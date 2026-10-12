@@ -1,0 +1,64 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const source = await readFile(new URL('../../src/web/app/core/update_notice.js', import.meta.url), 'utf8');
+const {updateNotice, upToDateLine, formatClock, newerPackages} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+const newer = {update_available: true, update_total_bytes: 48_200_000, restart_required: false,
+  available: [
+    {id: 'core', version: '1.14.7', download_bytes: 48_200_000, newer: true, installed_version: '1.14.6'},
+    {id: 'media-tools', version: '2.1.0', download_bytes: 5_000_000, newer: false, installed_version: '2.1.0'},
+  ]};
+
+test('banner shows core version and rounded size when a newer package exists', () => {
+  const n = updateNotice(newer);
+  assert.equal(n.visible, true);
+  assert.equal(n.badge, true);
+  assert.equal(n.version, '1.14.7');
+  assert.equal(n.text, 'Có bản mới 1.14.7 (~48 MB) — Cập nhật ngay');
+});
+
+test('dismissing the banner hides it for that version only, badge stays', () => {
+  const n = updateNotice(newer, '1.14.7');
+  assert.equal(n.visible, false);
+  assert.equal(n.badge, true);
+  assert.equal(updateNotice(newer, '1.14.6').visible, true);
+});
+
+test('restart pending swaps banner text to the restart hint', () => {
+  const n = updateNotice({...newer, restart_required: true});
+  assert.equal(n.text, 'Đã tải bản 1.14.7 · Khởi động lại để hoàn tất');
+  assert.equal(n.badge, true);
+});
+
+test('no banner and no badge when nothing newer or state missing', () => {
+  assert.deepEqual(updateNotice({...newer, update_available: false}).badge, false);
+  assert.equal(updateNotice({update_available: false, available: []}).visible, false);
+  assert.equal(updateNotice(null).visible, false);
+  assert.equal(updateNotice(undefined).badge, false);
+});
+
+test('uncommon case: uninstalled feature is never flagged as newer', () => {
+  const state = {update_available: false, available: [{id: 'gpu-cuda12', version: '1.0.0', newer: false}]};
+  assert.deepEqual(newerPackages(state), []);
+  assert.equal(updateNotice(state).visible, false);
+});
+
+test('size falls back to package download bytes when total is absent', () => {
+  const n = updateNotice({update_available: true, available: [{id: 'core', version: '2.0.0', download_bytes: 300_000, newer: true}]});
+  assert.equal(n.text, 'Có bản mới 2.0.0 (~1 MB) — Cập nhật ngay');
+});
+
+test('up-to-date line shows version and clock of last check', () => {
+  const iso = new Date(2026, 9, 12, 8, 5, 0).toISOString();
+  const line = upToDateLine({update_available: false, installed: {core: '1.14.6'}, last_checked_at: iso});
+  assert.equal(line, `Bạn đang dùng bản mới nhất (1.14.6) · kiểm tra lúc ${formatClock(iso)}`);
+  assert.match(line, /kiểm tra lúc \d{2}:\d{2}$/);
+  assert.equal(formatClock(new Date(2026, 9, 12, 8, 5).toISOString()), '08:05');
+});
+
+test('up-to-date line is empty while an update exists and mentions no check when never run', () => {
+  assert.equal(upToDateLine({update_available: true, installed: {core: '1.14.6'}}), '');
+  assert.equal(upToDateLine({update_available: false, installed: {}, last_checked_at: null}), 'Chưa kiểm tra bản mới trong phiên này.');
+  assert.equal(formatClock('not-a-date'), '');
+});

@@ -3,6 +3,7 @@ import {request, friendlyError} from '../core/api.js';
 import {bytes} from '../core/format.js';
 import {btn, card, notice, select, errorBox} from '../ui/kit.js';
 import {confirmDialog, toast} from '../ui/overlays.js';
+import {upToDateLine} from '../core/update_notice.js';
 
 const names = {'core': 'Ứng dụng Kid TE', 'gpu-cuda12': 'Tăng tốc chép lời NVIDIA',
   'media-tools': 'Công cụ video', 'captcha-solver': 'Giải CAPTCHA và thông báo',
@@ -33,8 +34,10 @@ export async function updates(ctx, host, owner) {
       selectChannel.addEventListener('change', () => { channel = selectChannel.value; render(); });
       const rows = (state.channel === channel ? state.available || [] : []).map(pkg => card(names[pkg.id] || pkg.id,
         h('div', {class: 'col gap-3'},
-          h('p', {}, `Phiên bản ${pkg.version} · tải ${bytes(pkg.download_bytes)} · đã cài ${state.installed?.[pkg.id] || 'chưa có gói riêng'}`),
-          btn(pkg.id === 'core' ? 'Chuẩn bị cập nhật' : 'Cài / cập nhật tính năng', {
+          pkg.newer
+            ? h('p', {}, `${state.installed?.[pkg.id]} → ${pkg.version} · tải ${bytes(pkg.download_bytes)}`)
+            : h('p', {}, `Phiên bản ${pkg.version} · tải ${bytes(pkg.download_bytes)} · đã cài ${state.installed?.[pkg.id] || 'chưa có gói riêng'}`),
+          btn(pkg.newer ? 'Tải và cài đặt' : pkg.id === 'core' ? 'Chuẩn bị cập nhật' : 'Cài / cập nhật tính năng', {
             kind: 'primary', disabled: state.busy || state.restart_required,
             onClick: async () => {
               try {
@@ -70,11 +73,12 @@ export async function updates(ctx, host, owner) {
             btn('Kiểm tra cập nhật', {icon: 'refresh', disabled: !state.enabled || !state.trusted || state.busy,
               onClick: () => act('check', {channel})})),
           !state.enabled && notice('info', 'Chưa bật cập nhật ở bản mã nguồn', 'Dùng bản cài đã đóng gói để cập nhật.'),
+          state.enabled && !state.update_available && !state.busy && h('p', {class: 'muted'}, upToDateLine(state)),
           state.busy && notice('info', phases[state.operation] || 'Đang xử lý…',
             progress ? `${names[progress.component] || progress.component}: ${bytes(progress.received)} / ${bytes(progress.total)}` : ''),
           state.error && notice('danger', 'Chưa hoàn tất cập nhật', friendlyError({code: state.error})),
-          state.restart_required && notice('info', 'Gói đã sẵn sàng cho lần mở tiếp theo',
-            'Kết thúc phiên LIVE, đóng Kid TE rồi mở lại bằng biểu tượng Kid TE. Dữ liệu và model hiện có được giữ nguyên.'),
+          state.restart_required && notice('info', 'Khởi động lại để hoàn tất',
+            'Gói đã tải và kiểm tra. Kết thúc phiên LIVE, đóng Kid TE rồi mở lại bằng biểu tượng Kid TE. Dữ liệu và model hiện có được giữ nguyên.'),
           h('div', {class: 'row gap-3'},
             btn('Hủy cập nhật chờ', {disabled: state.busy || !state.restart_required, onClick: () => act('cancel')}),
             btn('Quay lại bản trước', {disabled: state.busy, onClick: async () => {

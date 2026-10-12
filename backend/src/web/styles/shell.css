@@ -89,3 +89,11 @@
 /* Studio: dành toàn bộ chiều cao cho video dọc + timeline */
 .shell.studio-mode { grid-template-rows: 0 minmax(0, 1fr); }
 .shell.studio-mode .topbar { display: none; }
+
+/* Thông báo bản cập nhật mới */
+.nav-item .nav-update:not([hidden]) { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--info); margin-left: auto; flex: none; }
+.shell.collapsed .nav-item .nav-update:not([hidden]) { position: absolute; top: 7px; right: 12px; margin: 0; }
+.update-banner { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; padding: 2px 4px 2px 10px; border-radius: var(--r-md); background: var(--info-soft); color: var(--info-text); font-size: var(--fs-sm); }
+.update-banner[hidden] { display: none; }
+.update-banner-go { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; padding: 4px 0; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.update-banner-x { border: 0; background: transparent; color: inherit; font-size: 16px; line-height: 1; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; flex: none; }

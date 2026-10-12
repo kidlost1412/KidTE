@@ -2,6 +2,8 @@ import {h, clear, isTypingTarget} from './core/dom.js';
 import {icon} from './core/icons.js';
 import {fold, relative} from './core/format.js';
 import {openModal, isOverlayOpen} from './ui/overlays.js';
+import {request} from './core/api.js';
+import {updateNotice, DISMISS_KEY} from './core/update_notice.js';
 
 const NAV = [
   {group: 'Vận hành'},
@@ -43,9 +45,10 @@ export function createShell({navigate, commands}) {
   NAV.forEach(item => {
     if (item.group) { nav.append(h('div', {class: 'nav-group'}, item.group)); return; }
     const badge = h('span', {class: 'nav-badge', hidden: true});
+    const update = item.page === 'system' ? h('i', {class: 'nav-update', hidden: true, title: 'Có bản cập nhật mới'}) : null;
     const button = h('button', {class: 'nav-item', type: 'button', title: item.label, onClick: () => navigate(item.page)},
-      icon(item.icon), h('span', {class: 'nav-label'}, item.label), badge, h('i', {class: 'nav-dot', hidden: true}));
-    navButtons.set(item.page, {button, badge, item});
+      icon(item.icon), h('span', {class: 'nav-label'}, item.label), badge, h('i', {class: 'nav-dot', hidden: true}), update);
+    navButtons.set(item.page, {button, badge, item, update});
     nav.append(button);
   });
 
@@ -75,7 +78,19 @@ export function createShell({navigate, commands}) {
   const statusStrip = h('div', {class: 'status-strip', 'aria-label': 'Trạng thái vận hành'});
   const trigger = h('button', {class: 'command-trigger', type: 'button', onClick: () => openPalette()},
     icon('search'), h('span', {}, 'Tìm trang, lệnh…'), h('span', {class: 'kbd'}, 'Ctrl K'));
-  const topbar = h('header', {class: 'topbar'}, trigger, statusStrip);
+  // Banner cập nhật: ẩn theo phiên bản đã đóng trong phiên này (sessionStorage); badge trên sidebar vẫn hiện.
+  let updateState = null, updateDismissed = '';
+  try { updateDismissed = sessionStorage.getItem(DISMISS_KEY) || ''; } catch (_) { /* */ }
+  const updateText = h('span', {class: 'update-banner-text'});
+  const updateBanner = h('div', {class: 'update-banner', role: 'status', hidden: true},
+    h('button', {class: 'update-banner-go', type: 'button', onClick: () => navigate('system', 'updates')}, updateText),
+    h('button', {class: 'update-banner-x', type: 'button', 'aria-label': 'Ẩn thông báo trong phiên này', title: 'Ẩn trong phiên này',
+      onClick: () => {
+        updateDismissed = updateNotice(updateState).version || '';
+        try { sessionStorage.setItem(DISMISS_KEY, updateDismissed); } catch (_) { /* */ }
+        renderUpdate();
+      }}, '×'));
+  const topbar = h('header', {class: 'topbar'}, trigger, updateBanner, statusStrip);
   const main = h('main', {class: 'main', id: 'main', tabindex: '-1'});
   const shell = h('div', {class: 'shell'}, sidebar, topbar, main);
   root.replaceChildren(shell);
@@ -119,6 +134,20 @@ export function createShell({navigate, commands}) {
       button.querySelector('.nav-dot').hidden = !show;
     });
   }
+
+  // -------- Thông báo bản cập nhật (đọc trạng thái, không cài) --------
+  function renderUpdate() {
+    const notice = updateNotice(updateState, updateDismissed);
+    updateBanner.hidden = !notice.visible;
+    updateText.textContent = notice.text;
+    navButtons.forEach(({update}) => { if (update) update.hidden = !notice.badge; });
+  }
+  async function refreshUpdates() {
+    try { updateState = await request('/api/updates'); } catch (_) { return; }
+    renderUpdate();
+  }
+  refreshUpdates();
+  setInterval(refreshUpdates, 60 * 1000);
 
   // -------- Command palette (Ctrl+K) --------
   let paletteOpen = null;
@@ -199,6 +228,7 @@ export function createShell({navigate, commands}) {
       shell.classList.toggle('studio-mode', value);
     },
     setStatus,
+    refreshUpdates,
     openPalette,
     showShortcuts,
     relative,

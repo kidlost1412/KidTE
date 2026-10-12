@@ -21,7 +21,7 @@ from runtime_layout import prepare_user_layout
 from service_supervisor import ServiceSupervisor
 from structured_log import configure_logger
 from server import Handler, LoopbackHTTPServer, ReplyEngine
-from update_manager import UpdateManager, select_active_gpu
+from update_manager import UpdateManager, UpdateScheduler, select_active_gpu
 
 
 def run_desktop_ui(server, url, *, webview_module=None):
@@ -238,6 +238,8 @@ def main() -> int:
         if args.safe_mode:
             print("[kid-te] SAFE MODE: video bị khóa")
         logger.info(f"{args.host}:{args.port}", extra={"event": "backend_ready"})
+        # Kiểm tra bản mới nền (sau 60 giây, rồi 6 giờ/lần); không tự cài, lỗi chỉ ghi log.
+        UpdateScheduler(engine.updates).start()
         captcha = getattr(engine, "captcha", None)
         if not args.safe_mode and captcha is not None and captcha.status()["configured"]:
             # CAPTCHA follows the app lifecycle. Start outside the UI thread

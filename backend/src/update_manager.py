@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from component_store import ComponentStore
@@ -14,6 +16,9 @@ from update_trust import TRUSTED_KEYS
 
 REPOSITORY = "kidlost1412/KidTE"
 SUPPORTED_COMPONENTS = set(COMPONENT_POLICIES)
+AUTO_CHECK_DELAY_SECONDS = 60
+AUTO_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
+logger = logging.getLogger("kidte.update")
 
 
 class UpdateManager:
@@ -31,6 +36,7 @@ class UpdateManager:
         self._thread = None
         self._catalog_raw = None
         self._channel = "beta"
+        self._last_checked_at = None
         self._catalog = None
         self._state = {"operation": "idle", "busy": False, "error": "", "progress": None}
 
@@ -65,11 +71,23 @@ class UpdateManager:
                 result["restart_required"] = pending is not None
             except (OSError, ValueError, RuntimeError) as exc:
                 result["error"] = str(exc)
-        result["available"] = [
-            {"id": p["id"], "version": p["version"], "download_bytes": p["archive_bytes"],
-             "unpacked_bytes": p["unpacked_bytes"], "dependencies": p["dependencies"]}
-            for p in (catalog or {}).get("components", []) if p["id"] in SUPPORTED_COMPONENTS
-        ]
+        installed = result.get("installed") or {}
+        available = []
+        for p in (catalog or {}).get("components", []):
+            if p["id"] not in SUPPORTED_COMPONENTS:
+                continue
+            installed_version = installed.get(p["id"])
+            # Only packages already installed count as updates; an uninstalled optional feature is not an update.
+            available.append({"id": p["id"], "version": p["version"], "download_bytes": p["archive_bytes"],
+                              "unpacked_bytes": p["unpacked_bytes"], "dependencies": p["dependencies"],
+                              "installed_version": installed_version,
+                              "newer": installed_version is not None and installed_version != p["version"]})
+        result["available"] = available
+        newer = [row for row in available if row["newer"]]
+        result["update_available"] = bool(newer)
+        result["update_total_bytes"] = sum(row["download_bytes"] for row in newer)
+        with self._lock:
+            result["last_checked_at"] = self._last_checked_at
         return result
 
     def action(self, action, payload):
@@ -140,6 +158,29 @@ class UpdateManager:
         except Exception as exc:  # noqa: BLE001 - report worker failure without changing active generation
             self._set(operation="failed", busy=False, error=str(exc), progress=None)
 
+    def auto_check(self):
+        """Background check: same as POST /api/updates/check, silent, never installs.
+
+        Skips when disabled, busy, or a restart is pending. Failures are logged only.
+        """
+        try:
+            if self.app_root is None or not self.trusted_keys:
+                return {"skipped": "disabled"}
+            store = self._get_store()
+            with self._lock:
+                if self._state["busy"]:
+                    return {"skipped": "busy"}
+            if store.load_pending() is not None:
+                return {"skipped": "restart_pending"}
+            self.action("check", {"channel": self._channel})
+            return {"started": True, "channel": self._channel}
+        except ValueError as exc:  # busy raced in, or config refused: nothing to report to the owner
+            logger.info("update auto-check skipped: %s", exc)
+            return {"skipped": str(exc)}
+        except Exception as exc:  # noqa: BLE001 - background path must never disturb the app
+            logger.warning("update auto-check failed: %s", exc)
+            return {"skipped": "error"}
+
     def _check(self, store, channel):
         raw = self.transport.fetch_catalog(channel=channel)
         catalog = verify_catalog(raw, self.trusted_keys, repository=REPOSITORY,
@@ -148,6 +189,8 @@ class UpdateManager:
         with self._lock:
             self._catalog_raw = raw
             self._catalog = catalog
+            self._last_checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
 
     def _plan(self, store, requested):
         # Recheck signature, expiry, and replay floor after the operator selects packages.
@@ -189,6 +232,38 @@ class UpdateManager:
         # Retain installed dependencies/components. Native libraries cannot be switched in this process.
         store.prepare(components, catalog_sequence=catalog["sequence"])
         self._set(progress=None)
+
+
+class UpdateScheduler:
+    """Daemon thread: first check after a delay, then every interval. Never raises."""
+
+    def __init__(self, manager, *, initial_delay=AUTO_CHECK_DELAY_SECONDS,
+                 interval=AUTO_CHECK_INTERVAL_SECONDS):
+        self.manager = manager
+        self.initial_delay = initial_delay
+        self.interval = interval
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread is None:
+            self._thread = threading.Thread(target=self._run, daemon=True, name="kid-te-update-scheduler")
+            self._thread.start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+
+    def _run(self):
+        if self._stop.wait(self.initial_delay):
+            return
+        while True:
+            try:
+                self.manager.auto_check()
+            except Exception as exc:  # noqa: BLE001 - keep the scheduler alive
+                logger.warning("update scheduler error: %s", exc)
+            if self._stop.wait(self.interval):
+                return
 
 
 def select_active_gpu(app_root):

@@ -109,6 +109,18 @@ require("./comments.js");
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(replyCalls, 1);
   assert.ok(debug.getState().hostIdentities.includes("id:host-1"));
+  // Chủ phòng tự nhận từ room info: phòng mới, tài khoản khác, không cấu hình.
+  debug.setRuntimeForTest({ roomId: "room-auto" });
+  debug.learnHostFromSnapshot({ snapshot: { room_id: "room-auto", host: {
+    user_id: "auto-9", unique_id: "TaiKhoanMoi", nickname: "Moi", source: "room_info" } } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(debug.getState().roomHost.unique_id, "TaiKhoanMoi");
+  assert.equal(debug.observeAction({ comment: "xin chao ca nha", user_id: "auto-9", unique_id: "taikhoanmoi" }), "host_manual");
+  assert.notEqual(debug.observeAction({ comment: "xin chao ca nha", user_id: "khach-1", unique_id: "khach" }), "host_manual");
+  assert.ok(storage.liveReRoomHosts["room-auto"]);
+  debug.setRuntimeForTest({ roomId: "room-other" });
+  assert.equal(debug.getState().roomHost, null);
+  debug.setRuntimeForTest({ roomId: "" });
   debug.acceptComment({
     comment: "Câu chủ phòng gõ tay", comment_id: "host-manual-2", user_id: "host-1",
     unique_id: "nongduoctoancauofficial", nickname: "Nông Dược Toàn Cầu"

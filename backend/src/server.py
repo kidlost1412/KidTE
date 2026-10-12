@@ -262,6 +262,23 @@ _data_processor = load_processor(
 RawStreamRecorder = _data_processor.RawStreamRecorder
 
 
+def _clean_host(value):
+    """Chủ phòng do tiện ích tự nhận (GetLiveRoomInfo / tiếng vọng); rỗng nếu không có."""
+    if not isinstance(value, dict):
+        return None
+    host = {key: clean(value.get(key), 240 if key == "sec_uid" else 160)
+            for key in ("user_id", "sec_uid", "unique_id", "nickname", "source")}
+    return host if (host["user_id"] or host["sec_uid"] or host["unique_id"]) else None
+
+
+def _is_room_host(live_context, user_id, sec_uid, unique_id):
+    host = _clean_host((live_context or {}).get("host") if isinstance(live_context, dict) else None)
+    if not host:
+        return False
+    return bool((user_id and user_id == host["user_id"]) or (sec_uid and sec_uid == host["sec_uid"])
+                or (unique_id and host["unique_id"] and unique_id.casefold() == host["unique_id"].casefold()))
+
+
 class LiveCatalogStore:
     def __init__(self):
         self._lock = threading.RLock()
@@ -948,6 +965,7 @@ class ReplyEngine:
             "send_paused_until_ms": max(0, int(payload.get("send_paused_until_ms", 0) or 0)),
             "send_pause_reason": clean(payload.get("send_pause_reason"), 160),
             "session_id": clean(payload.get("session_id"), 100),
+            "host": _clean_host(payload.get("host")),
             "received_at": time.time(),
         }
         self.platform_heartbeats[platform] = allowed
@@ -2603,7 +2621,8 @@ class ReplyEngine:
         nickname = clean(payload.get("nickname") or unique_id or "Khách", 160)
         if len(comment) < 2 or not (user_id or sec_uid or unique_id):
             return {"ok": True, "should_send": False, "reason": "invalid_comment"}
-        if user_id in TIKTOK_HOST_USER_IDS or unique_id.casefold() in TIKTOK_HOST_UNIQUE_IDS:
+        if (user_id in TIKTOK_HOST_USER_IDS or unique_id.casefold() in TIKTOK_HOST_UNIQUE_IDS
+                or _is_room_host(payload.get("live_context"), user_id, sec_uid, unique_id)):
             return {"ok": True, "should_send": False, "reason": "host_comment"}
         if self._is_self_echo(comment):
             return {"ok": True, "should_send": False, "reason": "self_echo"}

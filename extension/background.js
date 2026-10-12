@@ -322,9 +322,54 @@ async function runTikTokLiveApi(request) {
     };
   };
 
+  // Chủ phòng (host) lấy từ chính phản hồi GetLiveRoomInfo: không cần cấu hình tay.
+  const OWNER_KEYS = ["owner", "owner_info", "anchor", "anchor_info", "room_owner", "streamer", "host", "host_info", "creator"];
+  const pickId = (obj, keys) => {
+    for (const key of keys) {
+      const value = obj?.[key];
+      if (value !== undefined && value !== null && typeof value !== "object" && cleanText(value)) return cleanText(value);
+    }
+    return "";
+  };
+  const extractRoomOwner = (data) => {
+    if (!data || typeof data !== "object") return null;
+    const build = (obj, flat) => {
+      const owner = {
+        user_id: pickId(obj, flat ? ["owner_id", "owner_user_id", "anchor_id", "anchor_user_id"] : ["id", "user_id", "uid", "id_str"]),
+        sec_uid: pickId(obj, flat ? ["owner_sec_uid", "anchor_sec_uid"] : ["sec_uid", "sec_user_id"]),
+        unique_id: pickId(obj, flat ? ["owner_unique_id", "owner_display_id", "anchor_unique_id"] : ["unique_id", "display_id", "handle"]),
+        nickname: pickId(obj, flat ? ["owner_nickname", "anchor_nickname", "owner_name"] : ["nickname", "nick_name", "name"])
+      };
+      return owner.user_id || owner.sec_uid || owner.unique_id ? owner : null;
+    };
+    const queue = [{ value: data, depth: 0 }];
+    const visited = new Set();
+    while (queue.length) {
+      const { value, depth } = queue.shift();
+      if (!value || typeof value !== "object" || visited.has(value)) continue;
+      visited.add(value);
+      for (const key of OWNER_KEYS) {
+        const child = value[key];
+        if (child && typeof child === "object" && !Array.isArray(child)) {
+          const owner = build(child, false) || build(child.user || child.user_info || {}, false);
+          if (owner) return owner;
+        }
+      }
+      const flat = build(value, true);
+      if (flat) return flat;
+      if (depth >= 3) continue;
+      for (const child of Object.values(value)) {
+        if (child && typeof child === "object" && !Array.isArray(child)) queue.push({ value: child, depth: depth + 1 });
+      }
+    }
+    return null;
+  };
+  let roomOwner;
+
   async function getRoomId() {
     if (request?.roomId && !['send_chat','pin','unpin'].includes(request.action)) return cleanText(request.roomId);
     const roomResponse = await client.GetLiveRoomInfo({});
+    roomOwner = extractRoomOwner(roomResponse?.data);
     const nestedRoomId = findField(
       [roomResponse?.data, roomResponse],
       ["room_id", "roomId", "live_room_id", "liveRoomId"],
@@ -371,12 +416,16 @@ async function runTikTokLiveApi(request) {
       data.introduce_id || data.pin_id || data.pinned_product_id ||
       products.find((product) => product.is_pinned)?.product_id
     );
+    if (roomOwner === undefined) {
+      try { roomOwner = extractRoomOwner((await client.GetLiveRoomInfo({}))?.data); } catch { roomOwner = null; }
+    }
     let rawApiData = {};
     if (request?.includeCatalogRaw === true) {
       try { rawApiData = JSON.parse(JSON.stringify(data)); } catch {}
     }
     return {
       room_id: roomId,
+      host: roomOwner ? { ...roomOwner, source: "room_info" } : null,
       products,
       pin_id: pinId,
       card_type: asNumber(data.card_type),

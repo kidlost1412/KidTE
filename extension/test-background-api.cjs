@@ -11,7 +11,7 @@ const storage = {};
 const client = {
   async GetLiveRoomInfo(payload) {
     calls.push(["room", payload]);
-    return { code: 0, data: { room_id: "room-19" } };
+    return { code: 0, data: { room_id: "room-19", anchor_info: { user: { id: "777", sec_uid: "SEC9", display_id: "shop_abc", nickname: "Shop ABC" } } } };
   },
   async ListLiveProduct(payload) {
     calls.push(["list", payload]);
@@ -138,6 +138,7 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
   assert.equal(snapshotResult.ok, true);
   assert.equal(snapshotResult.snapshot.room_id, "room-19");
   assert.equal(snapshotResult.snapshot.pin_id, "p3");
+  assert.deepEqual(snapshotResult.snapshot.host, { user_id: "777", sec_uid: "SEC9", unique_id: "shop_abc", nickname: "Shop ABC", source: "room_info" });
   assert.equal(snapshotResult.snapshot.products[0].bag_index, 1);
   assert.equal(snapshotResult.snapshot.products[0].original_price, "120.000₫");
   assert.equal(snapshotResult.snapshot.products[0].sale_price, "90.000₫");

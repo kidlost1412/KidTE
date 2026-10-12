@@ -32,8 +32,18 @@ class AlreadyRunning(LauncherError):
     """An instance for this data root is already serving the user."""
 
 
+BASELINE_IDS = ("core", "runtime", "app", "extensions")
+SPLIT_IDS = ("runtime", "app", "extensions")
+LAUNCHER_CAPS = "split-components"
+
+
 def _prepare_installer_core(app_root, store):
-    """Consume a signed installer bootstrap after LIVE/process preflight succeeds."""
+    """Consume a signed installer bootstrap after LIVE/process preflight succeeds.
+
+    The bootstrap lists either the legacy monolithic ``core`` or the split
+    ``runtime`` + ``app`` + ``extensions``; every listed package must match the
+    files the installer laid down in ``App`` byte for byte.
+    """
     request = app_root / "bootstrap-request.json"
     if not request.is_file():
         return
@@ -50,25 +60,40 @@ def _prepare_installer_core(app_root, store):
     # expiration remains mandatory for catalogs fetched by the network updater.
     catalog = verify_catalog(raw, TRUSTED_KEYS, channel="beta",
                              minimum_sequence=store.read_highwater(), allow_expired=True)
-    core = next(p for p in catalog["components"] if p["id"] == "core")
-    if not store.baseline_matches(core):
-        raise LauncherError("Installer files do not match the signed bootstrap catalog.")
+    baseline = {p["id"]: p for p in catalog["components"] if p["id"] in BASELINE_IDS}
+    split = bool(set(baseline) & set(SPLIT_IDS))
+    if split and ("core" in baseline or not {"runtime", "app"} <= set(baseline)):
+        raise LauncherError("Installer bootstrap must list runtime and app together.")
+    if not baseline:
+        raise LauncherError("Installer bootstrap has no baseline package.")
+    for package in baseline.values():
+        if not store.baseline_matches(package):
+            raise LauncherError("Installer files do not match the signed bootstrap catalog.")
     active = store.load_active()
     pending = store.load_pending()
+    # The Kid TE release number lives in ``core`` (legacy) or ``app`` (split).
     for mapping in (active, pending):
-        selected_core = (mapping or {}).get("components", {}).get("core")
-        if selected_core and _version_key(core["version"]) < _version_key(selected_core["version"]):
-            raise LauncherError("Installer core is older than an active or pending core.")
+        components = (mapping or {}).get("components", {})
+        for key, package in baseline.items():
+            old = components.get(key)
+            if old is None and key in {"core", "app"}:
+                old = components.get("app") or components.get("core")
+            if old and _version_key(package["version"]) < _version_key(old["version"]):
+                raise LauncherError("Installer package is older than an active or pending package.")
     # Keep feature installs/removals that the user has already prepared.
     current = (pending or active or {}).get("components", {})
+    if split:
+        current = {key: row for key, row in current.items() if key != "core"}
     installed = {key: row["package"] for key, row in current.items()}
-    selection = resolve_components(catalog, {"core": core["version"]}, installed)
-    if set(selection) - {"core"}:
+    selection = resolve_components(catalog, {key: package["version"] for key, package in baseline.items()},
+                                   installed)
+    if set(selection) - set(baseline):
         raise LauncherError("Installer bootstrap requires separate feature updates; use the updater.")
-    store.stage_baseline(core)
+    for package in baseline.values():
+        store.stage_baseline(package)
     # prepare replaces pending atomically only after validating every package.
     # Cancelling it first would lose a previous update if preparation failed.
-    store.prepare({**current, "core": core}, catalog_sequence=catalog["sequence"])
+    store.prepare({**current, **baseline}, catalog_sequence=catalog["sequence"])
     _check_ancestry(request)
     request.unlink()
 
@@ -450,11 +475,60 @@ def _mapping_executable(app_root: Path, component: dict) -> Path:
     return executable
 
 
+def _core_component(active):
+    """The component the launcher executes: ``runtime`` (split) or legacy ``core``.
+
+    For a split generation the returned copy carries the matching app record
+    under ``_app`` so schema/baseline decisions can look at both.
+    """
+    if not isinstance(active, dict):
+        return None
+    components = active.get("components") or {}
+    runtime = components.get("runtime")
+    if isinstance(runtime, dict):
+        return {**runtime, "_app": components.get("app")}
+    return components.get("core")
+
+
 def _active_executable(app_root: Path, active: dict | None) -> Path:
-    component = ((active.get("components") or {}).get("core")
-                 if isinstance(active, dict) else None)
+    component = _core_component(active)
     return (_mapping_executable(app_root, component) if component is not None
             else app_root / "KidTE.exe")
+
+
+def _safe_package_dir(app_root: Path, raw_path) -> Path:
+    posix = PurePosixPath(raw_path) if isinstance(raw_path, str) else None
+    if posix is None or posix.is_absolute() or any(part in {"", ".", ".."} for part in posix.parts) or "\\" in raw_path:
+        raise LauncherError("Installed package path is unsafe.")
+    root = (app_root / Path(*posix.parts)).resolve()
+    try:
+        root.relative_to(app_root.resolve())
+    except ValueError as exc:
+        raise LauncherError("Installed package escaped the application directory.") from exc
+    return root
+
+
+def _select_app(app_root: Path, active: dict | None):
+    """Verified directory of the active ``app`` package, or None (legacy/baseline)."""
+    if not isinstance(active, dict):
+        return None
+    components = active.get("components") or {}
+    if "runtime" not in components:
+        return None
+    component = components.get("app")
+    package = component.get("package") if isinstance(component, dict) else None
+    if not isinstance(package, dict) or package.get("entrypoint") != "backend/src/app_entry.py":
+        raise LauncherError("Installed app record is invalid.")
+    root = _safe_package_dir(app_root, component.get("path"))
+    expected = next((item for item in package.get("files", [])
+                     if isinstance(item, dict) and item.get("path") == "backend/src/app_entry.py"), None)
+    entry = root / "backend" / "src" / "app_entry.py"
+    try:
+        if not expected or not entry.is_file() or _sha256(entry) != expected.get("sha256"):
+            raise LauncherError("Installed app entry point failed its signed digest check.")
+    except OSError as exc:
+        raise LauncherError("Installed app entry point is unavailable.") from exc
+    return root
 
 
 def _baseline_compatible(component: dict | None) -> bool:
@@ -464,6 +538,13 @@ def _baseline_compatible(component: dict | None) -> bool:
     from update_catalog import CORE_DATA_SCHEMA
 
     package = component["package"]
+    if package.get("id") == "runtime":
+        # The data schema is pinned by the app package that travels with it.
+        app = component.get("_app")
+        app_package = app.get("package") if isinstance(app, dict) else None
+        return (package.get("migration") == "none" and isinstance(app_package, dict)
+                and app_package.get("id") == "app" and app_package.get("migration") == "none"
+                and (app_package.get("compatibility") or {}).get("data_schema") == CORE_DATA_SCHEMA)
     return (package.get("id") == "core" and package.get("migration") == "none" and
             package.get("compatibility") == {"data_schema": CORE_DATA_SCHEMA})
 
@@ -515,8 +596,16 @@ def _select_gpu(app_root: Path, active: dict | None):
 
 
 def _environment(app_root: Path, data_root: Path, port: int, environ: dict[str, str],
-                 generation: str, nonce: str, gpu_root: Path | None, gpu_hash: str | None):
+                 generation: str, nonce: str, gpu_root: Path | None, gpu_hash: str | None,
+                 app_dir: Path | None = None):
     child = dict(environ)
+    # Tell the runtime which verified app package to load (absent: app lives
+    # next to KidTE.exe, the installer/legacy layout) and that this launcher
+    # understands split generations.
+    child.pop("KIDTE_APP_PACKAGE_DIR", None)
+    if app_dir is not None:
+        child["KIDTE_APP_PACKAGE_DIR"] = str(app_dir)
+    child["KIDTE_LAUNCHER_CAPS"] = LAUNCHER_CAPS
     child["KIDTE_APP_ROOT"] = str(app_root.resolve())
     # Normalize explicit overrides to their absolute target while retaining the
     # legacy LIVE_RE_ROOT variable for callers that still inspect it.
@@ -598,12 +687,44 @@ class Launcher:
         from component_store import ComponentStore
         return ComponentStore(app_root)
 
+    def _sync_extensions(self, app_root, active):
+        """Refresh the stable Chrome extension folders; never blocks startup."""
+        if not isinstance(active, dict) or "extensions" not in (active.get("components") or {}):
+            return
+        try:
+            from extension_sync import sync_extensions
+            result = sync_extensions(app_root, active)
+            if result.get("changed"):
+                _record_recovery(app_root, "extension folders refreshed; reload the unpacked "
+                                 "extensions in chrome://extensions")
+        except Exception as exc:  # noqa: BLE001 - extension refresh must not stop Kid TE
+            _record_recovery(app_root, f"extension refresh failed: {exc}")
+
+    def _collect_garbage(self, store):
+        """After a healthy start keep only the active + previous package versions."""
+        collect = getattr(store, "collect_garbage", None)
+        if collect is None:
+            return
+        try:
+            grace = float(self.environ.get("KIDTE_GC_GRACE_SECONDS", "3600"))
+            report = collect(grace_seconds=max(0.0, grace))
+            if report.get("removed") or report.get("staging_removed"):
+                _record_recovery(store.app_root, "cleanup removed " + ", ".join(
+                    [*report.get("removed", []), *report.get("staging_removed", [])]))
+        except Exception as exc:  # noqa: BLE001 - cleanup is best effort
+            try:
+                _record_recovery(store.app_root, f"cleanup skipped: {exc}")
+            except Exception:  # noqa: BLE001
+                pass
+
     def _spawn(self, executable, app_root, data_root, port, generation, active,
                passthrough_args=()):
         nonce = secrets.token_urlsafe(32)
         gpu_root, gpu_hash = _select_gpu(app_root, active)
+        app_dir = _select_app(app_root, active)
+        self._sync_extensions(app_root, active)
         env = _environment(app_root, data_root, port, self.environ, generation,
-                           nonce, gpu_root, gpu_hash)
+                           nonce, gpu_root, gpu_hash, app_dir)
         command = [str(executable), *passthrough_args]
         job = self.job_factory()
         process = None
@@ -660,8 +781,7 @@ class Launcher:
             generation = active.get("generation") if isinstance(active, dict) else "baseline"
             if not isinstance(generation, str) or not generation:
                 raise LauncherError("Active component generation is invalid.")
-            component = ((active.get("components") or {}).get("core")
-                         if isinstance(active, dict) else None)
+            component = _core_component(active)
             baseline_recovery_allowed = _baseline_compatible(component)
             rollback_attempted = False
             recovery_note = ""
@@ -674,8 +794,7 @@ class Launcher:
                     activated = None
                     active = store.load_active()
                     generation = active.get("generation") if isinstance(active, dict) else "baseline"
-                    component = ((active.get("components") or {}).get("core")
-                                 if isinstance(active, dict) else None)
+                    component = _core_component(active)
                     try:
                         selected = _active_executable(app_root, active)
                     except LauncherError:
@@ -697,8 +816,7 @@ class Launcher:
                         store.rollback()
                         active = store.load_active()
                         generation = active.get("generation") if isinstance(active, dict) else "baseline"
-                        component = ((active.get("components") or {}).get("core")
-                                     if isinstance(active, dict) else None)
+                        component = _core_component(active)
                         selected = _active_executable(app_root, active)
                     except Exception as rollback_exc:  # noqa: BLE001 - corrupt active state must still allow safe baseline recovery
                         recovery_note += f"; previous generation unavailable: {rollback_exc}"
@@ -714,8 +832,7 @@ class Launcher:
                     activated = None
                     active = store.load_active()
                     generation = active.get("generation") if isinstance(active, dict) else "baseline"
-                    component = ((active.get("components") or {}).get("core")
-                                 if isinstance(active, dict) else None)
+                    component = _core_component(active)
                     try:
                         selected = _active_executable(app_root, active)
                     except LauncherError:
@@ -758,6 +875,7 @@ class Launcher:
                     else:
                         activated = None
                 if running is not None:
+                    self._collect_garbage(store)
                     try:
                         return int(process.wait())
                     finally:
@@ -771,8 +889,7 @@ class Launcher:
                     try:
                         previous_exe = _active_executable(app_root, previous)
                     except LauncherError:
-                        previous_component = ((previous.get("components") or {}).get("core")
-                                              if isinstance(previous, dict) else None)
+                        previous_component = _core_component(previous)
                         if (previous_component is not None and
                                 not _baseline_compatible(previous_component)):
                             raise LauncherError(
@@ -810,8 +927,7 @@ class Launcher:
                         previous = store.load_active()
                         previous_generation = (previous.get("generation")
                                                if isinstance(previous, dict) else "baseline")
-                        previous_component = ((previous.get("components") or {}).get("core")
-                                              if isinstance(previous, dict) else None)
+                        previous_component = _core_component(previous)
                         if previous_component is not None:
                             previous_exe = _active_executable(app_root, previous)
                             if previous_exe.is_file():

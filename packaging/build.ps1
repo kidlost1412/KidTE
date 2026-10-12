@@ -10,7 +10,15 @@ param(
     [switch]$SkipInstaller,
     [switch]$SkipTests,
     [switch]$KeepBuild,
-    [switch]$BuildComponents
+    [switch]$BuildComponents,
+    # Reuse an already published runtime package (its exact bytes) instead of rebuilding
+    # the frozen interpreter: the runtime only changes when the Python version,
+    # requirements, spec or bootstrap change, so ordinary releases must not republish it.
+    [string]$RuntimeZip,
+    # Stage and package only app + extensions (no PyInstaller, no launcher, no installer).
+    [switch]$AppOnly,
+    [string]$RuntimeVersion = "",
+    [string]$ExtensionsVersion = ""
 )
 $ErrorActionPreference = "Stop"
 $Project = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -47,8 +55,47 @@ if (-not $SkipTests) {
 $env:KIDTE_BUILD_PROFILE = $ProfileSlug
 if ($ReleaseVersion) { $env:KIDTE_RELEASE_VERSION = $ReleaseVersion }
 else { Remove-Item Env:KIDTE_RELEASE_VERSION -ErrorAction SilentlyContinue }
-& $Python -m PyInstaller --noconfirm --clean --distpath $Dist --workpath $Build (Join-Path $PSScriptRoot "KidTE.spec")
-if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
+# Deterministic PE timestamps + fixed hash seed keep an unchanged runtime byte-identical between builds
+# (two consecutive builds were verified bit-for-bit identical).
+if (-not $env:SOURCE_DATE_EPOCH) { $env:SOURCE_DATE_EPOCH = "1767225600" }
+# Fixed hash seed: base_library.zip member order would otherwise differ between builds.
+$env:PYTHONHASHSEED = "0"
+$ReleaseDir = Join-Path $Project "PhatHanh"
+
+# Split update packages (runtime / app / extensions) are cut out of the merged install
+# tree by file ownership (stage_runtime.component_for); see docs/CAP-NHAT-GITHUB.md.
+function New-SplitPackages([string]$Tree, [string[]]$Components) {
+    $Versions = & $Python -c "import sys; sys.path.insert(0, r'$PSScriptRoot'); import stage_runtime as s; print(s.build_version()); print(s.RUNTIME_VERSION); print(s.EXTENSIONS_VERSION)"
+    $AppVersion = $Versions[0].Trim()
+    $VersionOf = @{ app = $AppVersion; runtime = $(if ($RuntimeVersion) { $RuntimeVersion } else { $Versions[1].Trim() });
+                    extensions = $(if ($ExtensionsVersion) { $ExtensionsVersion } else { $Versions[2].Trim() }) }
+    $Out = Join-Path $ReleaseDir "packages-$AppVersion"
+    New-Item -ItemType Directory -Path $Out -Force | Out-Null
+    foreach ($Component in $Components) {
+        $Zip = Join-Path $Out "KidTE-$Component-$($VersionOf[$Component])-p4.zip"
+        & $Python (Join-Path $PSScriptRoot "update_release.py") package $Tree --component $Component --out $Zip | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Packaging $Component failed" }
+        Write-Host ("{0,-11} {1,-8} {2,12:N0} bytes  {3}" -f $Component, $VersionOf[$Component], (Get-Item -LiteralPath $Zip).Length, $Zip)
+    }
+}
+
+if ($AppOnly) {
+    $AppStage = Join-Path $Build ("app-only-" + [guid]::NewGuid().ToString("N"))
+    & $Python (Join-Path $PSScriptRoot "stage_runtime.py") $AppStage --profile $ProfileSlug --app-only
+    if ($LASTEXITCODE -ne 0) { throw "App staging failed" }
+    New-SplitPackages $AppStage @("app", "extensions")
+    Write-Host "Chi dong goi app + extensions (khong dong goi runtime). Thu muc tam: $AppStage"
+    return
+}
+if ($RuntimeZip) {
+    if (Test-Path -LiteralPath (Join-Path $Dist "KidTE")) { Remove-Item -LiteralPath (Join-Path $Dist "KidTE") -Recurse -Force }
+    New-Item -ItemType Directory -Path (Join-Path $Dist "KidTE") -Force | Out-Null
+    Expand-Archive -LiteralPath $RuntimeZip -DestinationPath (Join-Path $Dist "KidTE")
+    Write-Host "Dung lai runtime da phat hanh: $RuntimeZip"
+} else {
+    & $Python -m PyInstaller --noconfirm --clean --distpath $Dist --workpath $Build (Join-Path $PSScriptRoot "KidTE.spec")
+    if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
+}
 & $Python -m PyInstaller --noconfirm --clean --distpath $Dist --workpath $Build (Join-Path $PSScriptRoot "Updater.spec")
 if ($LASTEXITCODE -ne 0) { throw "Launcher PyInstaller failed" }
 Copy-Item -LiteralPath (Join-Path $Dist "KidTELauncher.exe") -Destination (Join-Path $Dist "KidTE\KidTELauncher.exe")
@@ -67,6 +114,7 @@ if ($BuildComponents) {
 if ($LASTEXITCODE -ne 0) { throw "Runtime validation failed" }
 $Version = (Get-Content -LiteralPath (Join-Path $Dist "KidTE\VERSION") -Raw).Trim()
 Write-Host "Phien ban: $Version"
+New-SplitPackages (Join-Path $Dist "KidTE") @("runtime", "app", "extensions")
 
 # G06: manifest phat hanh (hash exe/file, patch solver, deps, commit solver). Phai chay truoc
 # buoc don dist o cuoi; ban sao luu o PhatHanh de verify_release.ps1 -Manifest dung sau.
@@ -75,7 +123,6 @@ $ManifestInDist = Join-Path $Dist "KidTE\release-manifest.json"
 if ($LASTEXITCODE -ne 0) { throw "Release manifest generation failed" }
 & (Join-Path $PSScriptRoot "verify_release.ps1") -Dist (Join-Path $Dist "KidTE") -Python $Python
 if ($LASTEXITCODE -ne 0) { throw "Release manifest verification failed" }
-$ReleaseDir = Join-Path $Project "PhatHanh"
 New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
 Copy-Item -LiteralPath $ManifestInDist -Destination (Join-Path $ReleaseDir "KidTE-$Version-$ArtifactProfile.release-manifest.json") -Force
 

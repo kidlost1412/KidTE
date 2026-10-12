@@ -14,12 +14,19 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 REPOSITORY = "kidlost1412/KidTE"
 COMPONENT_POLICIES = {
     "core": ("core", "KidTE.exe"),
+    # Split of the monolithic core (see docs/CAP-NHAT-GITHUB.md): the frozen
+    # interpreter+libraries, Kid TE's own code, and the Chrome extensions.
+    "runtime": ("runtime", "KidTE.exe"),
+    "app": ("app", "backend/src/app_entry.py"),
+    "extensions": ("extensions", "extension/manifest.json"),
     "gpu-cuda12": ("gpu-runtime", "gpu-runtime.json"),
     "media-tools": ("media-tools", "tools/ffmpeg.exe"),
     "captcha-solver": ("service", "Captcha/KidTECaptcha.exe"),
     "video-sync": ("service", "KidTEVideo.exe"),
     "video-analysis-cpu": ("worker", "KidTETranscription.exe"),
 }
+SPLIT_COMPONENTS = ("runtime", "app", "extensions")
+RUNTIME_API = 1
 CORE_DATA_SCHEMA = "b9a391a4195837dde253fc772fba0f9b5d18346b04eb634a86106c1c3b8389a3"
 _SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -137,6 +144,8 @@ def _validate_package(p, repository):
     if p["id"] == "core":
         if p["entrypoint"] != "KidTE.exe" or p["dependencies"] or p["compatibility"] != {"data_schema": CORE_DATA_SCHEMA}:
             raise CatalogError("invalid_core_package")
+    elif p["id"] in SPLIT_COMPONENTS:
+        _validate_split_package(p)
     elif p["id"] == "gpu-cuda12":
         c = p["compatibility"]
         if (not isinstance(c, dict) or p["entrypoint"] != "gpu-runtime.json"
@@ -174,6 +183,49 @@ def _validate_package(p, repository):
         raise CatalogError("invalid_inventory_entrypoint")
     if p["id"] == "media-tools" and not {"tools/ffmpeg.exe", "tools/ffprobe.exe"}.issubset(names):
         raise CatalogError("missing_media_tools")
+
+
+def _validate_split_package(p):
+    """Rules for runtime/app/extensions; the runtime ABI is the major version."""
+    c, deps = p["compatibility"], p["dependencies"]
+    if not isinstance(c, dict) or p["entrypoint"] != COMPONENT_POLICIES[p["id"]][1]:
+        raise CatalogError("invalid_split_package")
+    if p["id"] == "extensions":
+        if deps or c != {"extension_api": 1}:
+            raise CatalogError("invalid_split_package")
+        return
+    api = c.get("runtime_api")
+    if type(api) is not int or not 1 <= api <= 99:
+        raise CatalogError("invalid_split_package")
+    if p["id"] == "runtime":
+        if deps or c != {"runtime_api": api} or _semver(p["version"])[0][0] != api:
+            raise CatalogError("invalid_split_package")
+    elif deps != {"runtime": f">={api}.0.0,<{api + 1}.0.0"} or c != {"runtime_api": api, "data_schema": CORE_DATA_SCHEMA}:
+        raise CatalogError("invalid_split_package")
+
+
+def provided(records, dependency):
+    """Record satisfying ``dependency``; the app package stands in for ``core``.
+
+    Optional components keep depending on ``core`` (so their signed records and
+    archives never change); in a split generation the ``app`` package carries
+    the Kid TE release number that dependency refers to.
+    """
+    found = records.get(dependency)
+    if found is None and dependency == "core":
+        found = records.get("app")
+    return found
+
+
+def check_generation(records):
+    """Runtime and app must be present together and agree on the runtime ABI."""
+    runtime, app = records.get("runtime"), records.get("app")
+    if runtime is None and app is None:
+        return
+    if runtime is None or app is None or "core" in records:
+        raise CatalogError("split_generation_incomplete")
+    if runtime["compatibility"].get("runtime_api") != app["compatibility"].get("runtime_api"):
+        raise CatalogError("runtime_api_mismatch")
 
 
 def _contains_user_data(path):
@@ -292,6 +344,8 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
         if pkg["id"] != component:
             raise CatalogError("invalid_installed_component")
         installed_records[component] = pkg
+    if any(key in SPLIT_COMPONENTS for key in requested):
+        installed_records.pop("core", None)  # the monolith is replaced by the split set
     available = {}
     for pkg in catalog.get("components", []):
         if isinstance(pkg, dict) and pkg.get("id") in allowed:
@@ -302,6 +356,8 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
     visiting = set()
 
     def add(component, wanted=None, constraint=None):
+        if component == "core" and "core" not in available and "app" in available:
+            component = "app"
         if component in visiting:
             raise CatalogError("dependency_cycle")
         if component in selected:
@@ -326,7 +382,7 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
             for dep, expr in pkg["dependencies"].items():
                 if dep in visiting:
                     raise CatalogError("dependency_cycle")
-                existing = selected.get(dep) or installed_records.get(dep)
+                existing = provided(selected, dep) or provided(installed_records, dep)
                 if existing and _range_satisfies(existing["version"], expr):
                     continue
                 add(dep, constraint=expr)
@@ -343,7 +399,7 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
 
     def unsatisfied(record, combined):
         for dep, expr in record["dependencies"].items():
-            target = combined.get(dep)
+            target = provided(combined, dep)
             if target is None or not _range_satisfies(target["version"], expr):
                 return dep, expr
         return None
@@ -359,7 +415,7 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
             if issue is None:
                 continue
             dep, expr = issue
-            if dep not in combined:
+            if provided(combined, dep) is None:
                 add(dep, constraint=expr)
                 changed = True
                 break
@@ -376,7 +432,7 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
                 selected[component] = candidate
                 try:
                     for child, child_expr in candidate["dependencies"].items():
-                        child_record = selected.get(child) or installed_records.get(child)
+                        child_record = provided(selected, child) or provided(installed_records, child)
                         if not child_record or not _range_satisfies(child_record["version"], child_expr):
                             add(child, constraint=child_expr)
                     trial_combined = merged()
@@ -392,5 +448,6 @@ def resolve_components(catalog, requested: dict[str, str | None], installed=None
             changed = True
             break
         if not changed:
+            check_generation(combined)
             return {key: record for key, record in selected.items() if installed_records.get(key) != record}
     raise CatalogError("dependency_conflict")

@@ -7,8 +7,29 @@ from dotenv import load_dotenv
 
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 INSTALL_ROOT = Path(sys.executable).resolve().parent if IS_FROZEN else Path(__file__).resolve().parents[2]
-RESOURCE_ROOT = (Path(sys._MEIPASS) / "backend"
-                 if IS_FROZEN else Path(__file__).resolve().parent.parent)
+
+
+def _app_package_root():
+    """Directory holding Kid TE's own code, plugins, web UI and prompts.
+
+    Split layout: the launcher verifies the active ``app`` package and passes it in
+    ``KIDTE_APP_PACKAGE_DIR``. Without it (installer baseline, direct start) the app
+    sits next to ``KidTE.exe``. Source runs use the checkout.
+    """
+    if not IS_FROZEN:
+        return INSTALL_ROOT
+    explicit = os.getenv("KIDTE_APP_PACKAGE_DIR", "").strip()
+    return Path(explicit).resolve() if explicit else INSTALL_ROOT
+
+
+APP_PACKAGE_ROOT = _app_package_root()
+if IS_FROZEN:
+    # Legacy monolithic builds froze the web UI and prompts into the bundle.
+    RESOURCE_ROOT = (APP_PACKAGE_ROOT / "backend"
+                     if (APP_PACKAGE_ROOT / "backend" / "src" / "app_entry.py").is_file()
+                     else Path(sys._MEIPASS) / "backend")
+else:
+    RESOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _runtime_root():
@@ -49,7 +70,7 @@ def _runtime_root():
 
 
 ROOT = _runtime_root()
-PROJECT_ROOT = INSTALL_ROOT
+PROJECT_ROOT = APP_PACKAGE_ROOT
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
 load_dotenv(ROOT / ".env")
 

@@ -27,13 +27,14 @@ def test_all_manifest_scripts_are_present_in_staging_allowlist():
 def _ui_assets(goc: Path):
     """Minimal PyInstaller web payload required before staging external files."""
     for relative in (
-        "_internal/backend/src/web/operator.html",
-        "_internal/backend/src/web/kid-te-icon.png",
-        "_internal/backend/src/web/app/bootstrap.js",
-        "_internal/backend/src/web/styles/tokens.css",
-        "_internal/backend/prompts/system_prompt.txt",
-        "_internal/backend/prompts/sales_playbook.default.json",
-        "_internal/backend/prompts/knowledge_seed.json",
+        "backend/src/app_entry.py",
+        "backend/src/web/operator.html",
+        "backend/src/web/kid-te-icon.png",
+        "backend/src/web/app/bootstrap.js",
+        "backend/src/web/styles/tokens.css",
+        "backend/prompts/system_prompt.txt",
+        "backend/prompts/sales_playbook.default.json",
+        "backend/prompts/knowledge_seed.json",
         "_internal/certifi/cacert.pem",
         "_internal/nvidia/cublas/bin/cublas64_12.dll",
         "_internal/nvidia/cudnn/bin/cudnn64_9.dll",
@@ -83,6 +84,12 @@ def test_stage_runtime_copies_allowlist_only(tmp_path, monkeypatch):
         path.write_bytes(b"exe")
     (project / "backend" / ".env").parent.mkdir(parents=True)
     (project / "backend" / ".env").write_text("SECRET=1", encoding="utf-8")
+    # The app package payload (own code, web UI, prompts) is copied from the project tree.
+    for relative in ("src/app_entry.py", "src/web/operator.html", "src/web/kid-te-icon.png", "src/web/app/bootstrap.js",
+                     "prompts/system_prompt.txt", "prompts/sales_playbook.default.json", "prompts/knowledge_seed.json"):
+        path = project / "backend" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("asset", encoding="utf-8")
     monkeypatch.setattr(stage_runtime, "PROJECT", project)
     # The staging gate runs against the same checked-in theme source, not a
     # permissive mock checker in this privacy/allowlist fixture.

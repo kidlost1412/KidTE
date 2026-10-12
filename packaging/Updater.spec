@@ -14,6 +14,7 @@ a = Analysis(
     hiddenimports=[
         "component_store",
         "update_catalog",
+        "extension_sync",
         "cryptography.hazmat.primitives.asymmetric.ed25519",
         "cryptography.hazmat.primitives.asymmetric",
         "cryptography.hazmat.primitives.ciphers",

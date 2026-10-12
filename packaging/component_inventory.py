@@ -21,7 +21,8 @@ OWNERSHIP_RULES = [
     {"component": "extension-tiktok", "rule": "extension/**"},
     {"component": "extension-shopee", "rule": "extension-shopee/**"},
     {"component": "documentation", "rule": "docs/**"},
-    {"component": "core", "rule": "all remaining staged runtime files"},
+    {"component": "app", "rule": "backend/** or plugins/** or VERSION (Kid TE's own code; update package `app`)"},
+    {"component": "runtime", "rule": "all remaining staged files (KidTE.exe, _internal/**; update package `runtime`)"},
 ]
 
 
@@ -43,7 +44,9 @@ def _owner(relative: str) -> str:
         return "extension-tiktok"
     if path.startswith("docs/"):
         return "documentation"
-    return "core"
+    if path.startswith(("backend/", "plugins/")) or path == "version":
+        return "app"
+    return "runtime"
 
 
 def _sha256(path: Path) -> str:

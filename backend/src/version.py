@@ -7,11 +7,11 @@ commit (vd ``1.4.96``) và ghi vào ``VERSION`` cạnh ``KidTE.exe``; bộ cài 
 """
 from __future__ import annotations
 
-from config import INSTALL_ROOT, IS_FROZEN, PROJECT_ROOT
+from config import IS_FROZEN, PROJECT_ROOT
 
 
 def app_version():
-    candidates = [INSTALL_ROOT / "VERSION"] if IS_FROZEN else [PROJECT_ROOT / "VERSION"]
+    candidates = [PROJECT_ROOT / "VERSION"]
     for path in candidates:
         try:
             text = path.read_text(encoding="utf-8").strip()

@@ -21,7 +21,8 @@ import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
-from update_catalog import COMPONENT_POLICIES, _range_satisfies
+from update_catalog import (COMPONENT_POLICIES, SPLIT_COMPONENTS, CatalogError, _range_satisfies,
+                            check_generation, provided)
 
 try:  # Windows uses a byte-range lock; POSIX keeps the module testable.
     import msvcrt  # type: ignore
@@ -290,7 +291,7 @@ class ComponentStore:
         active = self.load_active()
         if active is None:
             return None
-        return active["components"].get("core")
+        return active["components"].get("runtime") or active["components"].get("core")
 
     def download_root(self) -> Path:
         """Return the checked private download directory under the staging root."""
@@ -353,11 +354,15 @@ class ComponentStore:
         # active/pending mappings that did not originate in UpdateManager.
         for component_id, record in records.items():
             for dependency, version_range in record["dependencies"].items():
-                target = records.get(dependency)
+                target = provided(records, dependency)
                 if target is None:
                     raise ComponentStoreError("component dependency is missing")
                 if not _range_satisfies(target["version"], version_range):
                     raise ComponentStoreError("component dependency version mismatch")
+        try:
+            check_generation(records)
+        except CatalogError as exc:
+            raise ComponentStoreError(f"invalid runtime/app generation: {exc}") from exc
 
     def _verify_existing(self, target: Path, record: dict) -> bool:
         if not target.exists():
@@ -391,7 +396,7 @@ class ComponentStore:
     def baseline_matches(self, package: dict) -> bool:
         """Verify installer core against a signed catalog without downloading it."""
         _validate_record(package)
-        if package["id"] != "core":
+        if package["id"] not in {"core", *SPLIT_COMPONENTS}:
             return False
         try:
             for row in package["files"]:
@@ -410,11 +415,11 @@ class ComponentStore:
             return False
 
     def stage_baseline(self, package: dict) -> Path:
-        """Copy verified installer files into an immutable core version; never hardlink."""
+        """Copy verified installer files into an immutable package version; never hardlink."""
         if not self.baseline_matches(package):
-            raise ComponentStoreError("installer core does not match signed inventory")
-        target = self.packages_dir / "core" / package["version"]
-        stage = self.staging_dir / f"core-local-{uuid.uuid4().hex}"
+            raise ComponentStoreError("installer package does not match signed inventory")
+        target = self.packages_dir / package["id"] / package["version"]
+        stage = self.staging_dir / f"{package['id']}-local-{uuid.uuid4().hex}"
         _check_ancestry(stage)
         if shutil.disk_usage(self.app_root).free < package["unpacked_bytes"] + 1024 * 1024:
             raise ComponentStoreError("insufficient disk space")
@@ -427,7 +432,7 @@ class ComponentStore:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
             if not self._verify_existing(stage, package):
-                raise ComponentStoreError("installer core changed while staging")
+                raise ComponentStoreError("installer package changed while staging")
             with self._locked():
                 _check_ancestry(target)
                 if target.exists():
@@ -784,3 +789,140 @@ class ComponentStore:
                 self._checkpoint("recovered_rollback")
                 return old
             raise ComponentStoreError("unknown transaction journal state")
+
+    # ------------------------------------------------------------------
+    # Local garbage collection (Chrome / VS Code style): after a generation is
+    # confirmed healthy keep exactly the active generation plus one rollback.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _mapping_refs(mapping) -> set:
+        if not isinstance(mapping, dict):
+            return set()
+        return {(cid, row["version"]) for cid, row in (mapping.get("components") or {}).items()
+                if isinstance(row, dict) and isinstance(row.get("version"), str)}
+
+    @staticmethod
+    def _rmtree(path: Path) -> None:
+        def retry(func, target, _exc):
+            try:
+                os.chmod(target, stat.S_IWRITE)
+                func(target)
+            except OSError:
+                pass
+        shutil.rmtree(path, onerror=retry)
+
+    @staticmethod
+    def _newest_mtime(path: Path, cutoff: float) -> float:
+        """Newest mtime under ``path``; stops early once something newer than ``cutoff`` is seen."""
+        newest = path.lstat().st_mtime
+        if newest > cutoff or not path.is_dir() or _is_reparse(path):
+            return newest
+        for base, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if not _is_reparse(Path(base) / d)]
+            for name in files:
+                try:
+                    newest = max(newest, (Path(base) / name).lstat().st_mtime)
+                except OSError:
+                    continue
+                if newest > cutoff:
+                    return newest
+        return newest
+
+    def collect_garbage(self, *, grace_seconds: float = 3600.0, staging_max_age: float = 86400.0,
+                        now: float | None = None) -> dict:
+        """Delete package versions that are neither active nor previous.
+
+        Safe by construction: nothing is touched while a pending generation or an
+        unconfirmed activation exists, or when metadata cannot be read. Versions
+        younger than ``grace_seconds`` are kept (they may be staged for an install
+        that has not written ``pending.json`` yet). A version is first renamed to
+        ``.staging/.trash-*`` (atomic, so a crash never leaves a half-deleted
+        package that a mapping could reference) and removed afterwards; stale
+        trash and staging leftovers older than ``staging_max_age`` are swept.
+        """
+        now = time.time() if now is None else float(now)
+        report = {"skipped": None, "removed": [], "kept": [], "busy": [], "staging_removed": []}
+        trash: list[Path] = []
+        with self._locked():
+            try:
+                if self.pending_path.exists():
+                    report["skipped"] = "pending_generation"
+                    return report
+                journal = self._read_mapping(self.journal_path)
+                if journal is not None and journal.get("state") not in {"committed", "rolled_back"}:
+                    report["skipped"] = "activation_in_progress"
+                    return report
+                active = self._read_mapping(self.active_path)
+                previous = self._read_mapping(self.previous_path)
+                if active is None:
+                    report["skipped"] = "no_active_generation"
+                    return report
+                self._validate_mapping(active)
+                keep = self._mapping_refs(active)
+                if previous is not None:
+                    if set(previous) != {"schema_version", "active"}:
+                        raise ComponentStoreError("invalid previous.json")
+                    keep |= self._mapping_refs(previous["active"])
+            except ComponentStoreError as exc:
+                report["skipped"] = f"metadata_unreadable:{exc}"
+                return report
+            _check_ancestry(self.packages_dir)
+            for id_dir in sorted(self.packages_dir.iterdir()):
+                if not id_dir.is_dir() or _is_reparse(id_dir):
+                    continue
+                for version_dir in sorted(id_dir.iterdir()):
+                    key = (id_dir.name, version_dir.name)
+                    if key in keep:
+                        report["kept"].append(f"{key[0]}/{key[1]}")
+                        continue
+                    if not version_dir.is_dir() or _is_reparse(version_dir):
+                        continue
+                    if now - version_dir.lstat().st_mtime < grace_seconds:  # immutable: dir time = staging time
+                        report["kept"].append(f"{key[0]}/{key[1]}")
+                        continue
+                    destination = self.staging_dir / f".trash-{uuid.uuid4().hex}"
+                    try:
+                        os.replace(version_dir, destination)
+                    except OSError:
+                        report["busy"].append(f"{key[0]}/{key[1]}")  # in use; retried next time
+                        continue
+                    trash.append(destination)
+                    report["removed"].append(f"{key[0]}/{key[1]}")
+                try:
+                    id_dir.rmdir()  # only succeeds when empty
+                except OSError:
+                    pass
+            self._checkpoint("gc_renamed")
+        for path in trash:
+            self._rmtree(path)
+        report["staging_removed"] = self._sweep_staging(now, staging_max_age)
+        return report
+
+    def _sweep_staging(self, now: float, max_age: float) -> list[str]:
+        removed = []
+        try:
+            entries = list(self.staging_dir.iterdir())
+        except OSError:
+            return removed
+        cutoff = now - max_age
+        for entry in entries:
+            try:
+                if _is_reparse(entry):
+                    entry.unlink()
+                    removed.append(entry.name)
+                    continue
+                if entry.name == "downloads" and entry.is_dir():
+                    for item in list(entry.iterdir()):
+                        if item.is_file() and not _is_reparse(item) and item.lstat().st_mtime < cutoff:
+                            item.unlink()
+                            removed.append(f"downloads/{item.name}")
+                    continue
+                if entry.name.startswith(".trash-") or self._newest_mtime(entry, cutoff) < cutoff:
+                    if entry.is_dir():
+                        self._rmtree(entry)
+                    else:
+                        entry.unlink()
+                    removed.append(entry.name)
+            except OSError:
+                continue
+        return removed

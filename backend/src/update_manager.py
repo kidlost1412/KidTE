@@ -8,23 +8,29 @@ import threading
 from pathlib import Path
 
 from component_store import ComponentStore
-from update_catalog import COMPONENT_POLICIES, resolve_components, verify_catalog
+from update_catalog import COMPONENT_POLICIES, SPLIT_COMPONENTS, resolve_components, verify_catalog
 from update_transport import GitHubTransport
 from update_trust import TRUSTED_KEYS
 
 REPOSITORY = "kidlost1412/KidTE"
 SUPPORTED_COMPONENTS = set(COMPONENT_POLICIES)
+BASELINE_COMPONENTS = {"core", *SPLIT_COMPONENTS}
+LAUNCHER_CAPS_NEEDED = "split-components"
 
 
 class UpdateManager:
     """No network, downloads, activation, or data migration at construction."""
 
-    def __init__(self, app_root=None, *, transport=None, trusted_keys=None, store=None):
+    def __init__(self, app_root=None, *, transport=None, trusted_keys=None, store=None, launcher_caps=None):
         selected = app_root or os.environ.get("KIDTE_APP_ROOT", "")
         if not selected and getattr(sys, "frozen", False):
             selected = Path(sys.executable).resolve().parent
         self.app_root = Path(selected).absolute() if selected else None
-        self.transport = transport or GitHubTransport(repository=REPOSITORY, series="p3")
+        # Series p4 lists the split runtime/app/extensions components; older
+        # launchers/apps only ever read p3 and keep seeing the monolithic core.
+        self.transport = transport or GitHubTransport(repository=REPOSITORY, series="p4")
+        self._launcher_caps = (os.environ.get("KIDTE_LAUNCHER_CAPS", "")
+                               if launcher_caps is None else launcher_caps)
         self.trusted_keys = dict(TRUSTED_KEYS if trusted_keys is None else trusted_keys)
         self._store = store
         self._lock = threading.RLock()
@@ -63,6 +69,8 @@ class UpdateManager:
                 pending = store.load_pending()
                 result["pending"] = self._versions(pending)
                 result["restart_required"] = pending is not None
+                result["split_layout"] = "runtime" in ((store.load_active() or {}).get("components") or {})
+                result["launcher_split_capable"] = LAUNCHER_CAPS_NEEDED in self._launcher_caps.split()
             except (OSError, ValueError, RuntimeError) as exc:
                 result["error"] = str(exc)
         result["available"] = [
@@ -102,17 +110,19 @@ class UpdateManager:
                     raise ValueError("update_check_required")
                 if action == "plan":
                     _, selection = self._plan(store, requested)
-                    local_core = "core" in selection and store.baseline_matches(selection["core"])
-                    return {"ok": True, "download_bytes": sum(p["archive_bytes"] for k, p in selection.items() if k != "core" or not local_core),
+                    local = {k for k, p in selection.items() if k in BASELINE_COMPONENTS and store.baseline_matches(p)}
+                    return {"ok": True, "download_bytes": sum(p["archive_bytes"] for k, p in selection.items() if k not in local),
                             "packages": [{"id": p["id"], "version": p["version"],
-                                          "download_bytes": 0 if k == "core" and local_core else p["archive_bytes"],
-                                          "local_reuse": k == "core" and local_core} for k, p in selection.items()]}
+                                          "download_bytes": 0 if k in local else p["archive_bytes"],
+                                          "local_reuse": k in local} for k, p in selection.items()]}
                 if store.load_pending() is not None:
                     raise ValueError("update_restart_required")
+                current = (store.load_active() or {}).get("components", {})
+                self._expand_split(requested, current)  # refuse early if the launcher cannot start it
                 target = lambda: self._install(store, requested)
             elif action == "remove":
                 component = payload.get("component")
-                if component not in SUPPORTED_COMPONENTS - {"core"}:
+                if component not in SUPPORTED_COMPONENTS - BASELINE_COMPONENTS:
                     raise ValueError("update_selection_invalid")
                 if store.load_pending() is not None:
                     raise ValueError("update_restart_required")
@@ -155,10 +165,26 @@ class UpdateManager:
                                  channel=self._channel, minimum_sequence=store.read_highwater())
         active = store.load_active() or {}
         installed = {key: value["package"] for key, value in active.get("components", {}).items()}
+        requested = self._expand_split(requested, installed)
         selection = resolve_components(catalog, requested, installed=installed, core_api="1.0.0")
         if not set(selection).issubset(SUPPORTED_COMPONENTS):
             raise ValueError("update_component_not_supported")
         return catalog, selection
+
+    def _expand_split(self, requested, installed):
+        """Turn a split-component request into a complete runtime+app+extensions set.
+
+        An install that still runs the monolithic ``core`` (or none) migrates as
+        a whole generation, which only a launcher that understands split
+        generations can start; refuse early rather than strand the install.
+        """
+        if not any(key in SPLIT_COMPONENTS for key in requested):
+            return requested
+        if "runtime" in installed:
+            return requested
+        if LAUNCHER_CAPS_NEEDED not in self._launcher_caps.split():
+            raise ValueError("update_launcher_upgrade_required")
+        return {**{key: None for key in SPLIT_COMPONENTS}, **requested}
 
     def _install(self, store, requested):
         catalog, selection = self._plan(store, requested)
@@ -168,9 +194,11 @@ class UpdateManager:
             self._set(progress=None)
             return
         components = dict((store.load_active() or {}).get("components", {}))
+        if any(key in SPLIT_COMPONENTS for key in selection):
+            components.pop("core", None)  # replaced by runtime + app + extensions
         download_root = store.download_root()
         for component_id, package in selection.items():
-            if component_id == "core" and store.baseline_matches(package):
+            if component_id in BASELINE_COMPONENTS and store.baseline_matches(package):
                 store.stage_baseline(package)
                 components[component_id] = package
                 continue

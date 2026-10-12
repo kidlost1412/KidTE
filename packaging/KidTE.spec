@@ -15,12 +15,15 @@ PROJECT = Path(SPECPATH).parent
 BACKEND = PROJECT / "backend"
 PLUGINS = PROJECT / "plugins"
 sys.path.insert(0, str(PROJECT / "packaging"))
-from stage_runtime import build_version
+from stage_runtime import build_version, runtime_version
 
 APP_VERSION = build_version()
-version_parts = [int(part) for part in APP_VERSION.split(".")]
+# The runtime package has its own slow-moving version (its major is the runtime ABI);
+# keeping it out of the exe resources keeps the runtime bytes stable across releases.
+RUNTIME_VERSION = runtime_version()
+version_parts = [int(part) for part in RUNTIME_VERSION.split(".")]
 if len(version_parts) != 3:
-    raise ValueError(f"Unexpected release version: {APP_VERSION}")
+    raise ValueError(f"Unexpected runtime version: {RUNTIME_VERSION}")
 # PE numeric version fields use 16-bit components; the displayed string keeps
 # the complete release number even when a date-based fallback exceeds 65535.
 PE_VERSION = tuple(min(part, 65535) for part in version_parts) + (0,)
@@ -61,18 +64,20 @@ def _apply_build_profile(analysis_result):
     return analysis_result
 
 
-def windows_version_info(description):
+def windows_version_info(description, version=None):
+    version = version or APP_VERSION
+    pe_version = tuple(min(int(part), 65535) for part in version.split(".")) + (0,)
     return VSVersionInfo(
-        ffi=FixedFileInfo(filevers=PE_VERSION, prodvers=PE_VERSION),
+        ffi=FixedFileInfo(filevers=pe_version, prodvers=pe_version),
         kids=[
             StringFileInfo([StringTable("040904B0", [
                 StringStruct("CompanyName", "Kid TE"),
                 StringStruct("FileDescription", description),
-                StringStruct("FileVersion", APP_VERSION),
+                StringStruct("FileVersion", version),
                 StringStruct("InternalName", description.replace(" ", "")),
                 StringStruct("OriginalFilename", description.replace(" ", "") + ".exe"),
                 StringStruct("ProductName", "Kid TE"),
-                StringStruct("ProductVersion", APP_VERSION),
+                StringStruct("ProductVersion", version),
             ])]),
             VarFileInfo([VarStruct("Translation", [1033, 1200])]),
         ],
@@ -100,10 +105,9 @@ for packages in site.getsitepackages():
 if BUILD_PROFILE == "gpu" and not any("cublas64_12" in src.lower() for src, _ in cuda_binaries):
     raise SystemExit("GPU profile requested but cuBLAS is missing; install backend/requirements-gpu.txt.")
 
-core_datas = [
-    (str(BACKEND / "prompts"), "backend/prompts"),
-    (str(BACKEND / "src" / "web"), "backend/src/web"),
-]
+# Kid TE's own resources (prompts, web UI) belong to the separately updated ``app``
+# package (stage_runtime.stage), not to the runtime bundle.
+core_datas = []
 # Khong dong goi du lieu nao cua shop (ho so san pham, thong tin shop, anh xa):
 # may moi cai la may trang. Khop runtime_layout.SEED_PATHS (rong) — xem
 # test_packaging_policy.py.
@@ -126,17 +130,34 @@ def analysis(script, *, pathex=None, datas=None, hiddenimports=None):
     )
 
 
+# The full analysis of app_entry.py discovers every third-party dependency; Kid TE's
+# own modules are then dropped from the archive because the runtime loads them from
+# the app package (see packaging/runtime_bootstrap.py).
 core = _apply_build_profile(analysis(BACKEND / "src" / "app_entry.py"))
+_OWN_SOURCE = os.path.normcase(os.path.abspath(str(BACKEND / "src")))
+
+
+def _is_own_module(entry):
+    source = os.path.normcase(os.path.abspath(str(entry[1])))
+    return source == _OWN_SOURCE or source.startswith(_OWN_SOURCE + os.sep)
+
+
+own_modules = sorted(entry[0] for entry in core.pure if _is_own_module(entry))
+core.pure = [entry for entry in core.pure if not _is_own_module(entry)]
+print(f"runtime: {len(own_modules)} Kid TE modules moved to the app package")
+bootstrap = Analysis([str(PROJECT / "packaging" / "runtime_bootstrap.py")], pathex=[], binaries=[],
+                     datas=[], hiddenimports=[], hookspath=[], hooksconfig={}, runtime_hooks=[],
+                     excludes=[], noarchive=False)
 video = _apply_build_profile(analysis(PLUGINS / "dong-bo-video" / "chay.py",
                  pathex=[str(PLUGINS / "dong-bo-video")], hiddenimports=["websocket"]))
 
 core_pyz = PYZ(core.pure)
 video_pyz = PYZ(video.pure)
 
-core_exe = EXE(core_pyz, core.scripts, [], exclude_binaries=True,
+core_exe = EXE(core_pyz, bootstrap.scripts, [], exclude_binaries=True,
                name="KidTE", console=False, debug=False, bootloader_ignore_signals=False,
                strip=False, upx=True, disable_windowed_traceback=False,
-               version=windows_version_info("Kid TE"),
+               version=windows_version_info("Kid TE", RUNTIME_VERSION),
                icon=str(PROJECT / "assets" / "kid-te.ico"))
 video_exe = EXE(video_pyz, video.scripts, [], exclude_binaries=True,
                 name="KidTEVideo", console=True, debug=False,

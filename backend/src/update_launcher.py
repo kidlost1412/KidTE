@@ -34,7 +34,8 @@ class AlreadyRunning(LauncherError):
 
 BASELINE_IDS = ("core", "runtime", "app", "extensions")
 SPLIT_IDS = ("runtime", "app", "extensions")
-LAUNCHER_CAPS = "split-components"
+LAUNCHER_CAPS = "split-components restart-exit"
+MAX_RESTARTS_PER_WINDOW = 3
 
 
 def _prepare_installer_core(app_root, store):
@@ -201,6 +202,10 @@ def _lock_pid_is_same_app(app_root: Path, pid: int, value: dict) -> bool:
         return False
 
 
+class _LauncherBusy(AlreadyRunning):
+    """Another launcher holds the launcher lock."""
+
+
 @contextmanager
 def _launcher_lock(app_root: Path):
     """Hold an OS byte-range lock separate from ComponentStore's lock."""
@@ -220,7 +225,7 @@ def _launcher_lock(app_root: Path):
             try:
                 msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
             except OSError as exc:
-                raise AlreadyRunning("Kid TE launcher is already starting or running.") from exc
+                raise _LauncherBusy("Kid TE launcher is already starting or running.") from exc
             unlock = lambda: msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl
@@ -228,7 +233,7 @@ def _launcher_lock(app_root: Path):
             try:
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError as exc:
-                raise AlreadyRunning("Kid TE launcher is already starting or running.") from exc
+                raise _LauncherBusy("Kid TE launcher is already starting or running.") from exc
             unlock = lambda: fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
         try:
             yield
@@ -627,26 +632,63 @@ def _environment(app_root: Path, data_root: Path, port: int, environ: dict[str, 
     return child
 
 
+def _ready_mismatches(value, process, nonce: str, generation: str, data_root: Path) -> list[str]:
+    """Why a readiness answer is not ours (empty list = it is ours)."""
+    if not isinstance(value, dict) or value.get("ok") is not True:
+        return []  # nothing (or not Kid TE) answering yet
+    problems = []
+    if value.get("pid") != process.pid:
+        problems.append(f"pid expected {process.pid} got {value.get('pid')}")
+    if value.get("launcher_nonce") != nonce:
+        problems.append("nonce differs (answer is from a core this launcher did not start)")
+    if value.get("launcher_generation") != generation:
+        problems.append(f"generation expected {generation} got {value.get('launcher_generation')}")
+    raw_root = value.get("data_root")
+    if not isinstance(raw_root, str) or not _same_path(raw_root, data_root):
+        problems.append(f"data_root expected {data_root} got {raw_root}")
+    return problems
+
+
 def _matches_ready(value, process, nonce: str, generation: str, data_root: Path) -> bool:
-    return (
-        isinstance(value, dict) and value.get("ok") is True and
-        value.get("pid") == process.pid and value.get("launcher_nonce") == nonce and
-        value.get("launcher_generation") == generation and
-        isinstance(value.get("data_root"), str) and _same_path(value["data_root"], data_root)
-    )
+    return (isinstance(value, dict) and value.get("ok") is True and
+            not _ready_mismatches(value, process, nonce, generation, data_root))
 
 
-def _wait_ready(process, nonce, generation, data_root, port, *, ready_probe, timeout, sleep):
+class _ForeignInstance(AlreadyRunning):
+    """Another Kid TE core already owns this data folder / port."""
+
+
+def _wait_ready(process, nonce, generation, data_root, port, *, ready_probe, timeout, sleep,
+                log=None):
+    from update_restart import ALREADY_RUNNING_EXIT_CODE
+
     deadline = time.monotonic() + timeout
+    last_reason = None
+    foreign = None
     while time.monotonic() < deadline:
+        answer = ready_probe(port)
         code = process.poll()
         if code is not None:
+            if code == ALREADY_RUNNING_EXIT_CODE or foreign is not None:
+                raise _ForeignInstance(
+                    "another Kid TE core already owns this data folder"
+                    + (f" (pid {foreign})" if foreign is not None else ""))
             return False, f"core exited before readiness (exit code {code})"
-        if _matches_ready(ready_probe(port), process, nonce, generation, data_root):
+        if _matches_ready(answer, process, nonce, generation, data_root):
             return True, "ready"
+        problems = _ready_mismatches(answer, process, nonce, generation, data_root)
+        if problems:
+            reason = "; ".join(problems)
+            if reason != last_reason:
+                last_reason = reason
+                if log is not None:
+                    log(f"readiness mismatch: {reason}")
+            root = answer.get("data_root")
+            if isinstance(root, str) and _same_path(root, data_root) and answer.get("pid") != process.pid:
+                foreign = answer.get("pid")
         sleep(POLL_INTERVAL)
-    return False, f"core did not become ready within {int(timeout)} seconds"
-
+    return False, (f"core did not become ready within {int(timeout)} seconds"
+                   + (f" (last mismatch: {last_reason})" if last_reason else ""))
 
 def _terminate_owned(process, job, *, timeout=5):
     if process is None:
@@ -680,6 +722,7 @@ class Launcher:
         self.sleep = sleep
         self.startup_timeout = startup_timeout
         self.environ = dict(os.environ if environ is None else environ)
+        self._last_nonce = ""
 
     def _store(self, app_root):
         if self.store_factory:
@@ -728,6 +771,7 @@ class Launcher:
         command = [str(executable), *passthrough_args]
         job = self.job_factory()
         process = None
+        self._last_nonce = nonce
         try:
             flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
                      | getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -736,6 +780,7 @@ class Launcher:
             ready, detail = _wait_ready(
                 process, nonce, generation, data_root, port,
                 ready_probe=self.ready_probe, timeout=self.startup_timeout, sleep=self.sleep,
+                log=lambda m: _record_recovery(app_root, m),
             )
             if not ready:
                 _terminate_owned(process, job)
@@ -754,213 +799,276 @@ class Launcher:
         port = argument_port if argument_port is not None else _port(self.environ)
         if not 1 <= port <= 65535:
             raise LauncherError("CHAT_PORT must be between 1 and 65535.")
-        with _launcher_lock(app_root):
-            _preflight(app_root, data_root, port, ready_probe=self.ready_probe,
-                       occupied_probe=self.occupied_probe)
-            store = self._store(app_root)
+        try:
+            with _launcher_lock(app_root):
+                recent: list[float] = []
+                while True:
+                    _preflight(app_root, data_root, port, ready_probe=self.ready_probe,
+                               occupied_probe=self.occupied_probe)
+                    code = self._run_once(app_root, data_root, port, child_args)
+                    if not self._restart_requested(app_root, code):
+                        return code
+                    # The core asked for a restart (UI "Khoi dong lai"): run the normal
+                    # selection again so a pending generation is activated through the
+                    # usual readiness handshake / rollback. Cap runaway loops.
+                    now = time.monotonic()
+                    recent = [t for t in recent if now - t < 120.0] + [now]
+                    if len(recent) > MAX_RESTARTS_PER_WINDOW:
+                        _record_recovery(app_root, "restart requested too often; not restarting again")
+                        return code
+                    _record_recovery(app_root, "restart requested by core; re-running startup selection")
+        except _LauncherBusy:
+            # A second open while a launcher is starting/running: just bring the window up.
+            _call_focus(port)
+            raise
+
+    def _defer_for_foreign_instance(self, store, app_root, port, activated, pending_snapshot, exc):
+        """Another core owns the data folder: that is not this generation's failure.
+
+        An unconfirmed generation we just activated is put back as a *pending* update
+        (fresh generation id) instead of being rolled back and lost, and the running
+        window is focused.
+        """
+        _record_recovery(app_root, f"another Kid TE instance is running ({exc}); "
+                         "this launcher is exiting without changing the healthy generation")
+        if activated is not None:
+            try:
+                store.rollback()
+                if pending_snapshot is not None:
+                    store.restore_pending(pending_snapshot)
+                    _record_recovery(app_root, "pending update kept for the next restart")
+            except Exception as err:  # noqa: BLE001 - best effort
+                _record_recovery(app_root, f"could not requeue pending update: {err}")
+        _call_focus(port)
+
+    def _restart_requested(self, app_root, code) -> bool:
+        from update_restart import RESTART_EXIT_CODE, consume_marker
+
+        nonce, self._last_nonce = self._last_nonce, ""
+        return code == RESTART_EXIT_CODE and consume_marker(app_root, nonce)
+
+    def _run_once(self, app_root, data_root, port, child_args) -> int:
+        from update_restart import marker_path
+
+        try:
+            marker_path(app_root).unlink()
+        except OSError:
+            pass
+        store = self._store(app_root)
+        store.recover()
+        try:
+            _prepare_installer_core(app_root, store)
+        except (OSError, RuntimeError, ValueError) as exc:
+            _record_recovery(app_root, f"installer bootstrap rejected: {exc}")
+        activated = None
+        pending_snapshot = None
+        pending_attempt = False
+        try:
+            pending = store.load_pending()
+            pending_snapshot = pending
+            pending_attempt = pending is not None
+            active = store.activate_pending() if pending is not None else store.load_active()
+            activated = active if pending is not None else None
+        except (OSError, RuntimeError, ValueError) as exc:
+            # Validation may reject a damaged pending archive before the switch,
+            # or a filesystem error may interrupt the switch. Recover the journal
+            # before starting the old generation; never execute the rejected one.
             store.recover()
-            try:
-                _prepare_installer_core(app_root, store)
-            except (OSError, RuntimeError, ValueError) as exc:
-                _record_recovery(app_root, f"installer bootstrap rejected: {exc}")
-            activated = None
-            pending_attempt = False
-            try:
-                pending = store.load_pending()
-                pending_attempt = pending is not None
-                active = store.activate_pending() if pending is not None else store.load_active()
-                activated = active if pending is not None else None
-            except (OSError, RuntimeError, ValueError) as exc:
-                # Validation may reject a damaged pending archive before the switch,
-                # or a filesystem error may interrupt the switch. Recover the journal
-                # before starting the old generation; never execute the rejected one.
-                store.recover()
-                store.cancel_pending()
+            store.cancel_pending()
+            active = store.load_active()
+            _record_recovery(app_root, f"pending update rejected before startup: {exc}")
+        generation = active.get("generation") if isinstance(active, dict) else "baseline"
+        if not isinstance(generation, str) or not generation:
+            raise LauncherError("Active component generation is invalid.")
+        component = _core_component(active)
+        baseline_recovery_allowed = _baseline_compatible(component)
+        rollback_attempted = False
+        recovery_note = ""
+        try:
+            selected = _active_executable(app_root, active)
+        except Exception as exc:
+            if activated is not None:
+                detail = f"pending core validation failed: {exc}"
+                store.rollback()
+                activated = None
                 active = store.load_active()
-                _record_recovery(app_root, f"pending update rejected before startup: {exc}")
-            generation = active.get("generation") if isinstance(active, dict) else "baseline"
-            if not isinstance(generation, str) or not generation:
-                raise LauncherError("Active component generation is invalid.")
-            component = _core_component(active)
-            baseline_recovery_allowed = _baseline_compatible(component)
-            rollback_attempted = False
-            recovery_note = ""
-            try:
-                selected = _active_executable(app_root, active)
-            except Exception as exc:
-                if activated is not None:
-                    detail = f"pending core validation failed: {exc}"
-                    store.rollback()
-                    activated = None
-                    active = store.load_active()
-                    generation = active.get("generation") if isinstance(active, dict) else "baseline"
-                    component = _core_component(active)
-                    try:
-                        selected = _active_executable(app_root, active)
-                    except LauncherError:
-                        if component is not None and not _baseline_compatible(component):
-                            raise LauncherError(
-                                "The previous core failed validation, and its signed data schema "
-                                "does not permit starting the legacy baseline."
-                            )
-                        selected = app_root / "KidTE.exe"
-                elif component is not None:
-                    if not _baseline_compatible(component):
+                generation = active.get("generation") if isinstance(active, dict) else "baseline"
+                component = _core_component(active)
+                try:
+                    selected = _active_executable(app_root, active)
+                except LauncherError:
+                    if component is not None and not _baseline_compatible(component):
                         raise LauncherError(
-                            "The active core failed validation, and its signed data schema "
+                            "The previous core failed validation, and its signed data schema "
                             "does not permit starting the legacy baseline."
-                        ) from exc
-                    recovery_note = f"active core validation failed: {exc}"
-                    try:
-                        rollback_attempted = True
-                        store.rollback()
-                        active = store.load_active()
-                        generation = active.get("generation") if isinstance(active, dict) else "baseline"
-                        component = _core_component(active)
-                        selected = _active_executable(app_root, active)
-                    except Exception as rollback_exc:  # noqa: BLE001 - corrupt active state must still allow safe baseline recovery
-                        recovery_note += f"; previous generation unavailable: {rollback_exc}"
-                        active = None
-                        generation = "baseline"
-                        component = None
-                        selected = app_root / "KidTE.exe"
-                else:
-                    raise
-            if not selected.is_file():
-                if activated is not None:
+                        )
+                    selected = app_root / "KidTE.exe"
+            elif component is not None:
+                if not _baseline_compatible(component):
+                    raise LauncherError(
+                        "The active core failed validation, and its signed data schema "
+                        "does not permit starting the legacy baseline."
+                    ) from exc
+                recovery_note = f"active core validation failed: {exc}"
+                try:
+                    rollback_attempted = True
                     store.rollback()
-                    activated = None
                     active = store.load_active()
                     generation = active.get("generation") if isinstance(active, dict) else "baseline"
                     component = _core_component(active)
-                    try:
-                        selected = _active_executable(app_root, active)
-                    except LauncherError:
-                        if component is not None and not _baseline_compatible(component):
-                            raise LauncherError(
-                                "The previous core failed validation, and its signed data schema "
-                                "does not permit starting the legacy baseline."
-                            )
-                        selected = app_root / "KidTE.exe"
-                elif recovery_note and baseline_recovery_allowed:
+                    selected = _active_executable(app_root, active)
+                except Exception as rollback_exc:  # noqa: BLE001 - corrupt active state must still allow safe baseline recovery
+                    recovery_note += f"; previous generation unavailable: {rollback_exc}"
                     active = None
                     generation = "baseline"
                     component = None
                     selected = app_root / "KidTE.exe"
-                if not selected.is_file():
-                    raise LauncherError(f"Kid TE core executable was not found: {selected}")
+            else:
+                raise
+        if not selected.is_file():
+            if activated is not None:
+                store.rollback()
+                activated = None
+                active = store.load_active()
+                generation = active.get("generation") if isinstance(active, dict) else "baseline"
+                component = _core_component(active)
+                try:
+                    selected = _active_executable(app_root, active)
+                except LauncherError:
+                    if component is not None and not _baseline_compatible(component):
+                        raise LauncherError(
+                            "The previous core failed validation, and its signed data schema "
+                            "does not permit starting the legacy baseline."
+                        )
+                    selected = app_root / "KidTE.exe"
+            elif recovery_note and baseline_recovery_allowed:
+                active = None
+                generation = "baseline"
+                component = None
+                selected = app_root / "KidTE.exe"
+            if not selected.is_file():
+                raise LauncherError(f"Kid TE core executable was not found: {selected}")
 
-            launch_active = active
-            launch_generation = generation
-            if _same_path(selected, app_root / "KidTE.exe"):
-                # The legacy baseline has no signed modular GPU association.
-                launch_active = None
-                launch_generation = "baseline"
-            if recovery_note and _same_path(selected, app_root / "KidTE.exe"):
-                _record_recovery(app_root, recovery_note + "; starting legacy baseline")
-            try:
-                running, detail = self._spawn(selected, app_root, data_root, port,
-                                              launch_generation, launch_active, child_args)
-            except Exception as exc:  # noqa: BLE001 - startup boundary must rollback on every launch failure
-                running, detail = None, f"core launch failed: {exc}"
-            if running is not None:
-                process, job = running
-                if activated is not None:
-                    try:
-                        store.confirm_active(generation)
-                    except Exception as exc:  # noqa: BLE001 - store confirmation failures require rollback
-                        _terminate_owned(process, job)
-                        running = None
-                        detail = f"new core became ready but activation confirmation failed: {exc}"
-                    else:
-                        activated = None
-                if running is not None:
-                    self._collect_garbage(store)
-                    try:
-                        return int(process.wait())
-                    finally:
-                        job.close()
+        launch_active = active
+        launch_generation = generation
+        if _same_path(selected, app_root / "KidTE.exe"):
+            # The legacy baseline has no signed modular GPU association.
+            launch_active = None
+            launch_generation = "baseline"
+        if recovery_note and _same_path(selected, app_root / "KidTE.exe"):
+            _record_recovery(app_root, recovery_note + "; starting legacy baseline")
+        try:
+            running, detail = self._spawn(selected, app_root, data_root, port,
+                                          launch_generation, launch_active, child_args)
+        except AlreadyRunning as exc:
+            self._defer_for_foreign_instance(store, app_root, port, activated, pending_snapshot, exc)
+            raise
+        except Exception as exc:  # noqa: BLE001 - startup boundary must rollback on every launch failure
+            running, detail = None, f"core launch failed: {exc}"
+        if running is not None:
+            process, job = running
             if activated is not None:
                 try:
+                    store.confirm_active(generation)
+                except Exception as exc:  # noqa: BLE001 - store confirmation failures require rollback
+                    _terminate_owned(process, job)
+                    running = None
+                    detail = f"new core became ready but activation confirmation failed: {exc}"
+                else:
+                    activated = None
+            if running is not None:
+                self._collect_garbage(store)
+                try:
+                    return int(process.wait())
+                finally:
+                    job.close()
+        if activated is not None:
+            try:
+                store.rollback()
+                previous = store.load_active()
+                previous_generation = (previous.get("generation")
+                                       if isinstance(previous, dict) else "baseline")
+                try:
+                    previous_exe = _active_executable(app_root, previous)
+                except LauncherError:
+                    previous_component = _core_component(previous)
+                    if (previous_component is not None and
+                            not _baseline_compatible(previous_component)):
+                        raise LauncherError(
+                            "The previous core failed validation, and its signed data schema "
+                            "does not permit starting the legacy baseline."
+                        )
+                    previous_exe = app_root / "KidTE.exe"
+                if previous_exe.is_file():
+                    fallback, fallback_detail = self._spawn(
+                        previous_exe, app_root, data_root, port,
+                        previous_generation, previous, child_args,
+                    )
+                    if fallback is not None:
+                        process, job = fallback
+                        try:
+                            return int(process.wait())
+                        finally:
+                            job.close()
+                    detail += f"; previous version also failed: {fallback_detail}"
+            except AlreadyRunning:
+                raise
+            except Exception as exc:  # noqa: BLE001 - report all rollback and previous-core failures
+                detail += f"; rollback/fallback failed: {exc}"
+        elif component is not None and not pending_attempt:
+            if not _baseline_compatible(component):
+                raise LauncherError(
+                    f"The active core failed startup ({detail}); its signed data schema "
+                    "does not permit starting the legacy baseline."
+                )
+            # Retire this failing active generation in favor of its previous
+            # signed generation once. If that cannot start, use the baseline
+            # only because the failed core explicitly allows its data schema.
+            if not rollback_attempted:
+                try:
+                    rollback_attempted = True
                     store.rollback()
                     previous = store.load_active()
                     previous_generation = (previous.get("generation")
                                            if isinstance(previous, dict) else "baseline")
-                    try:
+                    previous_component = _core_component(previous)
+                    if previous_component is not None:
                         previous_exe = _active_executable(app_root, previous)
-                    except LauncherError:
-                        previous_component = _core_component(previous)
-                        if (previous_component is not None and
-                                not _baseline_compatible(previous_component)):
-                            raise LauncherError(
-                                "The previous core failed validation, and its signed data schema "
-                                "does not permit starting the legacy baseline."
+                        if previous_exe.is_file():
+                            fallback, fallback_detail = self._spawn(
+                                previous_exe, app_root, data_root, port,
+                                previous_generation, previous, child_args,
                             )
-                        previous_exe = app_root / "KidTE.exe"
-                    if previous_exe.is_file():
-                        fallback, fallback_detail = self._spawn(
-                            previous_exe, app_root, data_root, port,
-                            previous_generation, previous, child_args,
-                        )
-                        if fallback is not None:
-                            process, job = fallback
-                            try:
-                                return int(process.wait())
-                            finally:
-                                job.close()
-                        detail += f"; previous version also failed: {fallback_detail}"
-                except Exception as exc:  # noqa: BLE001 - report all rollback and previous-core failures
-                    detail += f"; rollback/fallback failed: {exc}"
-            elif component is not None and not pending_attempt:
-                if not _baseline_compatible(component):
-                    raise LauncherError(
-                        f"The active core failed startup ({detail}); its signed data schema "
-                        "does not permit starting the legacy baseline."
+                            if fallback is not None:
+                                process, job = fallback
+                                try:
+                                    return int(process.wait())
+                                finally:
+                                    job.close()
+                            detail += f"; previous version also failed: {fallback_detail}"
+                except AlreadyRunning:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - report any prior-generation recovery failure
+                    detail += f"; previous generation recovery failed: {exc}"
+            baseline = app_root / "KidTE.exe"
+            if baseline.is_file():
+                try:
+                    _record_recovery(app_root, detail + "; starting legacy baseline")
+                    fallback, fallback_detail = self._spawn(
+                        baseline, app_root, data_root, port, "baseline", None, child_args,
                     )
-                # Retire this failing active generation in favor of its previous
-                # signed generation once. If that cannot start, use the baseline
-                # only because the failed core explicitly allows its data schema.
-                if not rollback_attempted:
-                    try:
-                        rollback_attempted = True
-                        store.rollback()
-                        previous = store.load_active()
-                        previous_generation = (previous.get("generation")
-                                               if isinstance(previous, dict) else "baseline")
-                        previous_component = _core_component(previous)
-                        if previous_component is not None:
-                            previous_exe = _active_executable(app_root, previous)
-                            if previous_exe.is_file():
-                                fallback, fallback_detail = self._spawn(
-                                    previous_exe, app_root, data_root, port,
-                                    previous_generation, previous, child_args,
-                                )
-                                if fallback is not None:
-                                    process, job = fallback
-                                    try:
-                                        return int(process.wait())
-                                    finally:
-                                        job.close()
-                                detail += f"; previous version also failed: {fallback_detail}"
-                    except Exception as exc:  # noqa: BLE001 - report any prior-generation recovery failure
-                        detail += f"; previous generation recovery failed: {exc}"
-                baseline = app_root / "KidTE.exe"
-                if baseline.is_file():
-                    try:
-                        _record_recovery(app_root, detail + "; starting legacy baseline")
-                        fallback, fallback_detail = self._spawn(
-                            baseline, app_root, data_root, port, "baseline", None, child_args,
-                        )
-                        if fallback is not None:
-                            process, job = fallback
-                            try:
-                                return int(process.wait())
-                            finally:
-                                job.close()
-                        detail += f"; legacy baseline also failed: {fallback_detail}"
-                    except Exception as exc:  # noqa: BLE001 - report any baseline fallback startup failure
-                        detail += f"; legacy baseline launch failed: {exc}"
-            raise LauncherError(f"Kid TE could not start safely: {detail}")
+                    if fallback is not None:
+                        process, job = fallback
+                        try:
+                            return int(process.wait())
+                        finally:
+                            job.close()
+                    detail += f"; legacy baseline also failed: {fallback_detail}"
+                except AlreadyRunning:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - report any baseline fallback startup failure
+                    detail += f"; legacy baseline launch failed: {exc}"
+        raise LauncherError(f"Kid TE could not start safely: {detail}")
 
 
 def main(argv=None) -> int:

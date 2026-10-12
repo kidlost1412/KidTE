@@ -236,3 +236,48 @@ def test_extension_reload_notice_is_reported_and_can_be_acknowledged(tmp_path):
     assert manager.state()["extension_reload"]["version"] == "1.0.1"
     assert manager.action("ack_extension_notice", {})["ok"] is True
     assert manager.state()["extension_reload"] is None
+
+
+def test_feed_series_follows_launcher_capabilities(tmp_path):
+    split = UpdateManager(str(tmp_path), trusted_keys={"k": b"x"}, store=FakeStore(), launcher_caps="split-components")
+    legacy = UpdateManager(str(tmp_path), trusted_keys={"k": b"x"}, store=FakeStore(), launcher_caps="")
+    assert split.transport.series == "p4"
+    assert legacy.transport.series == "p3"
+
+
+def test_state_header_fields_and_migration_display_mapping(tmp_path):
+    manager = make_manager(tmp_path, FakeStore())  # monolithic core 1.14.0
+    manager._catalog = {"issued_at": "2026-10-12T08:20:48Z",
+                        "components": [_row("runtime", "1.0.0"), _row("app", "1.15.0"), _row("extensions", "1.0.0")]}
+    state = manager.state()
+    assert state["current_version"] == "1.14.0"
+    assert state["latest"] == {"version": "1.15.0", "date": "2026-10-12T08:20:48Z"}
+    # The old core number labels the app only; runtime/extensions have no installed version.
+    assert state["installed_display"] == {"runtime": None, "app": "1.14.0", "extensions": None}
+    assert sorted(state["update_ids"]) == ["app", "extensions", "runtime"]
+
+
+def test_install_reports_overall_progress(tmp_path):
+    manager = make_manager(tmp_path, FakeStore())
+    seen = []
+    pkgs = {"a": {"id": "a", "archive_bytes": 100, "archive_sha256": "x" * 64, "url": "u1"},
+            "b": {"id": "b", "archive_bytes": 300, "archive_sha256": "y" * 64, "url": "u2"}}
+
+    class Store:
+        def load_active(self): return {"components": {}}
+        def download_root(self): return tmp_path
+        def baseline_matches(self, p): return False
+        def stage_package(self, p, a): pass
+        def prepare(self, components, catalog_sequence): pass
+
+    class T:
+        def download(self, url, dest, *, expected_sha256, expected_bytes, progress=None):
+            progress(expected_bytes // 2, expected_bytes)
+            seen.append(manager.state()["progress"])
+            progress(expected_bytes, expected_bytes)
+
+    manager.transport = T()
+    manager._plan = lambda store, requested: ({"sequence": 5}, pkgs)
+    manager._install(Store(), {"a": None, "b": None})
+    assert seen[0]["overall_total"] == 400 and seen[0]["overall_received"] == 50 and seen[0]["count"] == 2
+    assert seen[1]["overall_received"] == 100 + 150 and seen[1]["index"] == 2

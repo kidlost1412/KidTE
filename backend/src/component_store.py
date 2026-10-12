@@ -660,6 +660,20 @@ class ComponentStore:
             self._checkpoint("pending_written")
             return pending
 
+    def restore_pending(self, pending: dict) -> dict:
+        """Re-queue a generation whose activation was abandoned without being tried.
+
+        A fresh generation id is used so recover() cannot discard it together with the
+        rolled-back journal entry that carried the old id.
+        """
+        with self._locked():
+            requeued = dict(pending)
+            requeued["generation"] = str(uuid.uuid4())
+            self._validate_mapping(requeued)
+            _atomic_json(self.pending_path, requeued, self._checkpoint)
+            self._checkpoint("pending_restored")
+            return requeued
+
     def cancel_pending(self) -> None:
         """Cancel a not-yet-activated generation while keeping staged versions."""
         with self._locked():

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const source = await readFile(new URL('../../src/web/app/core/update_notice.js', import.meta.url), 'utf8');
-const {updateNotice, upToDateLine, formatClock, newerPackages} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const {updateNotice, upToDateLine, formatClock, newerPackages, headerLines, updateComponents, progressView, formatDate, LIVE_RESTART_TEXT} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 
 const newer = {update_available: true, update_total_bytes: 48_200_000, restart_required: false,
   available: [
@@ -70,4 +70,35 @@ test('extension reload notice shows the chrome://extensions instruction', async 
   assert.equal(n.visible, true);
   assert.match(n.text, /chrome:\/\/extensions/);
   assert.match(n.text, /Tải lại/);
+});
+
+test('header lines: using, newest with date, up-to-date tick', () => {
+  const h = headerLines({enabled: true, current_version: '1.15.0', latest: {version: '1.15.1', date: '2026-10-12T08:20:48Z'}, update_available: true});
+  assert.equal(h.using, 'Đang dùng: Kid TE 1.15.0');
+  assert.match(h.newest, /^Mới nhất trên GitHub: 1\.15\.1 \(\d\d\/10\/2026\)$/);
+  assert.equal(h.upToDate, false);
+  const same = headerLines({enabled: true, current_version: '1.15.0', latest: {version: '1.15.0', date: ''}, update_available: false});
+  assert.equal(same.upToDate, true);
+  assert.equal(same.upToDateText, 'Bạn đang dùng bản mới nhất ✓');
+  assert.equal(formatDate('bad'), '');
+});
+
+test('one-click update covers every newer package (required + installed optional)', () => {
+  const state = {update_available: true, available: [
+    {id: 'runtime', version: '1.0.0', newer: true}, {id: 'app', version: '1.15.0', newer: true},
+    {id: 'extensions', version: '1.0.0', newer: true}, {id: 'gpu-cuda12', version: '1.0.1', newer: true},
+    {id: 'media-tools', version: '1.0.0', newer: false}]};
+  assert.deepEqual(updateComponents(state), {runtime: '1.0.0', app: '1.15.0', extensions: '1.0.0', 'gpu-cuda12': '1.0.1'});
+});
+
+test('progress view uses overall bytes and clamps percent', () => {
+  const v = progressView({progress: {component: 'app', received: 10, total: 100, overall_received: 25_000_000, overall_total: 50_000_000, index: 2, count: 3}});
+  assert.equal(v.percent, 50);
+  assert.equal(v.text, '50% · 25.0 / 50.0 MB');
+  assert.equal(v.index, 2);
+  assert.equal(progressView({progress: null}), null);
+});
+
+test('live restart confirm text is the owner-approved sentence', () => {
+  assert.match(LIVE_RESTART_TEXT, /^Đang LIVE — app sẽ tắt khoảng 20–30 giây rồi tự mở lại/);
 });

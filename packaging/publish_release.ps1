@@ -209,20 +209,17 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("kidte-verify-" + [guid]::NewGuid(
 New-Item -ItemType Directory -Path $work | Out-Null
 $bad = 0
 try {
-    $release = Get-ReleaseByTag $Tag
+    # Tai thang theo URL cong khai (API release co the chua kip cap nhat ngay sau khi upload).
     foreach ($f in $files) {
-        $asset = $release.assets | Where-Object { $_.name -eq $f.Name } | Select-Object -First 1
-        if (-not $asset) { Say "THIEU tren GitHub: $($f.Name)"; $bad++; continue }
         $dest = Join-Path $work $f.Name
-        Download-Anonymous $asset.browser_download_url $dest
+        try { Download-Anonymous "https://github.com/$Repo/releases/download/$Tag/$($f.Name)" $dest }
+        catch { Say "THIEU tren GitHub: $($f.Name)"; $bad++; continue }
         if ((Get-Sha256 $dest) -ne $local[$f.Name]) { Say "SAI sha256: $($f.Name)"; $bad++ } else { Say "OK $($f.Name)" }
         Remove-Item -LiteralPath $dest -Force
     }
-    $feed = Get-ReleaseByTag $CatalogTag
-    $asset = $feed.assets | Where-Object { $_.name -eq $CatalogName } | Select-Object -First 1
     $dest = Join-Path $work $CatalogName
     Download-Anonymous "https://github.com/$Repo/releases/download/$CatalogTag/$CatalogName" $dest
-    if ($asset -and (Get-Sha256 $dest) -eq $local[$CatalogName]) { Say "OK catalog $CatalogTag sequence $newSequence" }
+    if ((Test-Path -LiteralPath $dest) -and (Get-Sha256 $dest) -eq $local[$CatalogName]) { Say "OK catalog $CatalogTag sequence $newSequence" }
     else { Say "SAI catalog tren $CatalogTag"; $bad++ }
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
 if ($bad -gt 0) { Fail "$bad muc kiem tra that bai" }

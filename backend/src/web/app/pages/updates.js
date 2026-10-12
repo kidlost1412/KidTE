@@ -27,8 +27,8 @@ export async function updates(ctx, host, owner) {
     try {
       const state = await request('/api/updates');
       if (disposed) return;
-      if (channel === null) channel = state.channel || 'stable';
-      const selectChannel = select([['stable', 'Ổn định'], ['beta', 'Thử nghiệm']], channel);
+      if (channel === null) channel = state.channel || 'beta';
+      const selectChannel = select([['beta', 'Thử nghiệm'], ['stable', 'Ổn định']], channel);
       selectChannel.disabled = Boolean(state.busy);
       selectChannel.addEventListener('change', () => { channel = selectChannel.value; render(); });
       const rows = (state.channel === channel ? state.available || [] : []).map(pkg => card(names[pkg.id] || pkg.id,

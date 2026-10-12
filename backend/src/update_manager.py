@@ -30,7 +30,7 @@ class UpdateManager:
         self._lock = threading.RLock()
         self._thread = None
         self._catalog_raw = None
-        self._channel = "stable"
+        self._channel = "beta"
         self._catalog = None
         self._state = {"operation": "idle", "busy": False, "error": "", "progress": None}
 
@@ -82,7 +82,7 @@ class UpdateManager:
             if self._state["busy"]:
                 raise ValueError("update_job_busy")
             if action == "check":
-                channel = payload.get("channel", "stable")
+                channel = payload.get("channel", "beta")
                 if channel not in {"stable", "beta"}:
                     raise ValueError("update_channel_invalid")
                 if not self.trusted_keys:

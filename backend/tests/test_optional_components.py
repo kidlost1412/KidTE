@@ -253,7 +253,7 @@ def test_update_plan_reuses_local_core_and_install_downloads_only_optional_packa
                                  core["url"]: core_archive})
     store = ComponentStore(app_root)
     manager = UpdateManager(app_root, transport=transport, trusted_keys=keys, store=store)
-    manager.action("check", {})
+    manager.action("check", {"channel": "stable"})
     assert _wait(manager)["error"] == ""
 
     plan = manager.action("plan", {"components": {"captcha-solver": "1.0.0"}})
@@ -285,7 +285,7 @@ def test_tampered_baseline_is_not_reused_and_core_is_downloaded(tmp_path):
                                  solver["url"]: solver_archive})
     store = ComponentStore(app_root)
     manager = UpdateManager(app_root, transport=transport, trusted_keys=keys, store=store)
-    manager.action("check", {})
+    manager.action("check", {"channel": "stable"})
     assert _wait(manager)["error"] == ""
 
     plan = manager.action("plan", {"components": {"captcha-solver": "1.0.0"}})

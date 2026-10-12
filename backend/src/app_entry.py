@@ -12,6 +12,7 @@ import urllib.request
 from config import CHAT_HOST, CHAT_PORT, INSTALL_ROOT, IS_FROZEN, LOG_DIR, PLUGINS_DIR, ROOT
 from console_io import force_utf8_console
 from instance_lock import InstanceAlreadyRunning, SingleInstanceLock
+import auto_backup
 import problems
 from port_diagnostics import owners_for_port
 from plugin_registry import discover_plugins
@@ -145,6 +146,7 @@ def main() -> int:
 
     engine = None
     server = None
+    auto_scheduler = None
     ly_do_dung = "graceful"
     logger = configure_logger("core", LOG_DIR)
     configure_logger("http", LOG_DIR, console=False)
@@ -159,7 +161,7 @@ def main() -> int:
         print("[kid-te] Lần chạy trước không tắt bình thường "
               f"(PID {lock.stale_lock.get('pid')}). Đã dọn khoá cũ.")
     try:
-        logger.info("manual_only", extra={"event": "backup_policy"})
+        logger.info("auto_v1", extra={"event": "backup_policy"})
         problems.attach(logger)
         manifests, plugin_errors = discover_plugins(PLUGINS_DIR)
         supervisor = ServiceSupervisor(ROOT / "runtime")
@@ -245,6 +247,13 @@ def main() -> int:
                     logger.warning(str(result.get("error")), extra={"event": "captcha_autostart_failed"})
             threading.Thread(target=_autostart_captcha, daemon=True,
                              name="captcha-autostart").start()
+        if auto_backup.enabled():
+            # Background only (delayed, cancellable); never blocks startup or the UI.
+            auto_scheduler = auto_backup.AutoBackupScheduler(
+                live_provider=getattr(engine, "_is_live_running", None),
+                maintenance_provider=lambda: bool(getattr(getattr(engine, "maintenance", None), "blocked", lambda: False)()),
+                logger=logger)
+            auto_scheduler.start()
         print(f"[kid-te] Ứng dụng: http://{args.host}:{args.port}/app")
         if args.no_ui:
             server.serve_forever(0.3)
@@ -257,6 +266,8 @@ def main() -> int:
         # Dừng theo thứ tự và GHI LẠI. Trước đây khối này không ghi gì, nên
         # một lần tắt bình thường cũng không để lại dấu vết nào trong log.
         logger.info(ly_do_dung, extra={"event": "backend_stopping"})
+        if auto_scheduler is not None:
+            auto_scheduler.stop()
         if server is not None:
             try:
                 server.server_close()

@@ -147,7 +147,16 @@ def latest_backup_time(backup_root: Path, *, verify=False):
     return latest
 
 
+# Re-entrant: the automatic scheduler holds it non-blocking, then calls create.
+OPERATIONAL_BACKUP_LOCK = threading.RLock()
+
+
 def create_operational_backup(*, now=None, keep=1, parts=None, reason="manual"):
+    with OPERATIONAL_BACKUP_LOCK:
+        return _create_operational_backup(now=now, keep=keep, parts=parts, reason=reason)
+
+
+def _create_operational_backup(*, now=None, keep=1, parts=None, reason="manual"):
     """Sao lưu cả bộ (``parts=None``) hoặc chỉ những mục được chọn."""
     now = now or datetime.now(timezone.utc)
     wanted = list(PART_IDS) if parts is None else [p for p in PART_IDS if p in set(parts)]
@@ -176,7 +185,7 @@ def create_operational_backup(*, now=None, keep=1, parts=None, reason="manual"):
             "parts": included, "retention": retention}
 
 
-def ensure_startup_backup(*, now=None, max_age_hours=12, keep=20):
+def ensure_startup_backup(*, now=None, max_age_hours=12, keep=20, reason="startup"):
     now = now or datetime.now(timezone.utc)
     # Cài mới chưa có database người dùng để sao lưu. CustomerMemory sẽ tạo
     # database sau khi core khởi tạo; lần mở kế tiếp mới bắt đầu chu kỳ backup.
@@ -185,7 +194,7 @@ def ensure_startup_backup(*, now=None, max_age_hours=12, keep=20):
     latest = latest_backup_time(BACKUP_DIR)
     if latest is not None and (now - latest.astimezone(timezone.utc)).total_seconds() < max_age_hours * 3600:
         return {"created": False, "reason": "recent_backup", "latest": latest.isoformat()}
-    return create_operational_backup(now=now, keep=keep, reason="startup")
+    return create_operational_backup(now=now, keep=keep, reason=reason)
 
 
 _V2_STARTUP_LOCK = threading.Lock()

@@ -475,7 +475,7 @@ async function backups(ctx, host, d) {
   clear(host, h('div', {class: 'col gap-4'},
     jobStatus,
     aiOffNotice(),
-    dash.backup && dash.backup.overdue ? notice('warn', 'Đã lâu chưa sao lưu', 'Nên tạo bản sao lưu trước mỗi phiên LIVE lớn.') : notice('info', 'Sao lưu thủ công', 'Bấm Sao lưu dữ liệu để lưu sản phẩm, khách hàng, trí nhớ AI và lịch làm việc. Không chép video gốc hoặc model lớn. Bản mới thành công mới dọn bản cũ; ứng dụng không tự sao lưu khi mở.'),
+    dash.backup && dash.backup.overdue ? notice('warn', 'Đã lâu chưa sao lưu', 'Nên tạo bản sao lưu trước mỗi phiên LIVE lớn.') : notice('info', 'Sao lưu tự động và thủ công', 'Ứng dụng tự sao lưu sau khi mở (và mỗi 12 giờ nếu đã quá cũ), tạm hoãn khi đang LIVE. Bấm Sao lưu dữ liệu để lưu ngay sản phẩm, khách hàng, trí nhớ AI và lịch làm việc. Không chép video gốc hoặc model lớn. Bản mới thành công mới dọn bản cũ; giữ 20 bản tự động gần nhất.'),
     card(`Sao lưu dữ liệu (${items.length})`, items.length ? h('div', {class: 'table-wrap'}, h('table', {class: 'table'},
       h('thead', {}, h('tr', {}, ['Chọn', 'Thời điểm', 'Gồm', 'Dung lượng', ''].map(t => h('th', {}, t)))),
       h('tbody', {}, items.map(b => h('tr', {class: 'clickable', onClick: e => { if (!e.target.closest('button,input')) showDetail(b); }},

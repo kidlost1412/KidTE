@@ -41,7 +41,7 @@ def package(tmp_path, component="core", version="1.0.0"):
 def signed(packages, *, expired=False):
     key = Ed25519PrivateKey.generate()
     now = datetime.now(timezone.utc)
-    payload = {"schema_version": 2, "repository": "kidlost1412/KidTE", "channel": "stable",
+    payload = {"schema_version": 2, "repository": "kidlost1412/KidTE", "channel": "beta",
                "sequence": 1, "issued_at": (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                "expires_at": (now + timedelta(days=-1 if expired else 1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                "components": packages}
@@ -195,3 +195,25 @@ def test_ready_and_update_routes_are_local_only_and_do_not_call_provider(tmp_pat
         http.shutdown()
         http.server_close()
         worker.join(2)
+
+
+def test_default_update_channel_is_beta_until_stable_catalog_exists(tmp_path):
+    manager = UpdateManager(tmp_path / "app", trusted_keys={"k": object()})
+    assert manager._channel == "beta"
+    seen = []
+    manager.transport = SimpleNamespace(fetch_catalog=lambda channel: seen.append(channel) or (_ for _ in ()).throw(ValueError("stop")))
+    manager._get_store = lambda: SimpleNamespace(read_highwater=lambda: 0)
+    manager._run_async = lambda *a, **k: None
+    import inspect
+    src = inspect.getsource(UpdateManager.action)
+    assert 'payload.get("channel", "beta")' in src
+    assert '{"stable", "beta"}' in src            # stable stays selectable
+    with pytest.raises(ValueError, match="update_channel_invalid"):
+        manager.action("check", {"channel": "nightly"})
+
+
+def test_updates_page_defaults_to_beta_and_keeps_stable_option():
+    from pathlib import Path
+    src = (Path(server.__file__).parent / "web/app/pages/updates.js").read_text(encoding="utf-8")
+    assert "state.channel || 'beta'" in src
+    assert "['stable'," in src and "['beta'," in src

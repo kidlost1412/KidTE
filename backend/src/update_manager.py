@@ -114,11 +114,23 @@ class UpdateManager:
         result["update_total_bytes"] = sum(row["download_bytes"] for row in newer)
         with self._lock:
             result["last_checked_at"] = self._last_checked_at
+        result["extension_reload"] = None
+        if self.app_root is not None:
+            try:
+                from extension_sync import read_notice
+                result["extension_reload"] = read_notice(self.app_root)
+            except Exception:  # noqa: BLE001 - a notice problem never breaks the state
+                pass
         return result
 
     def action(self, action, payload):
         if not isinstance(payload, dict):
             raise ValueError("update_payload_invalid")  # noqa: TRY004 - consistent HTTP validation contract
+        if action == "ack_extension_notice":
+            if self.app_root is not None:
+                from extension_sync import clear_notice
+                clear_notice(self.app_root)
+            return {"ok": True, "extension_reload": None}
         if action not in {"check", "plan", "install", "remove", "rollback", "cancel"}:
             raise ValueError("update_action_not_found")
         store = self._get_store()

@@ -371,3 +371,17 @@ def test_prepare_installer_bootstrap_stages_split_baseline(tmp_path, monkeypatch
     assert set(pending["components"]) == {"runtime", "app", "extensions"}
     assert not (root / "bootstrap-request.json").exists()
     assert (root / "packages" / "app" / "1.15.0" / APP_ENTRY).is_file()
+
+
+def test_extension_change_leaves_a_reload_notice_until_acknowledged(tmp_path):
+    from extension_sync import NOTICE, clear_notice, read_notice
+    root = tmp_path / "App"
+    store = ComponentStore(root)
+    first = _ext_generation(store, tmp_path, "1.0.0", b'{"v":1}')
+    sync_extensions(root, first)
+    assert read_notice(root)["version"] == "1.0.0"  # files were written -> Chrome must reload
+    assert clear_notice(root) and read_notice(root) is None and not (root / NOTICE).exists()
+    sync_extensions(root, first)  # nothing changed -> no new notice
+    assert read_notice(root) is None
+    sync_extensions(root, _ext_generation(store, tmp_path, "1.0.1", b'{"v":2}'))
+    assert read_notice(root)["version"] == "1.0.1"

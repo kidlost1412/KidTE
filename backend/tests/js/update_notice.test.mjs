@@ -62,3 +62,12 @@ test('up-to-date line is empty while an update exists and mentions no check when
   assert.equal(upToDateLine({update_available: false, installed: {}, last_checked_at: null}), 'Chưa kiểm tra bản mới trong phiên này.');
   assert.equal(formatClock('not-a-date'), '');
 });
+
+test('extension reload notice shows the chrome://extensions instruction', async () => {
+  const mod = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+  assert.equal(mod.extensionNotice({}).visible, false);
+  const n = mod.extensionNotice({extension_reload: {version: '1.0.1'}});
+  assert.equal(n.visible, true);
+  assert.match(n.text, /chrome:\/\/extensions/);
+  assert.match(n.text, /Tải lại/);
+});

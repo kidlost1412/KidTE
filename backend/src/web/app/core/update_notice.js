@@ -37,3 +37,10 @@ export function upToDateLine(state) {
     ? `Bạn đang dùng bản mới nhất (${version}) · kiểm tra lúc ${clock}`
     : `Chưa có bản mới · kiểm tra lúc ${clock}`;
 }
+
+// Gói tiện ích Chrome vừa được launcher đồng bộ: Chrome không tự nạp lại.
+export const EXTENSION_RELOAD_TEXT = 'Tiện ích Chrome đã cập nhật — vào chrome://extensions bấm Tải lại';
+export function extensionNotice(state) {
+  const n = state && state.extension_reload;
+  return n && n.version ? {visible: true, text: EXTENSION_RELOAD_TEXT, version: n.version} : {visible: false, text: '', version: ''};
+}

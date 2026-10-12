@@ -5,18 +5,19 @@
 .DESCRIPTION
   1. Checks the release folder (files present, SHA256SUMS.txt matches, catalog is signed JSON with a higher sequence).
   2. git push origin main.
-  3. Creates the prerelease tag v<Version>-p3 (if missing) and uploads every file in the folder.
+  3. Creates the prerelease tag v<Version>-<Series> (if missing; default series p4) and uploads every file in the folder.
      Existing assets with the same size+sha256 are skipped; a DIFFERENT existing asset is an error
      (never overwritten on a version tag).
-  4. Replaces kidte-catalog-v2.json on the existing release <CatalogTag> (upload new, delete old, rename).
+  4. Replaces kidte-catalog-v2.json on the release <CatalogTag> (default updates-beta-<Series>; CREATED as a
+     prerelease when it does not exist yet, e.g. the first updates-beta-p4). Upload new, delete old, rename.
   5. Re-downloads everything anonymously and verifies sha256.
 
   Idempotent: safe to re-run after a partial failure. The GitHub token comes from `git credential fill`
   for github.com and is never printed. -WhatIf prints the plan only (no token, no writes).
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File D:\KidTE-NguonMa\packaging\publish_release.ps1 -Version 1.14.258 -WhatIf
-  powershell -ExecutionPolicy Bypass -File D:\KidTE-NguonMa\packaging\publish_release.ps1 -Version 1.14.258
+  powershell -ExecutionPolicy Bypass -File D:\KidTE-NguonMa\packaging\publish_release.ps1 -Version 1.15.0 -Series p4 -CatalogTag updates-beta-p4 -WhatIf
+  powershell -ExecutionPolicy Bypass -File D:\KidTE-NguonMa\packaging\publish_release.ps1 -Version 1.15.0 -Series p4 -CatalogTag updates-beta-p4
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -24,8 +25,8 @@ param(
     [string]$Folder = '',
     [string]$Repo = 'kidlost1412/KidTE',
     [string]$Branch = 'main',
-    [string]$Series = 'p3',
-    [string]$CatalogTag = 'updates-beta-p3',
+    [string]$Series = 'p4',
+    [string]$CatalogTag = '',
     [string]$CatalogName = 'kidte-catalog-v2.json',
     [string]$RepoPath = ''
 )
@@ -36,6 +37,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 if (-not $RepoPath) { $RepoPath = Split-Path -Parent $PSScriptRoot }
 if (-not $Folder) { $Folder = Join-Path $RepoPath ("PhatHanh\release-" + $Version) }
+if (-not $CatalogTag) { $CatalogTag = "updates-beta-$Series" }
 $Tag = "v$Version-$Series"
 $Api = "https://api.github.com/repos/$Repo"
 $script:Token = $null
@@ -134,6 +136,7 @@ try {
     $dirty = git status --porcelain --untracked-files=no
     if ($dirty) { Fail 'cay git con thay doi chua commit' }
     $sourceCommit = $newCatalog.signed.components | Where-Object { $_.id -eq 'core' } | ForEach-Object { $_.source_commit }
+    if (-not $sourceCommit) { $sourceCommit = $newCatalog.signed.components | Where-Object { $_.id -eq 'app' } | ForEach-Object { $_.source_commit } }
     Say "HEAD $head, truoc origin $ahead commit; source_commit core trong catalog: $sourceCommit"
 
     # ------------------------------------------------------------------ 2. push main
@@ -176,8 +179,18 @@ foreach ($f in ($files | Sort-Object Length)) {
 
 # ------------------------------------------------------------------ 4. thay catalog
 $feed = Get-ReleaseByTag $CatalogTag
-if (-not $feed) { Fail "khong thay release feed $CatalogTag" }
-$old = $feed.assets | Where-Object { $_.name -eq $CatalogName } | Select-Object -First 1
+if (-not $feed) {
+    if (Confirm-Action $CatalogTag 'tao release feed (prerelease) vi tag chua ton tai') {
+        $feed = Invoke-Gh 'POST' "$Api/releases" @{
+            tag_name = $CatalogTag; target_commitish = $head; name = "Kid TE update feed $CatalogTag"
+            prerelease = $true; draft = $false
+            body = "Update feed ($CatalogTag). Chi chua $CatalogName; app doc catalog nay, khong tai tay."
+        }
+        Say "Da tao release feed $CatalogTag"
+    }
+} else { Say "Release feed $CatalogTag da co" }
+$old = $null
+if ($feed) { $old = $feed.assets | Where-Object { $_.name -eq $CatalogName } | Select-Object -First 1 }
 $replace = $true
 if ($old) {
     $tmpOld = Join-Path ([IO.Path]::GetTempPath()) ("kidte-old-" + [guid]::NewGuid().ToString('N') + '.json')

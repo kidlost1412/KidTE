@@ -187,3 +187,52 @@ def test_scheduler_waits_initial_delay_before_first_check():
         scheduler.stop()
     assert manager.calls and manager.calls[0] - started >= 0.15
     assert len(manager.calls) == 1  # the 3600 s interval does not fire again within the test
+
+
+def _row(cid, version):
+    return {"id": cid, "version": version, "archive_bytes": 1_000_000, "unpacked_bytes": 1, "dependencies": {}}
+
+
+def test_downgrade_or_equal_catalog_is_never_an_update(tmp_path):
+    manager = make_manager(tmp_path, FakeStore(active={"components": {"core": {"package": {"version": "1.14.10", "dependencies": {}}}}}))
+    for version in ("1.14.9", "1.14.10", "1.2.0", "1.14.10-beta.1"):
+        manager._catalog = {"components": [_row("core", version)]}
+        state = manager.state()
+        assert state["update_available"] is False, version
+    manager._catalog = {"components": [_row("core", "1.14.11")]}  # numeric, not lexicographic: 11 > 10
+    assert manager.state()["update_available"] is True
+
+
+def _split_active(app="1.15.0", runtime="1.0.0", ext="1.0.0"):
+    return {"components": {k: {"package": {"version": v, "dependencies": {}}}
+                           for k, v in (("runtime", runtime), ("app", app), ("extensions", ext))}}
+
+
+def test_split_install_compares_each_package_to_itself(tmp_path):
+    manager = make_manager(tmp_path, FakeStore(active=_split_active()))
+    manager._catalog = {"components": [_row("runtime", "1.0.0"), _row("app", "1.15.1"), _row("extensions", "1.0.0")]}
+    state = manager.state()
+    assert [r["id"] for r in state["available"] if r["newer"]] == ["app"]
+    manager._catalog = {"components": [_row("runtime", "1.0.0"), _row("app", "1.14.9"), _row("extensions", "1.0.0")]}
+    assert manager.state()["update_available"] is False
+
+
+def test_monolithic_core_sees_split_catalog_as_update_only_when_app_is_newer(tmp_path):
+    manager = make_manager(tmp_path, FakeStore())  # core 1.14.0
+    split = [_row("runtime", "1.0.0"), _row("app", "1.15.0"), _row("extensions", "1.0.0")]
+    manager._catalog = {"components": split}
+    state = manager.state()
+    assert state["update_available"] is True and state["update_total_bytes"] == 3_000_000
+    assert next(r for r in state["available"] if r["id"] == "app")["installed_version"] == "1.14.0"
+    manager._catalog = {"components": [_row("runtime", "1.0.0"), _row("app", "1.13.0"), _row("extensions", "1.0.0")]}
+    assert manager.state()["update_available"] is False
+
+
+def test_extension_reload_notice_is_reported_and_can_be_acknowledged(tmp_path):
+    import json
+    manager = make_manager(tmp_path, FakeStore())
+    assert manager.state()["extension_reload"] is None
+    (tmp_path / "extensions-notice.json").write_text(json.dumps({"version": "1.0.1", "files": 2}), encoding="utf-8")
+    assert manager.state()["extension_reload"]["version"] == "1.0.1"
+    assert manager.action("ack_extension_notice", {})["ok"] is True
+    assert manager.state()["extension_reload"] is None

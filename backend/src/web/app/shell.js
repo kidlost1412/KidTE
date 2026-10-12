@@ -3,7 +3,7 @@ import {icon} from './core/icons.js';
 import {fold, relative} from './core/format.js';
 import {openModal, isOverlayOpen} from './ui/overlays.js';
 import {request} from './core/api.js';
-import {updateNotice, DISMISS_KEY} from './core/update_notice.js';
+import {updateNotice, extensionNotice, DISMISS_KEY} from './core/update_notice.js';
 
 const NAV = [
   {group: 'Vận hành'},
@@ -90,7 +90,11 @@ export function createShell({navigate, commands}) {
         try { sessionStorage.setItem(DISMISS_KEY, updateDismissed); } catch (_) { /* */ }
         renderUpdate();
       }}, '×'));
-  const topbar = h('header', {class: 'topbar'}, trigger, updateBanner, statusStrip);
+  const extText = h('span', {class: 'update-banner-text'});
+  const extBanner = h('div', {class: 'update-banner', role: 'status', hidden: true}, h('span', {class: 'update-banner-go'}, extText),
+    h('button', {class: 'update-banner-x', type: 'button', 'aria-label': 'Đã tải lại tiện ích, ẩn thông báo', title: 'Đã tải lại — ẩn thông báo',
+      onClick: async () => { try { await request('/api/updates/ack_extension_notice', {method: 'POST', body: {}}); } catch (_) { /* */ } extBanner.hidden = true; }}, '×'));
+  const topbar = h('header', {class: 'topbar'}, trigger, updateBanner, extBanner, statusStrip);
   const main = h('main', {class: 'main', id: 'main', tabindex: '-1'});
   const shell = h('div', {class: 'shell'}, sidebar, topbar, main);
   root.replaceChildren(shell);
@@ -140,6 +144,9 @@ export function createShell({navigate, commands}) {
     const notice = updateNotice(updateState, updateDismissed);
     updateBanner.hidden = !notice.visible;
     updateText.textContent = notice.text;
+    const ext = extensionNotice(updateState);
+    extBanner.hidden = !ext.visible;
+    extText.textContent = ext.text;
     navButtons.forEach(({update}) => { if (update) update.hidden = !notice.badge; });
   }
   async function refreshUpdates() {

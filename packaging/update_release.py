@@ -185,7 +185,7 @@ def package_directory(source: Path, output: Path, component="core"):
         for path in source.rglob("*"):
             _check_local_path(path)
         state_names = {"active.json", "previous.json", "pending.json", "update-journal.json", "catalog-sequence.json", ".component-store.lock",
-                       "extensions-sync.json", "launcher-startup.log"}
+                       "extensions-sync.json", "extensions-notice.json", "launcher-startup.log"}
         if any(path.name.casefold() in state_names or {part.casefold() for part in path.relative_to(source).parts}.intersection({".staging", "packages", ".pycache"})
                for path in source.rglob("*")):
             raise ValueError("dirty_package_source_contains_update_state")

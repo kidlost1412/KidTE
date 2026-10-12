@@ -16,6 +16,7 @@ from pathlib import Path
 from component_store import _check_ancestry, _is_reparse
 
 MARKER = "extensions-sync.json"
+NOTICE = "extensions-notice.json"  # pending "reload in chrome://extensions" notice, cleared by the app
 TOP_DIRS = ("extension", "extension-shopee")
 
 
@@ -104,4 +105,29 @@ def sync_extensions(app_root, active: dict | None) -> dict:
     tmp = marker_path.with_name(f".{MARKER}.tmp")
     tmp.write_text(json.dumps(wanted, sort_keys=True), encoding="utf-8")
     os.replace(tmp, marker_path)
-    return {"status": "updated", "changed": bool(copied or removed), "copied": copied, "removed": removed}
+    changed = bool(copied or removed)
+    if changed:
+        _write_notice(app_root, wanted["version"], len(copied) + len(removed))
+    return {"status": "updated", "changed": changed, "copied": copied, "removed": removed}
+
+
+def _write_notice(app_root: Path, version: str, files: int) -> None:
+    from datetime import datetime, timezone
+    body = {"version": version, "files": files,
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    tmp = app_root / f".{NOTICE}.tmp"
+    tmp.write_text(json.dumps(body, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, app_root / NOTICE)
+
+
+def read_notice(app_root) -> dict | None:
+    data = _read_marker(Path(app_root) / NOTICE)
+    return data if isinstance(data, dict) and data.get("version") else None
+
+
+def clear_notice(app_root) -> bool:
+    try:
+        (Path(app_root) / NOTICE).unlink()
+        return True
+    except OSError:
+        return False

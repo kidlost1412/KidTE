@@ -54,3 +54,30 @@ def test_operational_backup_skips_missing_legacy_files(tmp_path, monkeypatch):
 
     assert result["created"] is True
     assert backup_policy.latest_backup_time(tmp_path / "backups") is not None
+
+
+def test_manual_backup_never_deletes_automatic_backups(tmp_path, monkeypatch):
+    import sqlite3
+    from datetime import datetime, timedelta, timezone
+    db = tmp_path / "memory.sqlite3"
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE sample (id INTEGER)")
+    monkeypatch.setattr(backup_policy, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(backup_policy, "MEMORY_DB", db)
+    base = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    step = iter(range(1000))
+
+    def make(reason):
+        return backup_policy.create_operational_backup(
+            now=base + timedelta(minutes=next(step)), parts=["khach_hang"], reason=reason)
+
+    autos = [make("auto")["backup_id"] for _ in range(3)]
+    restore = make("before_restore")["backup_id"]
+    manuals = [make("manual")["backup_id"] for _ in range(8)]
+    left = {p.name for p in (tmp_path / "backups").iterdir() if p.is_dir()}
+    assert set(autos) <= left and restore in left
+    assert set(manuals[-5:]) <= left and not set(manuals[:3]) & left
+    assert len([m for m in manuals if m in left]) == 5
+    make("auto")
+    left = {p.name for p in (tmp_path / "backups").iterdir() if p.is_dir()}
+    assert set(manuals[-5:]) <= left   # auto backup does not touch manual ones

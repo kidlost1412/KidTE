@@ -7,7 +7,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from backup import BackupError, create_snapshot, prune_backups, restore_backup, verify_backup
+from backup import BackupError, create_snapshot, prune_backups, retention_class, restore_backup, verify_backup
 from config import (
     APPROVED_CATALOG_PATH, APPROVED_PROFILES_PATH, BACKUP_DIR,
     CATALOG_MAPPING_PATH,
@@ -147,16 +147,18 @@ def latest_backup_time(backup_root: Path, *, verify=False):
     return latest
 
 
+RETENTION_KEEP = {"auto": 20, "manual": 5, "before_restore": 40}
+
 # Re-entrant: the automatic scheduler holds it non-blocking, then calls create.
 OPERATIONAL_BACKUP_LOCK = threading.RLock()
 
 
-def create_operational_backup(*, now=None, keep=1, parts=None, reason="manual"):
+def create_operational_backup(*, now=None, keep=None, parts=None, reason="manual"):
     with OPERATIONAL_BACKUP_LOCK:
         return _create_operational_backup(now=now, keep=keep, parts=parts, reason=reason)
 
 
-def _create_operational_backup(*, now=None, keep=1, parts=None, reason="manual"):
+def _create_operational_backup(*, now=None, keep=None, parts=None, reason="manual"):
     """Sao lưu cả bộ (``parts=None``) hoặc chỉ những mục được chọn."""
     now = now or datetime.now(timezone.utc)
     wanted = list(PART_IDS) if parts is None else [p for p in PART_IDS if p in set(parts)]
@@ -180,7 +182,10 @@ def _create_operational_backup(*, now=None, keep=1, parts=None, reason="manual")
                         "parts": included, "reason": reason},
     )
     verify_backup(backup_dir)
-    retention = prune_backups(BACKUP_DIR, keep=keep)
+    if keep is None:
+        keep = RETENTION_KEEP[retention_class(reason)]
+    # Chỉ dọn trong đúng nhóm của lần này: sao lưu tay không xóa bản tự động.
+    retention = prune_backups(BACKUP_DIR, keep=keep, reason=reason)
     return {"created": True, "backup_dir": str(backup_dir), "backup_id": Path(backup_dir).name,
             "parts": included, "retention": retention}
 

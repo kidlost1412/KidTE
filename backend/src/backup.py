@@ -415,7 +415,17 @@ def verify_backup(backup_dir: Path) -> dict:
     }
 
 
-def prune_backups(backup_root: Path, keep: int = 20) -> dict:
+def retention_class(reason) -> str:
+    """Nhóm lưu giữ: tự động (auto/startup), thủ công, trước-khi-khôi-phục."""
+    reason = str(reason or "manual")
+    if reason in ("auto", "startup"):
+        return "auto"
+    if reason == "before_restore":
+        return "before_restore"
+    return "manual"
+
+
+def prune_backups(backup_root: Path, keep: int = 20, reason=None) -> dict:
     """Chỉ xóa backup cũ đã verify, nằm trực tiếp dưới backup_root."""
     backup_root = Path(backup_root).resolve()
     keep = max(1, int(keep))
@@ -428,14 +438,18 @@ def prune_backups(backup_root: Path, keep: int = 20) -> dict:
             continue
         try:
             verified = verify_backup(candidate)
-            scope = json.loads((candidate / "manifest.json").read_text(encoding="utf-8")).get("scope", "full")
+            meta = json.loads((candidate / "manifest.json").read_text(encoding="utf-8"))
+            scope = (meta.get("scope", "full"), retention_class(meta.get("reason")))
             groups.setdefault(scope, []).append((verified.get("created_at") or "", candidate.resolve()))
         except (BackupError, OSError, json.JSONDecodeError):
             skipped.append(candidate.name)
     removed = []
     # Bản sao lưu từng mục giữ riêng số lượng: sao lưu lẻ nhiều lần không được
     # đẩy mất các bản đầy đủ.
-    for valid in groups.values():
+    only = retention_class(reason) if reason is not None else None
+    for (_scope, klass), valid in groups.items():
+        if only is not None and klass != only:
+            continue   # một lần sao lưu không được xóa bản thuộc nhóm khác
         valid.sort(key=lambda item: (item[0], item[1].name), reverse=True)
         for _, candidate in valid[keep:]:
             _safe_remove_tree(candidate, backup_root)

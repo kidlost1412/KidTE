@@ -172,6 +172,22 @@ class StandaloneServerTests(unittest.TestCase):
         self.assertNotIn("sale_price", blob)
         self.assertIn("mã TikTok", context["price_policy"])
 
+    def test_room_host_from_live_context_is_not_answered_and_heartbeat_exposes_it(self):
+        host = {'user_id': 'h77', 'unique_id': 'Shop_ABC', 'source': 'room_info'}
+        mine = comment('Xin chào cả nhà', 'host-c1', uid='h77')
+        mine['live_context'] = {**mine['live_context'], 'host': host}
+        self.assertEqual(self.engine.handle(mine)['reason'], 'host_comment')
+        other = comment('Xin chào cả nhà', 'host-c2', uid='x1')
+        other['unique_id'] = 'shop_abc'  # khác user_id nhưng trùng unique_id (không phân biệt hoa/thường)
+        other['live_context'] = {**other['live_context'], 'host': host}
+        self.assertEqual(self.engine.handle(other)['reason'], 'host_comment')
+        guest = comment('TC01 dùng sao', 'host-c3', uid='k9')
+        guest['live_context'] = {**guest['live_context'], 'host': host}
+        self.assertNotEqual(self.engine.handle(guest).get('reason'), 'host_comment')
+        self.engine.heartbeat({'platform': 'tiktok', 'session_id': 'room-1', 'host': {**host, 'junk': 'x'}})
+        self.assertEqual(self.engine.live_channels()['tiktok']['extension']['host']['unique_id'], 'Shop_ABC')
+        self.assertNotIn('junk', self.engine.platform_heartbeats['tiktok']['host'])
+
     def test_message_claim_requires_current_enabled_room_and_receipt_hash(self):
         answer = self.engine.handle(comment('TC01 dùng sao', 'claim-api'))
         turn = self.engine.delivery_store.get(answer['reply_id'])

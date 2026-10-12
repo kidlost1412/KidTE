@@ -35,16 +35,16 @@ export function liveChannelCards(ctx, channels = {}, names = {}) {
     const time = h('div',{class:'live-channel-clock'});
     const video = h('div',{class:'live-channel-video'});
     const sourceText = h('span');
-    const sync = h('span',{class:'chip'}), ai = h('span',{class:'chip'});
+    const sync = h('span',{class:'chip'}), ai = h('span',{class:'chip'}), account = h('div',{class:'live-channel-account fs-sm muted'});
     const description = h('p',{class:'live-channel-description'});
     const section = h('section', {class: 'live-channel waiting', 'aria-label': label},
       h('div', {class:'live-channel-stage'},
         h('div', {class:'row between'}, h('div', {class:'live-channel-brand'}, icon('video'), h('strong',{},label)), state),
         time, video, h('div', {class:'live-channel-source'}, icon('activity'), sourceText)),
       h('div',{class:'live-channel-body'},
-        h('div',{class:'row wrap gap-2'},sync,ai),description,
+        h('div',{class:'row wrap gap-2'},sync,ai),account,description,
         h('div',{class:'live-channel-actions'},btn('Quản lý nguồn', {size:'sm',kind:'ghost',icon:'settings',onClick:()=>ctx.navigate('system','live')}),btn('Xem bình luận',{size:'sm',kind:'ghost',icon:'message',onClick:()=>ctx.navigate('inbox','platform',platform)}))));
-    views[platform] = {section,state,time,video,sourceText,sync,ai,description,source};
+    views[platform] = {account,section,state,time,video,sourceText,sync,ai,description,source};
     return section;
   }));
   const text = (node,value) => { if (node.textContent !== value) node.textContent = value; };
@@ -60,6 +60,8 @@ export function liveChannelCards(ctx, channels = {}, names = {}) {
       const badge = videoSourceBadge(p); text(v.sync,badge.text); v.sync.className = badge.className; v.sync.dataset.kind = badge.kind;
       text(v.ai,ext.connected ? ext.ai_enabled ? ext.ai_ready ? 'AI sẵn sàng' : 'AI đã bật · chờ kết nối' : 'AI đang tắt' : 'AI chờ tiện ích');
       v.ai.className = `chip ${ext.connected && ext.ai_enabled && ext.ai_ready ? 'ok' : 'neutral'}`;
+      const host = ext.host || {}, handle = host.unique_id || host.nickname || '';
+      text(v.account,platform === 'tiktok' && handle ? `Tài khoản đang live: ${host.unique_id ? '@' + host.unique_id : handle}` : '');
       text(v.description,!linked ? LIVE_REASONS[health.reason] || 'Chưa có vị trí video hợp lệ cho sàn này.' : health.device || (platform === 'shopee' ? 'Đọc vị trí nguồn phương tiện đang phát trong OBS.' : 'Nhận diện âm thanh từ tiến trình TikTok Studio.'));
     }
   };

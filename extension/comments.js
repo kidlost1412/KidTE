@@ -44,6 +44,9 @@
   const sentEchoes = new Map();
   // Tài khoản chủ shop: tự học khi TikTok đánh dấu host (không gắn cứng shop nào).
   const hostIdentities = new Set();
+  // Chủ phòng theo TỪNG phòng, tự lấy từ GetLiveRoomInfo (snapshot.host) hoặc
+  // học từ tiếng vọng câu AI. Phòng mới/tài khoản khác tự được nhận diện.
+  const roomHosts = new Map();
   let enabled = false;
   let busy = false;
   let installed = false;      // cầu ChatMessage đã cài (độc lập với AI)
@@ -136,7 +139,41 @@ function noteSendFailure(detail) {
   }
 
   function isKnownHost(raw) {
-    return identityKeys(raw).some((key) => hostIdentities.has(key));
+    const keys = identityKeys(raw);
+    const roomHost = roomHosts.get(String(lastRoomId || ""));
+    return keys.some((key) => hostIdentities.has(key) || (roomHost && roomHost.keys.includes(key)));
+  }
+
+  function currentHost() {
+    const entry = roomHosts.get(String(lastRoomId || ""));
+    return entry ? entry.host : null;
+  }
+
+  async function setRoomHost(roomId, rawHost, source) {
+    const room = clean(roomId, 160);
+    const keys = identityKeys(rawHost);
+    if (!room || !keys.length) return;
+    const host = {
+      user_id: clean(rawHost.user_id, 160), sec_uid: clean(rawHost.sec_uid, 240),
+      unique_id: clean(rawHost.unique_id, 160), nickname: clean(rawHost.nickname, 160),
+      source: source || clean(rawHost.source, 30) || "room_info"
+    };
+    const old = roomHosts.get(room);
+    // Nguồn room_info đáng tin hơn tiếng vọng: không để echo ghi đè.
+    if (old && old.host.source === "room_info" && host.source !== "room_info") return;
+    if (old && JSON.stringify(old.keys) === JSON.stringify(keys) && old.host.source === host.source) return;
+    roomHosts.set(room, { keys, host });
+    while (roomHosts.size > 20) roomHosts.delete(roomHosts.keys().next().value);
+    try {
+      await chrome.storage.local.set({
+        liveReRoomHosts: Object.fromEntries([...roomHosts].map(([id, v]) => [id, v.host]))
+      });
+    } catch {}
+  }
+
+  function learnHostFromSnapshot(response) {
+    const snap = response?.snapshot;
+    if (snap?.host && snap.room_id) setRoomHost(snap.room_id, snap.host, "room_info");
   }
 
   async function rememberHost(raw) {
@@ -439,6 +476,7 @@ function noteSendFailure(detail) {
           ai_enabled: enabled,
           ai_ready: aiReady,
           session_id: lastRoomId,
+          host: currentHost(),
           observer: isObserver,
           reply_queue: pending.length,
           observe_queue: observeQueue.length,
@@ -485,6 +523,7 @@ function noteSendFailure(detail) {
         (response?.error || `TikTok API ${action} thất bại`) + (detail ? ` (${detail})` : "")
       );
     }
+    if (action === "snapshot") learnHostFromSnapshot(response);
     return response;
   }
 
@@ -864,6 +903,7 @@ function noteSendFailure(detail) {
     pruneSentEchoes();
     if (sentEchoes.has(rawText)) {
       rememberHost(raw);
+      setRoomHost(lastRoomId, raw, "echo");
       setStatus("Đã chặn tiếng vọng câu trả lời của chính chủ phòng.", true, {
         selfEchoBlocked: true
       });
@@ -1081,9 +1121,13 @@ function noteSendFailure(detail) {
   });
   aiRestorePromise = restoreAiQueue();
   aiRestorePromise.catch(error => setStatus(`Không khôi phục được hàng chờ AI: ${clean(error?.message || error, 180)}`, false));
-  chrome.storage.local.get(["liveReAiEnabled", "liveReHostIdentities"])
+  chrome.storage.local.get(["liveReAiEnabled", "liveReHostIdentities", "liveReRoomHosts"])
     .then((stored) => {
       for (const key of stored.liveReHostIdentities || []) hostIdentities.add(String(key));
+      for (const [room, host] of Object.entries(stored.liveReRoomHosts || {})) {
+        const keys = identityKeys(host);
+        if (keys.length && !roomHosts.has(room)) roomHosts.set(room, { keys, host });
+      }
       return applyEnabled(stored.liveReAiEnabled === true);
     })
     .catch((error) => setStatus(`Không đọc được cấu hình AI: ${error.message}`, false));
@@ -1163,9 +1207,10 @@ function noteSendFailure(detail) {
       clearSeenForTest: () => seen.clear(),
       enqueueAiReply,
       syncBackendQueue,
+      learnHostFromSnapshot,
       getState: () => ({
         enabled, busy, installed, aiReady, liveRunning, collectedRows, isObserver,
-        hostIdentities: [...hostIdentities], sentEchoCount: sentEchoes.size,
+        hostIdentities: [...hostIdentities], roomHost: currentHost(), sentEchoCount: sentEchoes.size,
         observeQueued: observeQueue.length, observeRetried, observePersistErrors,
         observeDropped, aiDropped
       })

@@ -271,7 +271,8 @@ def main():
     image = Path(a.runtime_image())
     check("runtime process image is the package copy",
           image.resolve() == (a.app / "packages" / "runtime" / "1.0.0" / "KidTE.exe").resolve(), image)
-    check("app version served = 1.15.0", a.health()["version"] == "1.15.0", a.health()["version"])
+    dist_version = (dist / "VERSION").read_text(encoding="utf-8").strip()
+    check(f"app version served = {dist_version} (dist VERSION)", a.health()["version"] == dist_version, a.health()["version"])
     a.stop()
 
     # (a) app-only update ---------------------------------------------------------------------

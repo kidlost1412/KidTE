@@ -7,7 +7,7 @@ Rules:
   KEEP    tag referenced by any catalog component url (.../releases/download/<tag>/...)
   KEEP    channel feed tag (starts with "updates-")
   KEEP    release holding the newest installer (asset named *Setup*.exe)
-  KEEP    newest N core versions (tags v<X.Y.Z>-p3...), N = keep_core
+  KEEP    newest N core versions (tags v<X.Y.Z>-p<N>..., any series), N = keep_core
   DELETE  everything else
   KEEP    releases without a tag (never touched: not understood, so not pruned)
 
@@ -25,7 +25,7 @@ import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 CATALOG_URL_RE = re.compile(r"/releases/download/([^/\s\"'\\]+)/")
-CORE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-p3(?:[.\-_].*)?$")
+CORE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-p\d+(?:[.\-_].*)?$")
 INSTALLER_RE = re.compile(r"(?i)setup.*\.exe$")
 FEED_PREFIX = "updates-"
 

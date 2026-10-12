@@ -4,13 +4,13 @@
   (Windows PowerShell 5.1). Dry run by default.
 
 .DESCRIPTION
-  1. Downloads the signed catalogs anonymously (updates-beta-p3 required; updates-stable-p3 optional, 404 ignored).
+  1. Downloads the signed catalogs anonymously (updates-beta-p3 required; stable-p3 and the p4 feeds optional, 404 ignored).
   2. Lists all releases anonymously (GET API, no token).
   3. Calls release_prune_plan.py (python -I) to decide KEEP / DELETE per release:
        KEEP    tag referenced by a catalog component url
        KEEP    channel feed tag (updates-*)
        KEEP    release holding the newest installer (Setup exe)
-       KEEP    newest -KeepCore core versions (v<X.Y.Z>-p3)
+       KEEP    newest -KeepCore core versions (v<X.Y.Z>-p3 / -p4)
        DELETE  everything else
   4. Prints the KEEP/DELETE table. Without -Apply nothing is changed.
   5. With -Apply: asks for typed confirmation "XOA" (skipped with -Force), then for each DELETE row
@@ -28,7 +28,7 @@ param(
     [switch]$Force,
     [string]$Repo = 'kidlost1412/KidTE',
     [string]$CatalogName = 'kidte-catalog-v2.json',
-    [string[]]$CatalogTags = @('updates-beta-p3', 'updates-stable-p3'),
+    [string[]]$CatalogTags = @('updates-beta-p3', 'updates-stable-p3', 'updates-beta-p4', 'updates-stable-p4'),
     [string]$Python = 'D:\KidTE-NguonMa\.venv\Scripts\python.exe',
     [string]$RepoPath = ''
 )

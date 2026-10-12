@@ -157,3 +157,10 @@ def test_cli_requires_catalog(tmp_path, capsys):
     releases_path = tmp_path / "r.json"
     releases_path.write_text("[]", encoding="utf-8")
     assert rp.main(["--releases", str(releases_path)]) == 2
+
+
+def test_p4_release_tags_count_as_versions_and_feeds_are_kept():
+    from release_prune_plan import core_version
+    assert core_version("v1.15.0-p4") == (1, 15, 0)
+    assert core_version("v1.14.259-p3") == (1, 14, 259)
+    assert core_version("updates-beta-p4") is None

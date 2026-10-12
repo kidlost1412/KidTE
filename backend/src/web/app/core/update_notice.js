@@ -44,3 +44,53 @@ export function extensionNotice(state) {
   const n = state && state.extension_reload;
   return n && n.version ? {visible: true, text: EXTENSION_RELOAD_TEXT, version: n.version} : {visible: false, text: '', version: ''};
 }
+
+// ---- Luồng cập nhật một nút (trang Cập nhật + banner) ----
+// Tính năng tuỳ chọn: nằm trong mục thu gọn; tên nội bộ runtime/extensions chỉ ở "Chi tiết kỹ thuật".
+export const OPTIONAL_IDS = ['gpu-cuda12', 'video-sync', 'video-analysis-cpu', 'captcha-solver', 'media-tools'];
+export const CORE_IDS = ['core', 'app', 'runtime', 'extensions'];
+
+export function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+// {id: version} cho mọi gói cần lên bản mới (bắt buộc + tính năng đã cài có bản mới).
+export function updateComponents(state) {
+  const out = {};
+  for (const p of newerPackages(state)) out[p.id] = p.version;
+  return out;
+}
+
+export function headerLines(state) {
+  const current = state && state.current_version;
+  const latest = state && state.latest;
+  const using = current ? `Đang dùng: Kid TE ${current}` : 'Đang dùng: Kid TE (chưa rõ bản)';
+  let newest = '';
+  if (latest && latest.version) {
+    const date = formatDate(latest.date);
+    newest = `Mới nhất trên GitHub: ${latest.version}${date ? ` (${date})` : ''}`;
+  }
+  const upToDate = Boolean(state && state.enabled !== false && latest && !state.update_available && !state.restart_required);
+  return {using, newest, upToDate, upToDateText: 'Bạn đang dùng bản mới nhất ✓'};
+}
+
+export function progressView(state) {
+  const p = state && state.progress;
+  if (!p) return null;
+  const total = p.overall_total || p.total || 0;
+  const received = p.overall_total ? p.overall_received : p.received;
+  const percent = total > 0 ? Math.max(0, Math.min(100, Math.floor(received * 100 / total))) : 0;
+  const mb = n => (n / 1e6).toFixed(n >= 1e8 ? 0 : 1);
+  return {percent, component: p.component, index: p.index || 1, count: p.count || 1,
+    text: `${percent}% · ${mb(received)} / ${mb(total)} MB`};
+}
+
+export function restartNeeded(state) {
+  return Boolean(state && state.restart_required);
+}
+
+// Văn bản xác nhận khi bấm khởi động lại lúc đang LIVE (chủ app chọn cho phép).
+export const LIVE_RESTART_TEXT = 'Đang LIVE — app sẽ tắt khoảng 20–30 giây rồi tự mở lại; bình luận đến trong lúc đó vẫn được giữ trong hàng chờ.';

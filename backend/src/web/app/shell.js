@@ -3,7 +3,7 @@ import {icon} from './core/icons.js';
 import {fold, relative} from './core/format.js';
 import {openModal, isOverlayOpen} from './ui/overlays.js';
 import {request} from './core/api.js';
-import {updateNotice, extensionNotice, DISMISS_KEY} from './core/update_notice.js';
+import {updateNotice, extensionNotice, updateComponents, DISMISS_KEY} from './core/update_notice.js';
 
 const NAV = [
   {group: 'Vận hành'},
@@ -83,7 +83,15 @@ export function createShell({navigate, commands}) {
   try { updateDismissed = sessionStorage.getItem(DISMISS_KEY) || ''; } catch (_) { /* */ }
   const updateText = h('span', {class: 'update-banner-text'});
   const updateBanner = h('div', {class: 'update-banner', role: 'status', hidden: true},
-    h('button', {class: 'update-banner-go', type: 'button', onClick: () => navigate('system', 'updates')}, updateText),
+    h('button', {class: 'update-banner-go', type: 'button', onClick: async () => {
+      // Cùng một hành động "Cập nhật" như trang Cập nhật: bắt đầu tải rồi mở trang để xem tiến trình.
+      try {
+        if (updateState && updateState.update_available && !updateState.restart_required && !updateState.busy) {
+          await request('/api/updates/install', {method: 'POST', body: {components: updateComponents(updateState)}});
+        }
+      } catch (_) { /* trang Cập nhật sẽ hiện lỗi bằng lời dễ hiểu */ }
+      navigate('system', 'updates');
+    }}, updateText),
     h('button', {class: 'update-banner-x', type: 'button', 'aria-label': 'Ẩn thông báo trong phiên này', title: 'Ẩn trong phiên này',
       onClick: () => {
         updateDismissed = updateNotice(updateState).version || '';

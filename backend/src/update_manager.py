@@ -39,11 +39,13 @@ class UpdateManager:
         if not selected and getattr(sys, "frozen", False):
             selected = Path(sys.executable).resolve().parent
         self.app_root = Path(selected).absolute() if selected else None
-        # Series p4 lists the split runtime/app/extensions components; older
-        # launchers/apps only ever read p3 and keep seeing the monolithic core.
-        self.transport = transport or GitHubTransport(repository=REPOSITORY, series="p4")
         self._launcher_caps = (os.environ.get("KIDTE_LAUNCHER_CAPS", "")
                                if launcher_caps is None else launcher_caps)
+        # Series p4 lists the split runtime/app/extensions components and is the
+        # only feed a split-capable launcher may follow; p3 (monolithic core) is
+        # for a legacy launcher alone. Mixing them trips the anti-replay floor.
+        self.series = "p4" if LAUNCHER_CAPS_NEEDED in self._launcher_caps.split() else "p3"
+        self.transport = transport or GitHubTransport(repository=REPOSITORY, series=self.series)
         self.trusted_keys = dict(TRUSTED_KEYS if trusted_keys is None else trusted_keys)
         self._store = store
         self._lock = threading.RLock()
@@ -109,7 +111,15 @@ class UpdateManager:
                               "unpacked_bytes": p["unpacked_bytes"], "dependencies": p["dependencies"],
                               "installed_version": installed_version, "newer": newer})
         result["available"] = available
+        result["current_version"] = installed.get("app") or installed.get("core")
+        head = next((p for p in rows if p["id"] in ("app", "core")), None)
+        result["latest"] = ({"version": head["version"], "date": (catalog or {}).get("issued_at")}
+                            if head else None)
+        # Display mapping for the monolithic-core -> split migration: the old core
+        # number belongs to the app only; runtime/extensions have no installed version.
+        result["installed_display"] = {p["id"]: p["installed_version"] for p in available}
         newer = [row for row in available if row["newer"]]
+        result["update_ids"] = [row["id"] for row in newer]
         result["update_available"] = bool(newer)
         result["update_total_bytes"] = sum(row["download_bytes"] for row in newer)
         with self._lock:
@@ -270,22 +280,32 @@ class UpdateManager:
         if any(key in SPLIT_COMPONENTS for key in selection):
             components.pop("core", None)  # replaced by runtime + app + extensions
         download_root = store.download_root()
+        todo = [(k, p) for k, p in selection.items()
+                if not (k in BASELINE_COMPONENTS and store.baseline_matches(p))]
+        overall_total = sum(p["archive_bytes"] for _, p in todo)
+        done = 0
+        order = {k: i + 1 for i, (k, _) in enumerate(todo)}
         for component_id, package in selection.items():
             if component_id in BASELINE_COMPONENTS and store.baseline_matches(package):
                 store.stage_baseline(package)
                 components[component_id] = package
                 continue
             archive = download_root / (package["archive_sha256"] + ".zip")
-            self._set(progress={"component": component_id, "received": 0,
-                                "total": package["archive_bytes"]})
+            base = done
+            self._set(progress={"component": component_id, "received": 0, "total": package["archive_bytes"],
+                                "overall_received": base, "overall_total": overall_total,
+                                "index": order[component_id], "count": len(todo)})
 
-            def progress(received, total, component=component_id):
-                self._set(progress={"component": component, "received": received, "total": total})
+            def progress(received, total, component=component_id, base=base):
+                self._set(progress={"component": component, "received": received, "total": total,
+                                    "overall_received": base + received, "overall_total": overall_total,
+                                    "index": order[component], "count": len(todo)})
 
             self.transport.download(package["url"], archive,
                                     expected_sha256=package["archive_sha256"],
                                     expected_bytes=package["archive_bytes"], progress=progress)
             store.stage_package(package, archive)
+            done += package["archive_bytes"]
             components[component_id] = package
         # Retain installed dependencies/components. Native libraries cannot be switched in this process.
         store.prepare(components, catalog_sequence=catalog["sequence"])

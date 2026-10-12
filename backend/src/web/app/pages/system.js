@@ -197,7 +197,7 @@ async function whisper(ctx, host, d) {
   }
   function schedule() {
     clearTimeout(timer);
-    if (s && s.download && s.download.state === 'downloading') timer = setTimeout(load, 1500);
+    if (s && ((s.download && s.download.state === 'downloading') || (s.hardware && s.hardware.probing))) timer = setTimeout(load, s.hardware && s.hardware.probing ? 1000 : 1500);
   }
   d.add(() => clearTimeout(timer));
 
@@ -234,7 +234,8 @@ async function whisper(ctx, host, d) {
   function render() {
     const hw = s.hardware || {};
     const gpu = hw.gpu ? `${hw.gpu.name} (${hw.gpu.vram_gb} GB)` : 'Không có card NVIDIA';
-    const deviceNote = s.device === 'gpu' ? notice('ok', 'Chép lời bằng card đồ hoạ (GPU)', 'Nhanh gấp khoảng 10 lần CPU. Nếu GPU gặp lỗi giữa chừng, ứng dụng tự chuyển sang CPU để không dừng việc.')
+    const deviceNote = hw.probing ? notice('info', 'Đang kiểm tra card đồ hoạ…', 'Lần đầu mở mất vài giây. Danh sách model bên dưới dùng được ngay, gợi ý tốc độ sẽ cập nhật khi kiểm tra xong.')
+      : s.device === 'gpu' ? notice('ok', 'Chép lời bằng card đồ hoạ (GPU)', 'Nhanh gấp khoảng 10 lần CPU. Nếu GPU gặp lỗi giữa chừng, ứng dụng tự chuyển sang CPU để không dừng việc.')
       : hw.gpu ? notice('warn', 'Có card NVIDIA nhưng chưa dùng được', 'Cập nhật driver NVIDIA mới nhất (GeForce Experience hoặc nvidia.com/drivers), khởi động lại máy rồi bấm “Đo lại”. Trong lúc đó chép lời chạy bằng CPU (chậm hơn).')
         : notice('info', 'Máy không có card NVIDIA — chép lời bằng CPU', 'Vẫn chạy được, chỉ chậm hơn. Model gợi ý bên dưới đã tính theo CPU của máy này.');
     const active = s.models.find(m => m.active);

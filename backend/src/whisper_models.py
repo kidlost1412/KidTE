@@ -151,11 +151,12 @@ def _cuda_ready():
 
 
 _HARDWARE = {}
+_HW_LOCK = threading.Lock()
+_HW_THREAD = None
 
 
-def hardware(refresh=False):
-    if _HARDWARE and not refresh:
-        return dict(_HARDWARE)
+def _probe_hardware():
+    """Đo phần cứng (nvidia-smi, thăm dò CUDA qua worker: có thể mất vài giây tới 30 s)."""
     try:
         import psutil
         ram = round(psutil.virtual_memory().total / 1024 ** 3, 1)
@@ -167,9 +168,59 @@ def hardware(refresh=False):
                                        else WHISPER_MODELS_DIR).free / 1024 ** 3, 1)
     except OSError:
         free = 0
-    _HARDWARE.update({"ram_gb": ram, "cpu_cores": os.cpu_count() or 0, "gpu": gpu,
-                      "cuda": bool(gpu) and _cuda_ready(), "disk_free_gb": free})
-    return dict(_HARDWARE)
+    return {"ram_gb": ram, "cpu_cores": os.cpu_count() or 0, "gpu": gpu,
+            "cuda": bool(gpu) and _cuda_ready(), "disk_free_gb": free}
+
+
+def _probe_in_background():
+    global _HW_THREAD
+    try:
+        result = _probe_hardware()
+    except Exception:  # noqa: BLE001 - thăm dò hỏng thì coi như CPU, không treo giao diện.
+        result = {"ram_gb": 0, "cpu_cores": os.cpu_count() or 0, "gpu": None, "cuda": False, "disk_free_gb": 0}
+    with _HW_LOCK:
+        _HARDWARE.update(result)
+        _HW_THREAD = None
+
+
+def _start_probe():
+    """Bắt đầu thăm dò nền nếu chưa chạy. Gọi khi đang giữ _HW_LOCK."""
+    global _HW_THREAD
+    if _HW_THREAD is None:
+        _HW_THREAD = threading.Thread(target=_probe_in_background, name="whisper-hw-probe", daemon=True)
+        _HW_THREAD.start()
+
+
+def warm_up():
+    """Gọi lúc khởi động để lần mở trang Chép lời đầu tiên đã có sẵn kết quả."""
+    with _HW_LOCK:
+        if not _HARDWARE:
+            _start_probe()
+
+
+def hardware(refresh=False, wait=False):
+    """Trả ngay kết quả đã nhớ; việc đo chạy nền, KHÔNG chặn yêu cầu HTTP.
+
+    Bản cũ chạy nvidia-smi + worker --probe-gpu (timeout 30 s) ngay trong yêu cầu
+    GET đầu tiên của mỗi lần mở app: trang Chép lời trắng/đứng hình tới khi xong.
+    Khi chưa đo xong: ``probing`` = True và số liệu tạm (cuda False).
+    """
+    with _HW_LOCK:
+        if refresh or not _HARDWARE:
+            _start_probe()
+        thread = _HW_THREAD
+    if wait and thread is not None:
+        thread.join()
+    with _HW_LOCK:
+        if _HARDWARE:
+            return {**_HARDWARE, "probing": _HW_THREAD is not None}
+    try:
+        import psutil
+        ram = round(psutil.virtual_memory().total / 1024 ** 3, 1)
+    except Exception:
+        ram = 0
+    return {"ram_gb": ram, "cpu_cores": os.cpu_count() or 0, "gpu": None, "cuda": False,
+            "disk_free_gb": 0, "probing": True}
 
 
 def gpu_usable(hw):

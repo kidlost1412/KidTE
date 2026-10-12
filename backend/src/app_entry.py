@@ -245,6 +245,11 @@ def main() -> int:
                     logger.warning(str(result.get("error")), extra={"event": "captcha_autostart_failed"})
             threading.Thread(target=_autostart_captcha, daemon=True,
                              name="captcha-autostart").start()
+        try:
+            import whisper_models
+            whisper_models.warm_up()    # đo GPU/CUDA nền, trang Chép lời không phải chờ
+        except Exception:  # noqa: BLE001 - không được làm hỏng khởi động
+            pass
         print(f"[kid-te] Ứng dụng: http://{args.host}:{args.port}/app")
         if args.no_ui:
             server.serve_forever(0.3)

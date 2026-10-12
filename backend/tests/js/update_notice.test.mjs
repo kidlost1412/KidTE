@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const source = await readFile(new URL('../../src/web/app/core/update_notice.js', import.meta.url), 'utf8');
-const {updateNotice, upToDateLine, formatClock, newerPackages, headerLines, updateComponents, progressView, formatDate, LIVE_RESTART_TEXT} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const {updateNotice, upToDateLine, formatClock, newerPackages, headerLines, updateComponents, progressView, formatDate, formatCheckedAt, LIVE_RESTART_TEXT} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 
 const newer = {update_available: true, update_total_bytes: 48_200_000, restart_required: false,
   available: [
@@ -101,4 +101,10 @@ test('progress view uses overall bytes and clamps percent', () => {
 
 test('live restart confirm text is the owner-approved sentence', () => {
   assert.match(LIVE_RESTART_TEXT, /^Đang LIVE — app sẽ tắt khoảng 20–30 giây rồi tự mở lại/);
+});
+
+test('formatCheckedAt shows Vietnam local time hh:mm dd/mm', () => {
+  assert.equal(formatCheckedAt('2026-10-12T13:32:13+00:00'), '20:32 12/10');
+  assert.equal(formatCheckedAt('2026-12-31T18:00:00Z'), '01:00 01/01');
+  assert.equal(formatCheckedAt(''), '');
 });

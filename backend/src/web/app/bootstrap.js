@@ -2,6 +2,7 @@ import {createStore, startDashboardPoll} from './core/store.js';
 import {createRouter} from './core/router.js';
 import {createShell} from './shell.js';
 import {h} from './core/dom.js';
+import {guardStylesheets} from './core/asset_guard.js';
 import {beginPageScope, endPageScope} from './core/api.js';
 import {errorBox} from './ui/kit.js';
 import {confirmDialog} from './ui/overlays.js';
@@ -123,3 +124,4 @@ const poll = startDashboardPoll(store, 5000);
 window.__kidTe = {store, poll, navigate};
 window.__liveRe = window.__kidTe; // Legacy integration alias.
 router.start();
+try { guardStylesheets(); window.addEventListener('load', () => guardStylesheets()); } catch (error) { console.error(error); }

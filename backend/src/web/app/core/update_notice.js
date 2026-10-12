@@ -64,6 +64,24 @@ export function updateComponents(state) {
   return out;
 }
 
+// "hh:mm dd/mm" theo giờ Việt Nam, không phụ thuộc múi giờ máy.
+export function formatCheckedAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Ho_Chi_Minh', hour12: false,
+    hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'}).formatToParts(d).map(x => [x.type, x.value]));
+  return `${parts.hour === '24' ? '00' : parts.hour}:${parts.minute} ${parts.day}/${parts.month}`;
+}
+
+export const OPTIONAL_INFO = {
+  'gpu-cuda12': {icon: 'zap', text: 'Chép lời nhanh hơn trên card NVIDIA'},
+  'media-tools': {icon: 'film', text: 'Cắt, đọc và xử lý video'},
+  'captcha-solver': {icon: 'shield', text: 'Tự giải CAPTCHA và báo khi cần'},
+  'video-sync': {icon: 'repeat', text: 'Đồng bộ video với phiên LIVE'},
+  'video-analysis-cpu': {icon: 'mic', text: 'Chép lời video ngay trên máy'},
+};
+
 export function headerLines(state) {
   const current = state && state.current_version;
   const latest = state && state.latest;

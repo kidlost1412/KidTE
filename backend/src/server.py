@@ -72,6 +72,20 @@ from knowledge import (
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = False
+    # socketserver mac dinh listen(5): WebView2 mo mot loat ket noi song song
+    # (6 CSS + module + API) luc khoi dong, hang doi day thi Windows RST ket noi
+    # -> stylesheet mat. Dung hang doi lon + thread rieng cho moi ket noi.
+    request_queue_size = 128
+    daemon_threads = True
+
+
+def versioned_operator_page(html, version):
+    """Gan ?v=<ban> vao asset de ban cap nhat khong tron file cu/moi."""
+    version = re.sub(r"[^0-9A-Za-z._-]", "", str(version or "")) or "0"
+    html = re.sub(r'((?:href|src)="/assets/[^"?]+)"', lambda m: f'{m.group(1)}?v={version}"', html)
+    meta = f'<meta name="kid-te-version" content="{version}">'
+    anchor = '<meta charset="utf-8">'
+    return html.replace(anchor, anchor + chr(10) + "  " + meta, 1)
 
 
 def _key_failure(exc):
@@ -4019,7 +4033,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             page = WEB_DIR / "operator.html"
             try:
-                self.send_html(200, page.read_text(encoding="utf-8"))
+                self.send_html(200, versioned_operator_page(page.read_text(encoding="utf-8"), _app_version()))
             except OSError:
                 self.send_json(500, {"ok": False, "error": "app_page_missing"})
         elif route.startswith("/assets/"):

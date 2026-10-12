@@ -224,3 +224,38 @@
 .queue-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; padding: 0 16px 16px; }
 .queue-cell small { display: block; font-size: var(--fs-xs); color: var(--text-3); }
 .queue-cell strong { font-size: var(--fs-lg, 20px); }
+
+/* ---- Trang Cập nhật ---- */
+.upd-hero { padding: 20px 22px; display: flex; flex-direction: column; gap: var(--s-3); }
+.upd-hero-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); flex-wrap: wrap; }
+.upd-hero-ver { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.upd-hero-ver small { font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.upd-hero-ver strong { font-family: var(--font-display); font-size: var(--fs-3xl); line-height: var(--lh-tight); }
+.upd-hero-act { display: flex; align-items: center; gap: var(--s-3); }
+.upd-hero-act .chip { font-size: var(--fs-sm); padding: 6px 12px; }
+.upd-hero-meta { display: flex; align-items: center; gap: var(--s-3); padding-top: var(--s-3); border-top: 1px solid var(--divider); }
+.upd-progress { display: flex; flex-direction: column; gap: var(--s-2); }
+.upd-progress .progress { height: 10px; }
+.upd-progress .progress i { display: block; height: 100%; background: var(--brand-text); transition: width .3s var(--ease); }
+.upd-done { display: flex; align-items: center; gap: var(--s-3); padding: 14px 16px; border-radius: var(--r-md); background: var(--ok-soft); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); }
+.upd-done-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--ok); color: var(--text-inverse); flex: none; }
+.upd-done-icon svg { width: 18px; height: 18px; }
+.upd-list { padding: 4px 0; }
+.upd-sec + .upd-sec { border-top: 1px solid var(--divider); }
+.upd-sec > summary { display: flex; align-items: center; gap: var(--s-3); padding: 14px 18px; cursor: pointer; list-style: none; user-select: none; }
+.upd-sec > summary::-webkit-details-marker { display: none; }
+.upd-sec > summary:hover { background: var(--surface-hover); }
+.upd-sec > summary > svg { width: 18px; height: 18px; color: var(--text-3); flex: none; }
+.upd-sec-title { flex: 1; font-weight: 650; display: flex; flex-direction: column; }
+.upd-sec-title small { font-weight: 400; font-size: var(--fs-xs); color: var(--text-3); }
+.upd-chev { display: grid; color: var(--text-3); transition: transform var(--dur-2) var(--ease); }
+.upd-chev svg { width: 18px; height: 18px; }
+.upd-sec[open] > summary .upd-chev { transform: rotate(180deg); }
+.upd-sec-body { padding: 4px 18px 16px; }
+.upd-row { display: flex; align-items: center; gap: var(--s-3); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.upd-row-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-md); background: var(--surface-3); color: var(--brand-text); flex: none; }
+.upd-row-icon svg { width: 18px; height: 18px; }
+.upd-row-main { flex: 1; min-width: 0; }
+.upd-field { display: flex; align-items: center; gap: var(--s-3); }
+.upd-field .select { width: auto; min-width: 160px; }
+@media (max-width: 640px) { .upd-row { flex-wrap: wrap; } .upd-hero-ver strong { font-size: var(--fs-2xl); } }

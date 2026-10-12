@@ -287,6 +287,13 @@ class KnowledgeBase:
         atomic_write_json(self.overrides_path, raw)
         return True
 
+    def hidden_ids(self):
+        """Mã hồ sơ chủ shop đã xoá (vào Thùng rác) trên máy này."""
+        raw = load_json(self.overrides_path, {})
+        overrides = raw.get("overrides") if isinstance(raw, dict) else {}
+        return {clean(rid, 80) for rid, values in (overrides or {}).items()
+                if isinstance(values, dict) and values.get("hidden") is True}
+
     def mappable_records(self):
         """Hồ sơ có mã bền; không cho UI gán SKU mới vào dữ liệu lịch sử."""
         return [record for record in self.all_records()

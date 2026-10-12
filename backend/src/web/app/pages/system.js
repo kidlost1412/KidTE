@@ -8,7 +8,6 @@ import {toast, confirmDialog, promptDialog, openDrawer} from '../ui/overlays.js'
 import {applyTheme} from '../shell.js';
 import {RESOURCE_NAME} from '../labels.js';
 import {liveSettings} from './live-settings.js';
-import {salesPlaybookCard} from './sales-playbook-ui.js';
 import {kindLabel, kindNote, normalizeV2, passwordProblem, exportIndexedDb, startV2, selectionIds, deleteV2, restoreV2Visible, confirmProblem, restoreErrorText, restoreV2, reenableAi} from './backup-v2.js';
 import {updates} from './updates.js';
 
@@ -88,8 +87,11 @@ async function setup(ctx, host) {
       field('Model trả lời khách', model, {hint: 'Từ 10/09/2026 “deepseek-flash” CHÍNH LÀ DeepSeek V4.1 Flash — nhanh hơn, rẻ hơn và trả lời tốt hơn V4 Pro. Việc HỌC (rút kiến thức, học lại) chọn model riêng ở trang Trí nhớ AI. Độ dài câu, độ sáng tạo, lời nhắc: Trợ lý tự động → Nhà cung cấp DeepSeek.'}),
       field('Khoá API DeepSeek', key, {hint: 'Khoá được lưu trong file .env trên máy này, không hiển thị lại.'})),
     {sub: 'DeepSeek', footer: saveAi}),
-    shopInfoCard(),
-    salesPlaybookCard(),
+    card('Thông tin shop & sổ tay bán hàng', h('div', {class: 'card-body col gap-3'},
+      h('p', {class: 'fs-sm soft'}, 'Thông tin shop (địa chỉ, hotline, giao hàng) và sổ tay tình huống bán hàng nằm ở hai trang riêng trong thanh bên.'),
+      h('div', {class: 'row wrap'},
+        btn('Mở Thông tin shop', {kind: 'ghost', icon: 'home', onClick: () => ctx.navigate('shop-info')}),
+        btn('Mở Sổ tay tình huống', {kind: 'ghost', icon: 'fileText', onClick: () => ctx.navigate('playbook')})))),
     card('Tài khoản TikTok của chủ shop', h('div', {class: 'card-body form-grid'},
       h('p', {class: 'fs-sm soft'}, 'Để hệ thống biết bình luận nào là do chủ shop/host gõ (không phải khách) và không trả lời nhầm chính mình.'),
       field('Mã người dùng (user id)', userIds, {hint: 'Nhiều mã cách nhau bằng dấu phẩy.'}),
@@ -129,27 +131,6 @@ async function setup(ctx, host) {
         } catch (e) { clear(pkgOut, notice('danger', 'Không đọc được gói', friendlyError(e))); }
       }}),
     ]})));
-}
-
-// Thông tin CÔNG KHAI của shop — AI dùng khi khách hỏi ở đâu, số điện thoại, giao hàng.
-function shopInfoCard() {
-  const body = h('div', {class: 'card-body form-grid'}, skeletonRows(3, 40));
-  const inputs = {};
-  const save = btn('Lưu thông tin shop', {kind: 'primary', icon: 'save', onClick: async () => {
-    const values = Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value.trim()]));
-    try { await request('/api/system/shop-info', {method: 'POST', body: {values}}); toast('Đã lưu — AI dùng ngay cho câu tiếp theo.', 'ok'); }
-    catch (e) { toast(friendlyError(e), 'danger'); }
-  }});
-  request('/api/system/shop-info').then(out => {
-    clear(body, h('p', {class: 'fs-sm soft'}, 'Chỉ điền thông tin công khai. Khách hỏi “shop ở đâu”, “số điện thoại”, “ship mấy ngày” thì AI trả lời theo đây; để trống thì AI không trả lời những câu đó.'),
-      out.fields.map(([key, label, hint]) => {
-        const long = key === 'cach_noi' || key === 'giao_hang' || key === 'dia_chi_mua_hang';
-        inputs[key] = long ? textarea({rows: 2, value: out.values[key] || '', placeholder: hint})
-          : input({value: out.values[key] || '', placeholder: hint});
-        return field(label, inputs[key]);
-      }));
-  }).catch(e => clear(body, errorBox(friendlyError(e))));
-  return card('Thông tin shop', body, {sub: 'Địa chỉ, hotline, giao hàng', footer: save});
 }
 
 // ---------------------------------------------------------------- Âm thanh

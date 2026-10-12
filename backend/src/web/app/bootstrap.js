@@ -14,8 +14,10 @@ import automation from './pages/automation.js';
 import system from './pages/system.js';
 import brain from './pages/brain.js';
 import captcha from './pages/captcha.js';
+import shopInfo from './pages/shop-info.js';
+import playbook from './pages/playbook.js';
 
-const PAGES = {overview, inbox, brain, customers, catalog, video, automation, system, captcha};
+const PAGES = {overview, inbox, brain, customers, 'shop-info': shopInfo, playbook, catalog, video, automation, system, captcha};
 
 const store = createStore({dashboard: null, dashboardError: null});
 let mounted = null;
@@ -36,6 +38,8 @@ const shell = createShell({
     {group: 'Đi tới', title: 'Ánh xạ sản phẩm ↔ hồ sơ', sub: 'Gắn hồ sơ kỹ thuật cho từng listing', icon: 'link', keywords: 'anh xa mapping ho so', run: () => navigate('catalog', 'mapping')},
     {group: 'Đi tới', title: 'Hồ sơ kỹ thuật sản phẩm', sub: 'Công dụng, liều dùng AI được phép nói', icon: 'fileText', keywords: 'ho so lieu dung cong dung', run: () => navigate('catalog', 'profiles')},
     {group: 'Đi tới', title: 'Khách hàng', sub: 'Ai đã hỏi gì, bao nhiêu lần', icon: 'users', keywords: 'khach hang', run: () => navigate('customers')},
+    {group: 'Dữ liệu', title: 'Thông tin shop', sub: 'Địa chỉ, hotline, giao hàng AI dùng khi khách hỏi', icon: 'home', keywords: 'thong tin shop dia chi hotline giao hang', run: () => navigate('shop-info')},
+    {group: 'Dữ liệu', title: 'Sổ tay tình huống', sub: 'Cách AI xử lý bán chịu, hàng giả, chê đắt', icon: 'fileText', keywords: 'so tay tinh huong ban chiu', run: () => navigate('playbook')},
     {group: 'Đi tới', title: 'Phiên LIVE', sub: 'Lịch sử từng phiên', icon: 'activity', keywords: 'phien live session', run: () => navigate('customers', 'sessions')},
     {group: 'Đi tới', title: 'Trợ lý tự động', sub: 'Bật/tắt dịch vụ đồng bộ video, AI', icon: 'bot', run: () => navigate('automation')},
     {group: 'Đi tới', title: 'Trí nhớ AI', sub: 'Kiến thức AI đã học, phong cách người trực, học lại', icon: 'sparkles', keywords: 'hoc day ai kien thuc tri nho phong cach', run: () => navigate('brain')},

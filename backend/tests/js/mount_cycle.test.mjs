@@ -21,6 +21,7 @@ const PAGES = [
   ['automation', ''], ['automation', 'chinh-sach-gia'], ['automation', 'dong-bo-video'],
   ['system', 'setup'], ['system', 'live'], ['system', 'audio'], ['system', 'whisper'], ['system', 'diagnostics'],
   ['system', 'backups'], ['system', 'trash'], ['system', 'logs'], ['system', 'appearance'],
+  ['shop-info', ''], ['playbook', ''],
   ['captcha', ''],
 ];
 

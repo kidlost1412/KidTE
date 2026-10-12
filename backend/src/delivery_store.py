@@ -9,14 +9,45 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import threading
 import time
+import unicodedata
 import uuid
 from contextlib import closing
 from pathlib import Path
 
 import fact_revision
+
+
+def echo_body(text):
+    """Chuẩn hoá để so tiếng vọng: NFKC, chữ thường, bỏ emoji/dấu câu/khoảng trắng."""
+    text = unicodedata.normalize("NFKC", str(text or "")).casefold()
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def echo_key(text):
+    """Thân câu sau khi bỏ @mention đầu câu (@unique_id)."""
+    return echo_body(re.sub(r"^\s*@\S+\s+", "", str(text or "")))
+
+
+def echo_matches(sent_content, echo_text):
+    """TikTok hiển thị @nickname (có thể nhiều từ/emoji) thay cho @unique_id và có thể cắt đuôi."""
+    key = echo_key(sent_content)
+    text = str(echo_text or "").strip()
+    if not key or not text:
+        return False
+    ellipsis = re.search(r"(?:\.{2,}|…)\s*$", text) is not None
+    full = echo_body(re.sub(r"(?:\.{2,}|…)\s*$", "", text))
+    if not full:
+        return False
+    if full == key or (len(key) >= 6 and full.endswith(key)):
+        return True
+    if ellipsis and len(key) >= 12:
+        at = full.find(key[:12])
+        return at >= 0 and key.startswith(full[at:]) and len(full) - at >= 12
+    return False
 
 
 def utf16_length(text):
@@ -271,13 +302,40 @@ class DeliveryStore:
             if not message or message['content_hash'] != content_hash:
                 return False
             if message['state'] == 'sent':
-                return message['receipt_json'] == encoded
+                # Echo đã chốt trước: receipt thật đến trễ vẫn là thành công, không báo lỗi.
+                return message['receipt_json'] == encoded or '"source": "echo"' in message['receipt_json']
             if message['state'] not in {'sending', 'unknown'} or message['dispatched_at'] is None:
                 return False
             self._db.execute("UPDATE reply_messages SET state='sent', receipt_json=?, sent_at=? WHERE message_id=?",
                              (encoded, self.clock(), message_id))
             self._refresh_state(turn_id)
             return True
+
+    def reconcile_echo(self, platform, room_id, echo_text, *, window_s=900):
+        """Một comment của host khớp tin đã dispatched mà chưa có receipt -> coi là đã gửi.
+
+        Trả về danh sách turn_id vừa được chốt (receipt.source='echo').
+        """
+        now = self.clock()
+        done = []
+        with self._lock, self._db:
+            self._db.execute('BEGIN IMMEDIATE')
+            rows = self._db.execute(
+                "SELECT m.message_id,m.turn_id,m.content FROM reply_messages m JOIN reply_turns t "
+                "ON t.turn_id=m.turn_id WHERE t.platform=? AND t.room_id=? AND m.state IN ('unknown','sending') "
+                "AND m.dispatched_at IS NOT NULL AND m.dispatched_at>=? ORDER BY m.dispatched_at",
+                (platform, room_id, now - window_s)).fetchall()
+            for row in rows:
+                if not echo_matches(row['content'], echo_text):
+                    continue
+                receipt = json.dumps({'response_code': 0, 'room_id': room_id, 'source': 'echo',
+                                      'sent_at_ms': int(now * 1000)}, sort_keys=True)
+                self._db.execute("UPDATE reply_messages SET state='sent',receipt_json=?,sent_at=?,"
+                                 "claim_token='' WHERE message_id=?", (receipt, now, row['message_id']))
+                self._refresh_state(row['turn_id'])
+                done.append(row['turn_id'])
+                break  # một echo chỉ chốt một tin
+        return done
 
     def mark_message_unknown(self, turn_id, message_id, platform, room_id, content_hash):
         with self._lock, self._db:

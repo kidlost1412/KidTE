@@ -207,3 +207,47 @@ def test_two_database_connections_cannot_both_claim_a_message(tmp_path):
     finally:
         first.close()
         second.close()
+
+
+def _unknown_turn(tmp_path, content, now):
+    store = DeliveryStore(tmp_path / 'm.sqlite3', clock=lambda: now[0])
+    turn = store.prepare('turn', 'tiktok', 'room', 'interaction', [content])
+    mid = turn['messages'][0]['message_id']
+    claim = store.claim('turn', mid, 'tiktok', 'room')
+    assert store.dispatched(mid, claim['claim_token'])
+    now[0] += 40  # lease hết hạn, không có receipt
+    assert store.reconcile('turn')['state'] == 'unknown'
+    return store, mid
+
+
+def test_host_echo_with_nickname_mention_reconciles_unknown_message(tmp_path):
+    now = [1000.0]
+    body = '@triaxa150 Dạ pha chung được luôn á bác, Nano đông với TC01 pha chung ok nha'
+    store, mid = _unknown_turn(tmp_path, body, now)
+    try:
+        echo = '@Vũ style 🇻🇳 Dạ pha chung được luôn á bác, Nano đông với TC01 pha chung ok nha'
+        assert store.reconcile_echo('tiktok', 'other-room', echo) == []
+        assert store.reconcile_echo('tiktok', 'room', 'Câu khác hẳn của host') == []
+        assert store.reconcile_echo('tiktok', 'room', echo) == ['turn']
+        turn = store.get('turn')
+        assert turn['state'] == 'sent'
+        assert turn['messages'][0]['sent_at'] == now[0]
+        assert '"source": "echo"' in turn['messages'][0]['receipt_json']
+        # receipt thật đến trễ không bị coi là lỗi
+        assert store.confirm_message('turn', mid, 'tiktok', 'room',
+            turn['messages'][0]['content_hash'], {'response_code': 0, 'room_id': 'room'})
+    finally:
+        store.close()
+
+
+def test_host_echo_truncated_prefix_matches_but_short_or_unrelated_does_not(tmp_path):
+    now = [1000.0]
+    body = '@triaxa150 Dạ pha chung được luôn á bác, Nano đông với TC01 pha chung ok nha'
+    store, _ = _unknown_turn(tmp_path, body, now)
+    try:
+        assert store.reconcile_echo('tiktok', 'room', '@Vũ style 🇻🇳 Dạ pha chung') == []
+        assert store.reconcile_echo('tiktok', 'room',
+            '@Vũ style 🇻🇳 Dạ pha chung được luôn á bác, Na...') == ['turn']
+        assert store.get('turn')['state'] == 'sent'
+    finally:
+        store.close()

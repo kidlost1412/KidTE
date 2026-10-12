@@ -831,6 +831,27 @@ class StandaloneServerTests(unittest.TestCase):
         self.assertEqual(health["plugins"]["loaded"], ["dong-bo-video"])
         self.assertEqual(health["plugins"]["errors"], {"dich-vu-mau": "thiếu entry point"})
 
+    def test_host_echo_marks_unknown_turn_sent_and_settles_queue(self):
+        engine = self.engine
+        store = engine.delivery_store
+        body = '@triaxa150 Dạ pha chung được luôn á bác, Nano đông với TC01 ok nha'
+        ref = engine.memory.record_comment('nano đông + tc01 được không chị', comment_id='c1',
+            room_id='room-1', platform_user_id='u1', display_name='Vũ style')
+        turn = store.prepare('t-echo', 'tiktok', 'room-1', ref['interaction_id'], [body])
+        mid = turn['messages'][0]['message_id']
+        claim = store.claim('t-echo', mid, 'tiktok', 'room-1')
+        self.assertTrue(store.dispatched(mid, claim['claim_token']))
+        store._db.execute("UPDATE reply_messages SET state='unknown' WHERE message_id=?", (mid,))
+        store._db.commit()
+        host = {'user_id': 'h77', 'unique_id': 'Shop_ABC', 'source': 'room_info'}
+        echo = comment('@Vũ style 🇻🇳 Dạ pha chung được luôn á bác, Nano đông với TC01 ok nha',
+                       'echo-1', uid='h77')
+        echo['live_context'] = {**echo['live_context'], 'host': host, 'room_id': 'room-1'}
+        self.assertEqual(engine.handle(echo)['reason'], 'host_comment')
+        got = store.get('t-echo')
+        self.assertEqual(got['state'], 'sent')
+        self.assertIn('echo', got['messages'][0]['receipt_json'])
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -2315,3 +2336,4 @@ class SoftGapUnitTests(unittest.TestCase):
         ctx = sales_playbook.add_card_and_hint({}, None, ["đạm cá giá sao"], turns=sent)
         self.assertIn("da_nhac_ma", ctx)
         self.assertNotIn("da_nhac_ma", sales_playbook.add_card_and_hint({}, None, ["giá"], turns=[]))
+

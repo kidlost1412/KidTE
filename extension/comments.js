@@ -185,6 +185,35 @@ function noteSendFailure(detail) {
     } catch {}
   }
 
+  // TikTok hiển thị @mention theo NICKNAME ("@Vũ style 🇻🇳") trong khi ta soạn bằng
+  // "@unique_id". Khoá tiếng vọng vì vậy chỉ dùng phần thân: bỏ @mention đầu câu,
+  // chuẩn hoá Unicode, bỏ emoji/dấu câu/khoảng trắng.
+  function echoBody(value) {
+    return String(value ?? "").normalize("NFKC").toLocaleLowerCase("vi")
+      .replace(/[^\p{L}\p{N}]+/gu, "");
+  }
+  function echoKey(value) {
+    return echoBody(clean(value).replace(/^\s*@[^\s]+\s+/, ""));
+  }
+  // Tiếng vọng = thân câu đã gửi nằm ở CUỐI văn bản nhận về (đứng sau @mention theo
+  // nickname, có thể có khoảng trắng), hoặc TikTok cắt bớt đuôi bằng "...".
+  function matchSentEcho(rawText) {
+    const text = clean(rawText);
+    if (!text) return "";
+    const ellipsis = /(?:\.{2,}|…)\s*$/.test(text);
+    const full = echoBody(text.replace(/(?:\.{2,}|…)\s*$/, ""));
+    if (!full) return "";
+    for (const key of sentEchoes.keys()) {
+      if (!key) continue;
+      if (full === key || (key.length >= 6 && full.endsWith(key))) return key;
+      if (ellipsis && key.length >= 12) {
+        const at = full.indexOf(key.slice(0, 12));
+        if (at >= 0 && key.startsWith(full.slice(at)) && full.length - at >= 12) return key;
+      }
+    }
+    return "";
+  }
+
   function pruneSentEchoes() {
     const cutoff = Date.now() - 10 * 60 * 1000;
     for (const [text, at] of sentEchoes) {
@@ -566,15 +595,20 @@ function noteSendFailure(detail) {
         return enabled && role?.isController && role.state?.running && snapshot.snapshot?.room_id === result.room_id;
       },
       control: (operation,payload) => chrome.runtime.sendMessage({type:'LIVE_RE_MESSAGE_CONTROL',operation,payload}),
-      send: (message,identity) => apiRequest('send_chat',{content:message.content, at_uid:target.user_id,
-        expected_room_id:result.room_id,delivery:{...identity,interaction_id:result.interaction_id,reply_id:result.turn_id}}),
+      send: (message,identity) => {
+        // Đăng ký tiếng vọng TRƯỚC khi gọi API và giữ lại cả khi gọi lỗi/timeout:
+        // TikTok có thể đã đăng câu dù receipt về trễ (backend đối soát qua echo).
+        sentEchoes.set(echoKey(message.content), Date.now());
+        return apiRequest('send_chat',{content:message.content, at_uid:target.user_id,
+        expected_room_id:result.room_id,delivery:{...identity,interaction_id:result.interaction_id,reply_id:result.turn_id}});
+      },
       ack: payload => chrome.runtime.sendMessage({type:'LIVE_RE_MESSAGE_ACK',payload:{...payload,
         interaction_id:result.interaction_id,reply_id:result.turn_id}}),
       unknown: payload => chrome.runtime.sendMessage({type:'LIVE_RE_MESSAGE_UNKNOWN',payload:{...payload,
         interaction_id:result.interaction_id,reply_id:result.turn_id}}),
       onSent: async (message,receipt) => {
         if (!row.first_sent_at_ms) row.first_sent_at_ms = receipt.sent_at_ms || Date.now();
-        sentEchoes.set(message.content,Date.now());
+        sentEchoes.set(echoKey(message.content),Date.now());
         enqueueAiReply(target,message.content);
         await persistAiQueue();
       }
@@ -710,7 +744,7 @@ function noteSendFailure(detail) {
     }
     // Đăng ký trước khi gửi vì TikTok có thể phát ChatMessage echo về gần như
     // đồng thời với response của API Chat.
-    sentEchoes.set(content, Date.now());
+    sentEchoes.set(echoKey(content), Date.now());
     let receipt;
     try {
       receipt = await apiRequest("send_chat", { content, at_uid: comment.user_id,
@@ -719,7 +753,7 @@ function noteSendFailure(detail) {
           interaction_id: result.interaction_id, reply_id: result.reply_id
         } : null });
     } catch (error) {
-      sentEchoes.delete(content);
+      sentEchoes.delete(echoKey(content));
       const detail = clean(error?.message || error, 300);
       const paused = noteSendFailure(detail);
       if (result.interaction_id && result.reply_id) {
@@ -901,7 +935,7 @@ function noteSendFailure(detail) {
     if (!enabled || !aiReady || !liveRunning) return;
     const rawText = clean(raw?.comment);
     pruneSentEchoes();
-    if (sentEchoes.has(rawText)) {
+    if (matchSentEcho(rawText)) {
       rememberHost(raw);
       setRoomHost(lastRoomId, raw, "echo");
       setStatus("Đã chặn tiếng vọng câu trả lời của chính chủ phòng.", true, {
@@ -966,7 +1000,7 @@ function noteSendFailure(detail) {
     // host_manual). Ngày 12/09 có 15 dòng host_manual mà phần lớn là câu máy.
     // Đây chính là bộ dữ liệu dùng để học giọng chủ phòng sau này — dạy máy
     // bằng chính câu của máy thì càng học càng lệch.
-    if (sentEchoes.has(clean(raw?.comment))) return "self_echo";
+    if (matchSentEcho(raw?.comment)) return "self_echo";
     if (Boolean(raw?.is_host) || isKnownHost(raw)) return "host_manual";
     if (!enabled || !aiReady) return "ai_off";
     if (!liveRunning) return "clock_stopped";

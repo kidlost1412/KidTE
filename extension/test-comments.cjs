@@ -228,6 +228,21 @@ require("./comments.js");
   assert.equal(echoRow.ai_action, "self_echo",
     "câu AI vọng về không được gán là host_manual");
 
+  // TikTok vọng lại bằng @NICKNAME (nhiều từ + emoji), không phải @unique_id.
+  observed.length = 0;
+  const body = echoText.replace(/^@\S+\s+/, "");
+  debug.onRawComment({
+    comment: "@Vũ style \u{1F1FB}\u{1F1F3} " + body, comment_id: "echo-nick-1", user_id: "host-1",
+    unique_id: "nongduoctoancauofficial", nickname: "Nông Dược Toàn Cầu", is_host: true
+  });
+  debug.onRawComment({
+    comment: "@Vũ style \u{1F1FB}\u{1F1F3} " + body.slice(0, 20) + "...", comment_id: "echo-nick-2",
+    user_id: "host-1", unique_id: "nongduoctoancauofficial", nickname: "Nông Dược Toàn Cầu", is_host: true
+  });
+  await debug.flushObserve();
+  assert.deepEqual(observed.map((row) => row.ai_action), ["self_echo", "self_echo"],
+    "echo theo @nickname không được coi là host_manual");
+
   // Câu chủ phòng gõ tay thật thì vẫn phải là host_manual.
   observed.length = 0;
   debug.onRawComment({

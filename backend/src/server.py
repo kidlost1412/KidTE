@@ -29,7 +29,7 @@ from customer_history import CustomerHistory
 from captcha_bridge import CaptchaBridge
 from documents import DocumentLibrary
 from customer_memory import CustomerMemory
-from delivery_store import DeliveryStore, utf16_length
+from delivery_store import DeliveryStore, echo_matches, utf16_length
 from privacy import PrivacyService
 import reply_schema
 from conversation_context import product_reference
@@ -2096,6 +2096,10 @@ class ReplyEngine:
         if not isinstance(events, list):
             events = [payload]
         written = self.raw_stream.record(events)
+        for event in events:
+            if (isinstance(event, dict) and event.get("is_host")
+                    and event.get("ai_action") in {"self_echo", "host_manual"}):
+                self.reconcile_host_echo(event.get("room_id"), event.get("text"))
         for _ in events:
             self.metrics.record("comment")
         if written:
@@ -2183,6 +2187,38 @@ class ReplyEngine:
         text = re.sub(r"^@[^\s]+\s+", "", text).strip()
         return text.casefold()
 
+    def reconcile_host_echo(self, room_id, text):
+        """Comment của host trùng tin AI đã dispatched nhưng mất receipt -> chốt 'sent' (source echo)."""
+        room_id = clean(room_id, 160)
+        if not room_id or len(clean(text, 600)) < 4:
+            return []
+        try:
+            turn_ids = self.delivery_store.reconcile_echo('tiktok', room_id, clean(text, 600))
+        except Exception:
+            return []
+        for turn_id in turn_ids:
+            turn = self.delivery_store.get(turn_id)
+            if not turn:
+                continue
+            state = turn['state']
+            sent_times = [m['sent_at'] for m in turn['messages'] if m['sent_at'] is not None]
+            if state == 'sent':
+                self.memory.confirm_reply_sent(turn['interaction_id'], turn_id,
+                    json.loads(turn['messages'][-1]['receipt_json']), allow_previous_session=True)
+            elif state == 'partially_sent':
+                self.memory.mark_reply_delivery(turn['interaction_id'], turn_id, 'partially_sent',
+                    'delivered_by_echo', allow_previous_session=True)
+            self.comment_queue.settle(turn_id, state,
+                first_sent_at=min(sent_times) if sent_times else None)
+            with self._lock:
+                self._pending_reply_bodies.pop(turn_id, None)
+                for message in turn['messages']:
+                    if message['state'] == 'sent':
+                        self._recent_reply_bodies[self._echo_key(message['content'])] = time.monotonic()
+        if turn_ids:
+            self.workspace._touch("conversations", "sessions", "dashboard")
+        return turn_ids
+
     def _is_self_echo(self, comment):
         key = self._echo_key(comment)
         if not key:
@@ -2192,7 +2228,11 @@ class ReplyEngine:
             stale = [item for item, at in self._recent_reply_bodies.items() if at < cutoff]
             for item in stale:
                 self._recent_reply_bodies.pop(item, None)
-            return key in self._recent_reply_bodies
+            if key in self._recent_reply_bodies:
+                return True
+            # TikTok hiển thị @nickname (nhiều từ/emoji) thay cho @unique_id.
+            return any(echo_matches(body, comment) for at, body in self._sent_replies
+                       if at >= cutoff)
 
     def _duplicate(self, comment_id):
         if not comment_id:
@@ -2623,6 +2663,8 @@ class ReplyEngine:
             return {"ok": True, "should_send": False, "reason": "invalid_comment"}
         if (user_id in TIKTOK_HOST_USER_IDS or unique_id.casefold() in TIKTOK_HOST_UNIQUE_IDS
                 or _is_room_host(payload.get("live_context"), user_id, sec_uid, unique_id)):
+            self.reconcile_host_echo((payload.get("live_context") or {}).get("room_id")
+                                     if isinstance(payload.get("live_context"), dict) else "", comment)
             return {"ok": True, "should_send": False, "reason": "host_comment"}
         if self._is_self_echo(comment):
             return {"ok": True, "should_send": False, "reason": "self_echo"}

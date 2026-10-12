@@ -39,12 +39,24 @@ if (-not $Folder) { $Folder = Join-Path $RepoPath ("PhatHanh\release-" + $Versio
 $Tag = "v$Version-$Series"
 $Api = "https://api.github.com/repos/$Repo"
 $script:Token = $null
+# -WhatIf must not leak into read-only cmdlets (Get-FileHash, downloads): remember it, then reset.
+$DryRun = [bool]$WhatIfPreference
+$WhatIfPreference = $false
 
 function Say([string]$m) { Write-Host "[publish] $m" }
 function Fail([string]$m) { throw "[publish] LOI: $m" }
 
 function Get-Sha256([string]$path) {
-    (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $stream = [IO.File]::OpenRead($path)
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant() }
+    finally { $stream.Dispose(); $sha.Dispose() }
+}
+
+# True = really do it. In dry run prints the plan line and returns false.
+function Confirm-Action([string]$target, [string]$action) {
+    if ($DryRun) { Write-Host "What if: $action -> $target"; return $false }
+    return $true
 }
 
 function Get-Token {
@@ -125,7 +137,7 @@ try {
     Say "HEAD $head, truoc origin $ahead commit; source_commit core trong catalog: $sourceCommit"
 
     # ------------------------------------------------------------------ 2. push main
-    if ($PSCmdlet.ShouldProcess("origin/$Branch", "git push ($ahead commit)")) {
+    if (Confirm-Action "origin/$Branch" "git push ($ahead commit)") {
         if ([int]$ahead -gt 0) {
             git push origin $Branch
             if ($LASTEXITCODE -ne 0) { Fail 'git push that bai' }
@@ -136,7 +148,7 @@ try {
 # ------------------------------------------------------------------ 3. release + assets
 $release = Get-ReleaseByTag $Tag
 if (-not $release) {
-    if ($PSCmdlet.ShouldProcess($Tag, 'tao prerelease')) {
+    if (Confirm-Action $Tag 'tao prerelease') {
         $release = Invoke-Gh 'POST' "$Api/releases" @{
             tag_name = $Tag; target_commitish = $head; name = "Kid TE $Version ($Series)"
             prerelease = $true; draft = $false
@@ -156,7 +168,7 @@ foreach ($f in ($files | Sort-Object Length)) {
         if ($same) { Say "bo qua $name (da co, khop)"; continue }
         Fail "asset $name da co tren $Tag nhung KHAC ban cuc bo; khong ghi de asset cua tag phien ban"
     }
-    if ($PSCmdlet.ShouldProcess("$Tag/$name", ("tai len {0:N1} MB" -f ($f.Length / 1MB)))) {
+    if (Confirm-Action "$Tag/$name" ("tai len {0:N1} MB" -f ($f.Length / 1MB))) {
         Upload-Asset $release $f.FullName $name | Out-Null
         Say "da tai len $name"
     }
@@ -178,7 +190,7 @@ if ($old) {
     elseif ($newSequence -le $oldSeq) { Fail "sequence moi $newSequence khong lon hon catalog dang phat hanh $oldSeq" }
     else { Say "catalog dang phat hanh sequence $oldSeq -> thay bang $newSequence" }
 }
-if ($replace -and $PSCmdlet.ShouldProcess("$CatalogTag/$CatalogName", "thay catalog (upload tam, xoa cu, doi ten)")) {
+if ($replace -and (Confirm-Action "$CatalogTag/$CatalogName" 'thay catalog (upload tam, xoa cu, doi ten)')) {
     $tmpName = "$CatalogName.new"
     $stale = $feed.assets | Where-Object { $_.name -eq $tmpName }
     foreach ($s in $stale) { Invoke-Gh 'DELETE' "$Api/releases/assets/$($s.id)" | Out-Null }
@@ -189,7 +201,7 @@ if ($replace -and $PSCmdlet.ShouldProcess("$CatalogTag/$CatalogName", "thay cata
 }
 
 # ------------------------------------------------------------------ 5. kiem tra lai (khong dang nhap)
-if (-not $PSCmdlet.ShouldProcess("GitHub", 'tai lai khong dang nhap va doi chieu sha256')) {
+if (-not (Confirm-Action 'GitHub' 'tai lai khong dang nhap va doi chieu sha256 tung asset + catalog')) {
     Say 'WhatIf: ket thuc, khong ghi gi.'
     return
 }

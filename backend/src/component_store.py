@@ -21,7 +21,8 @@ import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
-from update_catalog import COMPONENT_POLICIES, _range_satisfies
+from update_catalog import (COMPONENT_POLICIES, SPLIT_COMPONENTS, CatalogError, _range_satisfies,
+                            check_generation, provided)
 
 try:  # Windows uses a byte-range lock; POSIX keeps the module testable.
     import msvcrt  # type: ignore
@@ -290,7 +291,7 @@ class ComponentStore:
         active = self.load_active()
         if active is None:
             return None
-        return active["components"].get("core")
+        return active["components"].get("runtime") or active["components"].get("core")
 
     def download_root(self) -> Path:
         """Return the checked private download directory under the staging root."""
@@ -353,11 +354,15 @@ class ComponentStore:
         # active/pending mappings that did not originate in UpdateManager.
         for component_id, record in records.items():
             for dependency, version_range in record["dependencies"].items():
-                target = records.get(dependency)
+                target = provided(records, dependency)
                 if target is None:
                     raise ComponentStoreError("component dependency is missing")
                 if not _range_satisfies(target["version"], version_range):
                     raise ComponentStoreError("component dependency version mismatch")
+        try:
+            check_generation(records)
+        except CatalogError as exc:
+            raise ComponentStoreError(f"invalid runtime/app generation: {exc}") from exc
 
     def _verify_existing(self, target: Path, record: dict) -> bool:
         if not target.exists():
@@ -391,7 +396,7 @@ class ComponentStore:
     def baseline_matches(self, package: dict) -> bool:
         """Verify installer core against a signed catalog without downloading it."""
         _validate_record(package)
-        if package["id"] != "core":
+        if package["id"] not in {"core", *SPLIT_COMPONENTS}:
             return False
         try:
             for row in package["files"]:
@@ -410,11 +415,11 @@ class ComponentStore:
             return False
 
     def stage_baseline(self, package: dict) -> Path:
-        """Copy verified installer files into an immutable core version; never hardlink."""
+        """Copy verified installer files into an immutable package version; never hardlink."""
         if not self.baseline_matches(package):
-            raise ComponentStoreError("installer core does not match signed inventory")
-        target = self.packages_dir / "core" / package["version"]
-        stage = self.staging_dir / f"core-local-{uuid.uuid4().hex}"
+            raise ComponentStoreError("installer package does not match signed inventory")
+        target = self.packages_dir / package["id"] / package["version"]
+        stage = self.staging_dir / f"{package['id']}-local-{uuid.uuid4().hex}"
         _check_ancestry(stage)
         if shutil.disk_usage(self.app_root).free < package["unpacked_bytes"] + 1024 * 1024:
             raise ComponentStoreError("insufficient disk space")
@@ -427,7 +432,7 @@ class ComponentStore:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
             if not self._verify_existing(stage, package):
-                raise ComponentStoreError("installer core changed while staging")
+                raise ComponentStoreError("installer package changed while staging")
             with self._locked():
                 _check_ancestry(target)
                 if target.exists():

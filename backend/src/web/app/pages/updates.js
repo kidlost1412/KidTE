@@ -4,7 +4,8 @@ import {bytes} from '../core/format.js';
 import {btn, card, notice, select, errorBox} from '../ui/kit.js';
 import {confirmDialog, toast} from '../ui/overlays.js';
 
-const names = {'core': 'Ứng dụng Kid TE', 'gpu-cuda12': 'Tăng tốc chép lời NVIDIA',
+const names = {'core': 'Ứng dụng Kid TE', 'app': 'Ứng dụng Kid TE', 'runtime': 'Thư viện nền (hiếm khi đổi)', 'extensions': 'Tiện ích Chrome',
+  'gpu-cuda12': 'Tăng tốc chép lời NVIDIA',
   'media-tools': 'Công cụ video', 'captcha-solver': 'Giải CAPTCHA và thông báo',
   'video-sync': 'Đồng bộ video LIVE', 'video-analysis-cpu': 'Bộ chép lời trên máy'};
 const phases = {check: 'Đang kiểm tra bản phát hành…', install: 'Đang tải và kiểm tra gói…', rollback: 'Đang chuẩn bị quay lại bản trước…', cancel: 'Đang hủy cập nhật chờ…'};
@@ -34,7 +35,7 @@ export async function updates(ctx, host, owner) {
       const rows = (state.channel === channel ? state.available || [] : []).map(pkg => card(names[pkg.id] || pkg.id,
         h('div', {class: 'col gap-3'},
           h('p', {}, `Phiên bản ${pkg.version} · tải ${bytes(pkg.download_bytes)} · đã cài ${state.installed?.[pkg.id] || 'chưa có gói riêng'}`),
-          btn(pkg.id === 'core' ? 'Chuẩn bị cập nhật' : 'Cài / cập nhật tính năng', {
+          btn(['core', 'app', 'runtime', 'extensions'].includes(pkg.id) ? 'Chuẩn bị cập nhật' : 'Cài / cập nhật tính năng', {
             kind: 'primary', disabled: state.busy || state.restart_required,
             onClick: async () => {
               try {
@@ -53,7 +54,7 @@ export async function updates(ctx, host, owner) {
               } catch (error) { if (!disposed) toast(friendlyError(error), 'danger'); }
             },
           }),
-          pkg.id !== 'core' && state.installed?.[pkg.id] && btn('Gỡ tính năng', {
+          !['core', 'app', 'runtime', 'extensions'].includes(pkg.id) && state.installed?.[pkg.id] && btn('Gỡ tính năng', {
             disabled: state.busy || state.restart_required,
             onClick: async () => {
               const approved = await confirmDialog({title: `Gỡ ${names[pkg.id] || pkg.id}?`,

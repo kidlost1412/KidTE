@@ -230,10 +230,17 @@ try {
         if ((Get-Sha256 $dest) -ne $local[$f.Name]) { Say "SAI sha256: $($f.Name)"; $bad++ } else { Say "OK $($f.Name)" }
         Remove-Item -LiteralPath $dest -Force
     }
+    # CDN cua GitHub co the con phuc vu catalog cu vai giay sau khi thay: thu lai (backoff) toi ~60 giay.
     $dest = Join-Path $work $CatalogName
-    Download-Anonymous "https://github.com/$Repo/releases/download/$CatalogTag/$CatalogName" $dest
-    if ((Test-Path -LiteralPath $dest) -and (Get-Sha256 $dest) -eq $local[$CatalogName]) { Say "OK catalog $CatalogTag sequence $newSequence" }
-    else { Say "SAI catalog tren $CatalogTag"; $bad++ }
+    $catalogOk = $false
+    $waited = 0
+    foreach ($delay in @(0, 2, 4, 8, 16, 30)) {
+        if ($delay -gt 0) { Say "catalog chua khop, doi $delay giay roi kiem lai..."; Start-Sleep -Seconds $delay; $waited += $delay }
+        try { Download-Anonymous ("https://github.com/$Repo/releases/download/$CatalogTag/$CatalogName" + "?cb=" + [guid]::NewGuid().ToString('N')) $dest } catch { continue }
+        if ((Test-Path -LiteralPath $dest) -and (Get-Sha256 $dest) -eq $local[$CatalogName]) { $catalogOk = $true; break }
+    }
+    if ($catalogOk) { Say "OK catalog $CatalogTag sequence $newSequence" }
+    else { Say "SAI catalog tren $CatalogTag (sau $waited giay)"; $bad++ }
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
 if ($bad -gt 0) { Fail "$bad muc kiem tra that bai" }
 Say "HOAN TAT: $Tag + $CatalogTag sequence $newSequence"

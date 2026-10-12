@@ -5,9 +5,11 @@ import argparse
 import json
 import os
 import signal
+import subprocess
 import sys
 import threading
 import urllib.request
+from pathlib import Path
 
 from config import CHAT_HOST, CHAT_PORT, INSTALL_ROOT, IS_FROZEN, LOG_DIR, PLUGINS_DIR, ROOT
 from console_io import ensure_std_streams, force_utf8_console, hide_child_consoles
@@ -119,7 +121,51 @@ def existing_backend_ready(host, port):
         return False
 
 
+def find_launcher(exe_dir, *, max_up=4):
+    """KidTELauncher.exe cạnh hoặc phía trên thư mục chứa lõi đóng băng."""
+    here = Path(exe_dir).resolve()
+    for candidate_dir in [here, *list(here.parents)[:max_up]]:
+        candidate = candidate_dir / "KidTELauncher.exe"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def redirect_to_launcher(environ=None, *, frozen=None, exe_dir=None, spawn=None, argv=None):
+    """Lõi đóng băng mở thẳng (không có mã launcher) thì nhờ launcher mở thay.
+
+    Trả True khi đã bàn giao và tiến trình này phải thoát ngay. Launcher luôn
+    đặt KIDTE_LAUNCH_NONCE nên không thể lặp vô hạn; chạy từ mã nguồn không đổi.
+    """
+    environ = os.environ if environ is None else environ
+    if len(sys.argv if argv is None else argv) > 1:
+        return False  # tham số dòng lệnh (--no-ui, --safe-mode...) = chạy có chủ đích
+    frozen = IS_FROZEN if frozen is None else frozen
+    if not frozen or environ.get("KIDTE_LAUNCH_NONCE") or environ.get("KIDTE_NO_LAUNCHER_REDIRECT"):
+        return False
+    launcher = find_launcher(Path(sys.executable).parent if exe_dir is None else exe_dir)
+    if launcher is None:
+        return False
+    if spawn is None:
+        def spawn(path):
+            flags = 0
+            if os.name == "nt":
+                flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                         | subprocess.CREATE_NO_WINDOW)
+            child_env = {k: v for k, v in environ.items() if not k.startswith("KIDTE_APP_PACKAGE_DIR")}
+            subprocess.Popen([str(path)], cwd=str(path.parent), env=child_env, close_fds=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, creationflags=flags)
+    try:
+        spawn(launcher)
+    except Exception:
+        return False  # không mở được launcher: tự chạy như cũ
+    return True
+
+
 def main() -> int:
+    if redirect_to_launcher():
+        return 0
     ensure_std_streams(LOG_DIR / "console.log")
     hide_child_consoles()
     force_utf8_console()

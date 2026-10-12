@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from pathlib import Path
 from unittest import mock
 
@@ -217,3 +217,44 @@ def test_app_shutdown_continues_after_captcha_and_engine_failure(tmp_path):
     runtime.stop_all.assert_called_once()
     engine.close.assert_called_once()
     assert not (tmp_path / "runtime" / "live-re.lock").exists()
+
+
+def test_frozen_direct_start_hands_over_to_launcher(tmp_path):
+    (tmp_path / "App").mkdir()
+    launcher = tmp_path / "App" / "KidTELauncher.exe"
+    launcher.write_bytes(b"x")
+    core = tmp_path / "App" / "packages" / "runtime" / "1.0.0"
+    core.mkdir(parents=True)
+    spawned = []
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=core, spawn=spawned.append, argv=["KidTE.exe"]) is True
+    assert spawned == [launcher.resolve()]
+
+
+def test_launcher_redirect_skipped_with_nonce_source_or_missing_launcher(tmp_path):
+    (tmp_path / "KidTELauncher.exe").write_bytes(b"x")
+    spawned = []
+    call = lambda env, frozen=True, d=tmp_path: app_entry.redirect_to_launcher(
+        env, frozen=frozen, exe_dir=d, spawn=spawned.append, argv=["KidTE.exe"])
+    assert call({"KIDTE_LAUNCH_NONCE": "abc"}) is False      # launcher always sets it: no loop
+    assert call({}, frozen=False) is False                    # source mode
+    assert call({"KIDTE_NO_LAUNCHER_REDIRECT": "1"}) is False
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert app_entry.find_launcher(empty, max_up=0) is None
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=empty, spawn=spawned.append, argv=["KidTE.exe"]) is True  # parent has it
+    assert len(spawned) == 1
+
+
+def test_launcher_spawn_failure_falls_back_to_normal_start(tmp_path):
+    (tmp_path / "KidTELauncher.exe").write_bytes(b"x")
+    def boom(_):
+        raise OSError("no")
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=tmp_path, spawn=boom, argv=["KidTE.exe"]) is False
+
+
+def test_launcher_redirect_skipped_when_cli_args_given(tmp_path):
+    (tmp_path / "KidTELauncher.exe").write_bytes(b"x")
+    spawned = []
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=tmp_path, spawn=spawned.append,
+                                          argv=["KidTE.exe", "--no-ui"]) is False
+    assert spawned == []

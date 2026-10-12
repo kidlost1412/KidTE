@@ -9,6 +9,8 @@ export function salesPlaybookCard() {
   const body = h('div', {class: 'card-body col gap-3'}, skeletonRows(3, 40));
   let rows = [];
   let marks = new Map();
+  // Mục đang mở. Mặc định mọi mục thu gọn; chỉ mục vừa thêm được mở sẵn.
+  const opened = new Set();
 
   function render() {
     marks = new Map();
@@ -17,7 +19,7 @@ export function salesPlaybookCard() {
         'Khi khách hỏi bán chịu, hàng thật/giả, chê đắt, ship lâu, hỏi có phải AI… AI xoay khéo và vui về hướng mua, chỉ bằng dữ kiện thật. Lưu xong dùng ngay cho câu tiếp theo.'),
       rows.length ? rows.map((row, index) => entryEditor(row, index)) : h('div', {class: 'fs-sm muted'}, 'Chưa có tình huống nào.'),
       h('div', {class: 'row wrap'},
-        btn('Thêm tình huống', {size: 'sm', kind: 'ghost', disabled: rows.length >= LIMITS.entries, onClick: () => { rows.push(blankRow()); render(); }}),
+        btn('Thêm tình huống', {size: 'sm', kind: 'ghost', disabled: rows.length >= LIMITS.entries, onClick: () => { const row = blankRow(); opened.add(row); rows.push(row); render(); }}),
         chip(`${rows.length}/${LIMITS.entries}`, '')));
   }
 
@@ -26,8 +28,7 @@ export function salesPlaybookCard() {
     const idInput = bind('id', input({value: row.id, placeholder: 'ma_tinh_huong (chữ thường, không dấu)'}));
     const title = bind('tinhHuong', input({value: row.tinhHuong, placeholder: 'vd Khách hỏi bán chịu / cho nợ'}));
     title.addEventListener('blur', () => { if (!row.id && row.tinhHuong) { row.id = slugify(row.tinhHuong); idInput.value = row.id; } });
-    return h('section', {class: 'card flat'},
-      h('div', {class: 'card-body form-grid'},
+    const detail = h('div', {class: 'card-body form-grid', hidden: !opened.has(row)},
         field('Tình huống', title),
         field('Mã (id)', idInput, {hint: 'Không đổi mã tuỳ tiện — mã dùng để AI gọi đúng tình huống.'}),
         field('Dấu hiệu (mỗi dòng một cụm)', bind('dauHieu', textarea({rows: 3, value: row.dauHieu, placeholder: 'bán chịu\ncho nợ'})),
@@ -38,9 +39,22 @@ export function salesPlaybookCard() {
         h('div', {class: 'row'}, btn('Xoá tình huống này', {size: 'sm', kind: 'ghost', onClick: async () => {
           const ok = await confirmDialog({title: 'Xoá tình huống này khỏi sổ tay?', text: 'Chỉ có hiệu lực sau khi bấm Lưu sổ tay.', confirm: 'Xoá'});
           if (!ok) return;
+          opened.delete(row);
           rows.splice(index, 1);
           render();
-        }}))));
+        }})));
+    const placeholderTitle = 'Tình huống chưa đặt tên';
+    const headTitle = h('strong', {}, row.tinhHuong || placeholderTitle);
+    title.addEventListener('input', () => { headTitle.textContent = row.tinhHuong || placeholderTitle; });
+    const toggle = h('button', {type: 'button', class: 'playbook-entry-head', 'aria-expanded': String(opened.has(row)),
+      onClick: () => {
+        const wasOpen = opened.has(row);
+        if (wasOpen) opened.delete(row); else opened.add(row);
+        detail.hidden = wasOpen;
+        toggle.setAttribute('aria-expanded', String(!wasOpen));
+      }},
+      headTitle, h('span', {class: 'fs-xs muted'}, row.id || ''));
+    return h('section', {class: 'card flat'}, toggle, detail);
   }
 
   const save = btn('Lưu sổ tay', {kind: 'primary', icon: 'save', onClick: async () => {

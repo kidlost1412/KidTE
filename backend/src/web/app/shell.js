@@ -12,6 +12,8 @@ const NAV = [
   {group: 'Dữ liệu'},
   {page: 'catalog', label: 'Sản phẩm', icon: 'box', badge: d => d?.catalog?.unmapped, tone: 'warn'},
   {page: 'customers', label: 'Khách hàng', icon: 'users'},
+  {page: 'shop-info', label: 'Thông tin shop', icon: 'home'},
+  {page: 'playbook', label: 'Sổ tay tình huống', icon: 'fileText'},
   {group: 'Hệ thống'},
   {page: 'captcha', label: 'Giải CAPTCHA', icon: 'shield'},
   {page: 'automation', label: 'Trợ lý tự động', icon: 'bot'},

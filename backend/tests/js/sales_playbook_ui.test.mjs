@@ -74,11 +74,26 @@ test('server error codes map to friendly text', () => {
   assert.match(errorText(null), /Không lưu được/);
 });
 
-test('system page mounts the playbook card next to shop info', async () => {
+test('settings page links to the separate shop-info and playbook pages', async () => {
   const src = await readFile(new URL('../../src/web/app/pages/system.js', import.meta.url), 'utf8');
-  assert.match(src, /import \{salesPlaybookCard\} from '\.\/sales-playbook-ui\.js'/);
-  assert.ok(src.indexOf('shopInfoCard(),') < src.indexOf('salesPlaybookCard(),'));
+  assert.doesNotMatch(src, /salesPlaybookCard|shopInfoCard\(/);
+  assert.match(src, /ctx\.navigate\('shop-info'\)/);
+  assert.match(src, /ctx\.navigate\('playbook'\)/);
+});
+
+test('shop-info and playbook are registered in router and sidebar after Khách hàng', async () => {
+  const boot = await readFile(new URL('../../src/web/app/bootstrap.js', import.meta.url), 'utf8');
+  assert.match(boot, /'shop-info': shopInfo, playbook/);
+  const shell = await readFile(new URL('../../src/web/app/shell.js', import.meta.url), 'utf8');
+  const at = key => shell.indexOf(key);
+  assert.ok(at("page: 'customers'") < at("page: 'shop-info'"));
+  assert.ok(at("page: 'shop-info'") < at("page: 'playbook'"));
+  assert.ok(at("page: 'playbook'") < at("group: 'Hệ thống'"));
+});
+
+test('playbook entries start collapsed and toggle open on click', async () => {
   const ui = await readFile(new URL('../../src/web/app/pages/sales-playbook-ui.js', import.meta.url), 'utf8');
-  assert.match(ui, /loadPlaybook\(request\)/);
-  assert.match(ui, /savePlaybook\(request, rows\)/);
+  assert.match(ui, /const opened = new Set\(\)/);
+  assert.match(ui, /hidden: !opened\.has\(row\)/);
+  assert.match(ui, /aria-expanded/);
 });

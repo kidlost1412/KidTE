@@ -608,7 +608,8 @@ class Launcher:
         job = self.job_factory()
         process = None
         try:
-            flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                     | getattr(subprocess, "CREATE_NO_WINDOW", 0))
             process = self.popen(command, cwd=str(app_root), env=env, creationflags=flags)
             job.attach(process)
             ready, detail = _wait_ready(

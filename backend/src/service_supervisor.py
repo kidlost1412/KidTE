@@ -175,7 +175,8 @@ class ServiceSupervisor:
                         "retry_after_s": round(remaining, 3)}
         kwargs = {"cwd": str(spec.cwd), "shell": False}
         if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            kwargs["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
+                                        | getattr(subprocess, "CREATE_NO_WINDOW", 0))
         try:
             process = self.popen(list(spec.command), **kwargs)
         except OSError as exc:

@@ -2,6 +2,13 @@ import {h, clear, disposer} from '../core/dom.js';
 import {request, friendlyError} from '../core/api.js';
 import {btn, card, field, input, notice, pageHead} from '../ui/kit.js';
 import {toast} from '../ui/overlays.js';
+// Mở trang ngoài bằng trình duyệt mặc định qua allowlist OPEN_TARGETS phía server.
+function helperLink(label, target) {
+  return btn(label, {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: async () => {
+    try { await request('/api/system/open', {method: 'POST', body: {target}}); }
+    catch (error) { toast(friendlyError(error), 'danger'); }
+  }});
+}
 import {healthModel, selftestRows} from './captcha-model.js';
 
 const TONE_VAR = {ok: 'var(--ok, #1a7f37)', info: 'var(--info, #0969da)', warn: 'var(--warn, #9a6700)', danger: 'var(--danger, #cf222e)'};
@@ -65,12 +72,18 @@ export default {
         h('div', {class: 'captcha-grid'},
           card('SadCaptcha', h('div', {class: 'card-body col gap-3'},
             keyStatus,
-            field('API key', key, {hint: 'Key mã hóa bằng Windows DPAPI trên máy này; Kid TE không hiển thị lại.'})),
+            field('API key', key, {hint: 'Key mã hóa bằng Windows DPAPI trên máy này; Kid TE không hiển thị lại.'}),
+            helperLink('Lấy API key', 'sadcaptcha_dashboard')),
           {footer: save}),
           card('Cảnh báo Telegram và video', h('div', {class: 'card-body col gap-3'},
             telegramStatus,
             h('p', {class: 'fs-sm muted'}, 'Khi solver ghi nhận CAPTCHA mới, tiến trình riêng quay vùng cửa sổ TikTok Studio trong 30 giây. Video chờ gửi được giữ tối đa 7 ngày; chỉ xóa sau khi Telegram xác nhận nhận thành công. Kho quay giới hạn 5 GB; khi đầy sẽ dừng quay và solver vẫn tiếp tục.'),
-            field('Bot token', botToken, {hint: 'Để trống nếu chỉ sửa Chat ID đã lưu.'}), field('Chat ID', chatId)),
+            field('Bot token', botToken, {hint: 'Để trống nếu chỉ sửa Chat ID đã lưu.'}),
+            helperLink('Tạo bot (BotFather)', 'telegram_botfather'),
+            field('Chat ID', chatId),
+            h('div', {class: 'col gap-2'},
+              helperLink('Lấy chat ID (@userinfobot)', 'telegram_userinfobot'),
+              h('div', {class: 'fs-sm muted'}, 'Nhắn /start cho bot này, nó trả về ID của bạn.'))),
           {footer: [
             btn('Gửi tin thử', {kind: 'ghost', onClick: async () => {
               try {

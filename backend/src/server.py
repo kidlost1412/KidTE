@@ -3730,6 +3730,9 @@ class ReplyEngine:
         "deepseek_topup": "https://platform.deepseek.com/top_up",
         "chrome_extensions": "chrome://extensions",
         "ffmpeg": "https://www.gyan.dev/ffmpeg/builds/",
+        "sadcaptcha_dashboard": "https://www.sadcaptcha.com/dashboard",
+        "telegram_botfather": "https://t.me/BotFather",
+        "telegram_userinfobot": "https://t.me/userinfobot",
     }
 
     def open_target(self, target):

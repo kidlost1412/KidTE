@@ -25,7 +25,7 @@ import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 CATALOG_URL_RE = re.compile(r"/releases/download/([^/\s\"'\\]+)/")
-CORE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-p\d+(?:[.\-_].*)?$")
+CORE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-p[34](?:[.\-_].*)?$")
 INSTALLER_RE = re.compile(r"(?i)setup.*\.exe$")
 FEED_PREFIX = "updates-"
 

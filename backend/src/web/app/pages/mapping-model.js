@@ -81,3 +81,14 @@ export function approvalSummary(response) {
   const blocked = results.length - ok;
   return blocked ? `Đã duyệt ${ok}, ${blocked} hồ sơ chưa đủ nội dung nên bị chặn.` : `Đã duyệt ${ok} hồ sơ. AI dùng ngay.`;
 }
+
+/** Ảnh hai bên một dòng gắn hồ sơ: listing (TikTok/Shopee) và hồ sơ đang gắn hoặc đang gợi ý.
+ *  Chỉ trả URL đã qua cache máy (backend đã lọc); "" nghĩa là hiện ô trống. */
+export function rowThumbs(row, profileId, profiles) {
+  const profile = (profiles || []).find(p => p && p.id === profileId) || null;
+  return {
+    listing: {url: row && row.image_url ? row.image_url : '', label: row && (row.name || row.title) || ''},
+    profile: {url: profile && profile.image_url ? profile.image_url : '', label: profile ? profile.name : ''},
+    profileSuggested: Boolean(profile) && !(row && row.profile_id === profileId),
+  };
+}

@@ -114,6 +114,16 @@
 .mapping { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
 .map-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(220px, 300px); gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--divider); }
 .map-row.changed { background: var(--warn-soft); }
+.map-row.thumbs { grid-template-columns: 56px minmax(0, 1fr) 56px minmax(200px, 260px); }
+.map-thumb { width: 56px; height: 56px; flex: none; padding: 0; border-radius: 12px; border: 1px solid var(--border); background: #fff; display: grid; place-items: center; overflow: hidden; color: var(--text-3); cursor: zoom-in; }
+.map-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.map-thumb.sugg { border-style: dashed; border-color: var(--brand-border); opacity: .75; }
+.map-thumb.none { background: var(--surface-2); cursor: default; }
+.map-thumb:focus-visible { outline: 2px solid var(--brand-border); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .map-row.thumbs { grid-template-columns: 56px minmax(0, 1fr) 56px; }
+  .map-row.thumbs > select { grid-column: 1 / -1; }
+}
 .map-row .sugg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .map-row .sugg button { border: 1px dashed var(--brand); background: var(--brand-soft); color: var(--brand-text); border-radius: 999px; padding: 2px 9px; font-size: var(--fs-2xs); font-weight: 700; }
 .sticky-bar { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 10px; align-items: center; padding: 12px 16px; background: color-mix(in srgb, var(--surface) 94%, transparent); border-top: 1px solid var(--border); backdrop-filter: blur(6px); }

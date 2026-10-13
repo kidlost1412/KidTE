@@ -5,7 +5,7 @@ thật dùng, nên kết quả trên màn hình là kết quả AI sẽ có khi 
 """
 from __future__ import annotations
 
-from config import RAW_STREAM_DIR, SYSTEM_PROMPT_OVERRIDE_PATH
+from config import AI_NOTES_PATH, RAW_STREAM_DIR, SYSTEM_PROMPT_OVERRIDE_PATH
 from knowledge import clean
 
 
@@ -132,8 +132,11 @@ class ProcessorPanel:
                     "model_label": (getattr(responder, "model_labels", None) or {}).get(getattr(responder, "model", ""), ""),
                     "key_configured": getattr(responder, "client", None) is not None,
                     "balance_ok": bool(balance.get("ok")), "balance_error": balance.get("error", ""),
-                    "prompt_custom": SYSTEM_PROMPT_OVERRIDE_PATH.is_file(),
-                    "prompt": module.system_prompt(), "prompt_default": module.default_system_prompt()}
+                    "notes": module.ai_notes(), "notes_max": module.MAX_NOTES_CHARS,
+                    # Lời nhắc ghi đè TOÀN BỘ kiểu cũ: không còn được dùng; chỉ báo + cho chuyển thành ghi chú.
+                    "legacy_prompt": module.legacy_prompt_override(),
+                    "legacy_prompt_chars": len(module.legacy_prompt_override()),
+                    "persona": self._active_persona()}
         return {}
 
     def _dose_coverage(self):
@@ -185,15 +188,36 @@ class ProcessorPanel:
         module.configure(self.store.reset(plugin_id, module.SETTINGS_SCHEMA))
         return self.detail(plugin_id)
 
-    def save_prompt(self, text):
+    def _active_persona(self):
+        learning = getattr(self.engine, "learning", None)
+        persona = learning.persona() if learning is not None else None
+        return {"persona_id": (persona or {}).get("persona_id", ""), "name": (persona or {}).get("name", "")}
+
+    def save_notes(self, text, archive_legacy=False):
+        """Ghi chú ngắn nối SAU luật gốc. Không thay luật gốc; luật giá/dữ kiện cứng vẫn thắng."""
         text = str(text or "").strip()
+        limit = self.modules["model-deepseek"].MAX_NOTES_CHARS
+        if len(text) > limit:
+            raise ValueError("notes_too_long")
         if text:
-            if len(text) > 60000:
-                raise ValueError("prompt_too_long")
-            SYSTEM_PROMPT_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            SYSTEM_PROMPT_OVERRIDE_PATH.write_text(text + "\n", encoding="utf-8")
-        elif SYSTEM_PROMPT_OVERRIDE_PATH.is_file():
-            SYSTEM_PROMPT_OVERRIDE_PATH.unlink()        # rỗng = về bản gốc
+            AI_NOTES_PATH.parent.mkdir(parents=True, exist_ok=True)
+            AI_NOTES_PATH.write_text(text + "\n", encoding="utf-8")
+        elif AI_NOTES_PATH.is_file():
+            AI_NOTES_PATH.unlink()
+        if archive_legacy:
+            self._archive_legacy()
+        return self.detail("model-deepseek")
+
+    def _archive_legacy(self):
+        """Cất file ghi đè cũ sang *.da-chuyen (không xoá): chủ shop đã xem và quyết định."""
+        if SYSTEM_PROMPT_OVERRIDE_PATH.is_file():
+            target = SYSTEM_PROMPT_OVERRIDE_PATH.with_name(SYSTEM_PROMPT_OVERRIDE_PATH.name + ".da-chuyen")
+            if target.exists():
+                target.unlink()
+            SYSTEM_PROMPT_OVERRIDE_PATH.replace(target)
+
+    def dismiss_legacy_prompt(self):
+        self._archive_legacy()
         return self.detail("model-deepseek")
 
     def try_it(self, plugin_id, payload):

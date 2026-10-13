@@ -61,7 +61,8 @@ from video_analysis import (
     VideoAnalysisManager,
 )
 from workspace import WorkspaceStore
-from learning import Learner, LearningStore
+from learning import Learner, LearningStore, style_text as _persona_style_text
+from ai_context import task_block as _task_block
 from media_assets import ProductImageCache, VideoAssetManager
 from knowledge import (
     KnowledgeBase, clean, fold, general_knowledge_hint, has_explicit_product_reference, is_approvable,
@@ -385,6 +386,27 @@ _model_processor = load_processor(
     PLUGINS_DIR / "model-deepseek" / "processor.py", "model-deepseek",
 )
 DeepSeekResponder = _model_processor.DeepSeekResponder
+
+# Khối nhiệm vụ cho các lời gọi DeepSeek phụ (APP_BRIEF luôn đứng đầu, xem ai_context.py).
+_DOSE_TASK = _task_block(
+    "Chọn quy tắc liều",
+    "khách hỏi liều pha; chọn ĐÚNG MỘT rule_id trong các quy tắc đã duyệt (mã tự tính số, AI không tự tính).",
+    inputs="câu khách, thể tích bình, danh sách quy tắc liều đã duyệt.",
+    output="JSON chọn rule_id theo ghi chú bên dưới.")
+_TRY_TASK = _task_block(
+    "Thử AI (xem trước, không gửi lên LIVE)",
+    "chủ shop gõ thử một câu khách để xem AI sẽ trả lời gì; chạy ĐÚNG đường trả lời thật.",
+    inputs="giống lượt trả lời thật: NỀN CỐ ĐỊNH + dữ liệu lượt + câu khách thử.",
+    output="một JSON object {action: reply|skip, ...} như khi LIVE.")
+_CLARIFY_TASK = _task_block(
+    "Làm rõ sản phẩm khách hỏi",
+    "mã chưa chắc khách nói sản phẩm nào; viết một câu trả lời hoặc câu hỏi lại tự nhiên.",
+    inputs="câu khách, vài lượt gần nhất (recent_turns), tối đa 3 sản phẩm ứng viên.",
+    output="JSON reply ngắn đúng giọng người trực.")
+_CLARIFY_RULE = ("Mã chưa chắc khách nói sản phẩm nào. Đọc recent_turns: nếu khách đang nối tiếp sản phẩm vừa bàn "
+                 "(vd vừa hỏi can 5l đạm cá rồi hỏi 'đi với thuốc sâu ko' = hỏi pha đạm cá với thuốc sâu) thì trả lời "
+                 "luôn bằng dữ liệu + kiến thức chung. Nếu chỉ còn vài lựa chọn (vd chai 1L hay can 5L) thì hỏi tự nhiên "
+                 "kèm tên cụ thể. Không lặp câu hỏi lại y như lượt trước; không nêu giá/ưu đãi khi chưa rõ sản phẩm.")
 
 
 def _library_changed(engine):
@@ -2633,7 +2655,7 @@ class ReplyEngine:
                 context["operator_approved_reply_examples"] = examples
         else:
             context = {"thong_tin_shop": context_budget.short_shop_info(self.shop_info)}
-            if persona and (persona.get("style_guide") or persona.get("description")):
+            if persona:
                 style = self._persona_context(learning, persona).get("phong_cach_nguoi_truc")
                 if style:
                     context["phong_cach_nguoi_truc"] = style
@@ -3052,7 +3074,7 @@ class ReplyEngine:
         liters = _dose_processor.target_tank_liters(comment)
         if liters <= 0:
             return None
-        system = _model_processor.system_prompt() + chr(10) + dose_selection.DOSE_RULE_NOTE
+        system = _model_processor.compose_system(_DOSE_TASK, dose_selection.DOSE_RULE_NOTE)
 
         def call(ask, correction):
             kwargs = {"system_override": system}
@@ -3104,9 +3126,9 @@ class ReplyEngine:
                     "conversation": {"current_message": original_comment, "resolved_question": comment},
                     "catalog_candidates": [{"product_id": clean(p.get("product_id"), 160), "title": clean(p.get("title"), 220)} for p in top],
                     "recent_turns": [{'khach': t.get('comment', ''), 'shop': t.get('response', '')} for t in (turns or [])[:3] if isinstance(t, dict)][::-1],
-                    "rule": "Mã chưa chắc khách nói sản phẩm nào. Đọc recent_turns: nếu khách đang nối tiếp sản phẩm vừa bàn (vd vừa hỏi can 5l đạm cá rồi hỏi 'đi với thuốc sâu ko' = hỏi pha đạm cá với thuốc sâu) thì trả lời luôn bằng dữ liệu + kiến thức chung. Nếu chỉ còn vài lựa chọn (vd chai 1L hay can 5L) thì hỏi tự nhiên kèm tên cụ thể. Không lặp câu hỏi lại y như lượt trước; không nêu giá/ưu đãi khi chưa rõ sản phẩm."},
+                    "rule": _CLARIFY_RULE},
                     max(1, limit - tag_len),
-                    system_override=_model_processor.system_prompt() + chr(10) + "Mã chưa chắc khách nói sản phẩm nào. Đọc recent_turns: nếu khách đang nối tiếp sản phẩm vừa bàn (vd vừa hỏi can 5l đạm cá rồi hỏi 'đi với thuốc sâu ko' = hỏi pha đạm cá với thuốc sâu) thì trả lời luôn bằng dữ liệu + kiến thức chung. Nếu chỉ còn vài lựa chọn (vd chai 1L hay can 5L) thì hỏi tự nhiên kèm tên cụ thể. Không lặp câu hỏi lại y như lượt trước; không nêu giá/ưu đãi khi chưa rõ sản phẩm.")
+                    system_override=_model_processor.compose_system(_CLARIFY_TASK, _CLARIFY_RULE))
                 if isinstance(result, dict) and result.get("action") == "reply":
                     body = clean(result.get("reply"), 2000)
                     if (body and utf16_length(f"{tag} {body}") <= limit
@@ -3313,6 +3335,17 @@ class ReplyEngine:
                     "persona_id": row.get("persona_id") or "",
                 }))
             return {"ok": True, "queued": len(run_ids), "run_ids": run_ids}
+        if action == "persona-propose":
+            # Người trực tả mình → DeepSeek đề xuất phong cách + 3 câu mẫu. CHƯA lưu: UI cho sửa rồi mới lưu.
+            if getattr(self.responder, "client", None) is None:
+                raise ValueError("model_not_ready")
+            try:
+                return {"ok": True, "proposal": learner.propose_persona(payload.get("profile"))}
+            except ValueError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - lỗi mạng/khoá không được thành 500
+                logging.getLogger("kid-te.core").warning("persona propose failed: %s", type(exc).__name__)
+                raise ValueError("persona_proposal_failed") from None
         if action == "persona":
             if payload.get("delete"):
                 return learning.delete_persona(clean(payload.get("persona_id"), 80))
@@ -3359,13 +3392,15 @@ class ReplyEngine:
             return {"ok": True, "reply": "", "reason": "model_not_ready", "explain": explain}
         started = time.monotonic()
         max_body = max(20, _model_processor.max_chars() - 12)
-        result = self.responder.reply("Khách", comment, context, max_body)
+        try_system = _model_processor.compose_system(_TRY_TASK)
+        result = self.responder.reply("Khách", comment, context, max_body, system_override=try_system)
         # Cùng lớp kiểm chính sách như lúc LIVE, để "Thử AI" phản ánh đúng câu sẽ gửi.
         correction = (self._policy_violation(comment, result, _signal)
                       or self._invented_price(result, live, sel["approved"], _signal))
         if correction:
             drafted = result
-            result = self.responder.reply("Khách", comment, context, max_body, correction=correction)
+            result = self.responder.reply("Khách", comment, context, max_body, correction=correction,
+                                          system_override=try_system)
             if result.get("action") != "reply":
                 result = drafted
             if (self._policy_violation(comment, result, _signal)
@@ -3400,12 +3435,15 @@ class ReplyEngine:
             "cau_da_gui_gan_day là các câu vừa gửi trong LIVE: đừng lặp lại y chang cách mở, "
             "cách chốt hay nguyên câu."
         )}
-        if persona and (persona.get("style_guide") or persona.get("description")):
+        # Giọng/tính cách/xưng hô CHỈ nằm ở đây (lời nhắc hệ thống đã trung tính). Người trực mặc định luôn có
+        # giọng dựng sẵn nên lớp này luôn có mặt.
+        style = _persona_style_text(persona) if persona else ""
+        if persona and (style or persona.get("description")):
             out["phong_cach_nguoi_truc"] = {
                 "ten": persona.get("name", ""),
                 "mo_ta": persona.get("description", ""),
-                "huong_dan": persona.get("style_guide", ""),
-                "uu_tien": "Phong cách này ưu tiên hơn phần GIỌNG NÓI mặc định nếu khác nhau.",
+                "huong_dan": style,
+                "uu_tien": "Đây là nguồn duy nhất về giọng, tính cách, xưng hô; luật GIÁ và dữ kiện cứng vẫn thắng nếu mâu thuẫn.",
             }
         rules = learning.rules(persona.get("persona_id", "") if persona else "")
         if rules:
@@ -3739,8 +3777,10 @@ class ReplyEngine:
                 return self.processors.reset(plugin_id)
             if action == "try":
                 return self.processors.try_it(plugin_id, payload)
-            if action == "prompt" and plugin_id == "model-deepseek":
-                return self.processors.save_prompt(payload.get("text"))
+            if action == "notes" and plugin_id == "model-deepseek":
+                return self.processors.save_notes(payload.get("text"), bool(payload.get("archive_legacy")))
+            if action == "legacy-dismiss" and plugin_id == "model-deepseek":
+                return self.processors.dismiss_legacy_prompt()
         if len(parts) == 2 and parts[0] == "whisper":
             import whisper_models
             downloader = self._whisper_downloader()

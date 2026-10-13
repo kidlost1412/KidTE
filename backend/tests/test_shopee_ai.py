@@ -56,7 +56,10 @@ def test_slow_model_cannot_return_sendable_expired_reply(tmp_path, monkeypatch):
 class FakeResponder:
     def reply(self, nickname, comment, context, max_chars, **kwargs):
         assert context["platform"] == "Shopee LIVE"
-        assert kwargs["system_override"].startswith("Bạn là người đang tư vấn trong Shopee LIVE")
+        from ai_context import APP_BRIEF
+        system = kwargs["system_override"]
+        assert system.startswith(APP_BRIEF.rstrip())          # mọi lời gọi DeepSeek bắt đầu bằng APP_BRIEF
+        assert "Bạn là người đang tư vấn trong Shopee LIVE" in system and "[NHIỆM VỤ: Trả lời bình luận Shopee LIVE]" in system
         return {"action": "reply", "reply": "TC01 giá " + context["price"]["quotable_price"] + " nha" if "giá" in comment.lower() else "Dạ dùng theo hướng dẫn trên nhãn nha", "metrics": {}}
 
 

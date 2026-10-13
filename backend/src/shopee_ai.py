@@ -24,6 +24,25 @@ from knowledge import clean, fold, shared_learning_product_ids, KnowledgeBase, g
 from shopee_commerce import select_product, price_context, price_violation, processor, product_family_candidates
 from live_conversation import resolve_question, conversation_state
 from conversation_context import shared_shop_context, platform_video_context, product_reference, EXAMPLE_POLICY
+from ai_context import system_with_brief, task_block
+
+
+# Khối nhiệm vụ cho từng đường gọi DeepSeek của Shopee LIVE (APP_BRIEF luôn đứng đầu, xem ai_context.py).
+SHOPEE_REPLY_TASK = task_block(
+    "Trả lời bình luận Shopee LIVE",
+    "khách đang xem Shopee LIVE vừa bình luận; viết MỘT câu trả lời ngắn đúng giọng người đang trực.",
+    inputs="nền cố định của phiên + dữ liệu riêng của lượt (SKU Shopee đã chọn, giá, trí nhớ khách) + câu khách.",
+    output="một JSON object {action: reply|skip, reply|messages|missing_fields}.")
+SHOPEE_DOSE_TASK = task_block(
+    "Chọn quy tắc liều (Shopee LIVE)",
+    "khách hỏi liều pha; chọn ĐÚNG MỘT rule_id trong các quy tắc đã duyệt (mã tự tính số).",
+    inputs="câu khách, thể tích bình, danh sách quy tắc liều đã duyệt.",
+    output="JSON chọn rule_id theo ghi chú bên dưới.")
+SHOPEE_RANGE_TASK = task_block(
+    "Liệt kê dòng sản phẩm (Shopee LIVE)",
+    "khách hỏi chung về một dòng sản phẩm, chưa chọn SKU; nêu các lựa chọn có thật.",
+    inputs="câu khách, candidate_skus, lịch sử đúng khách.",
+    output="JSON reply/messages ngắn, không nêu giá, liều hay ưu đãi.")
 
 
 SHOPEE_SYSTEM_PROMPT = """Bạn là người đang tư vấn trong Shopee LIVE của shop. Hiểu câu hiện tại theo lịch sử đúng khách, sản phẩm đang hỏi và sản phẩm đang ghim. Dùng kiến thức chung đã duyệt. Giá chỉ lấy từ price.quotable_price của SKU Shopee đã chọn, không lấy giá TikTok hoặc giá trong bài học cũ. Nếu có giá thì báo trực tiếp, không bảo khách bấm vào xem giá. Không nhắc nickname vì tiện ích tự gắn @. Chỉ trả JSON reply hoặc skip, không Markdown, không bịa dữ kiện."""
@@ -334,7 +353,9 @@ class ShopeeAiEngine:
         if multi:
             context['delivery_protocol_version'] = 2
         common = processor(self.owner, "model-deepseek").system_prompt().replace('TikTok','Shopee')
-        system = SHOPEE_SYSTEM_PROMPT + "\n" + common + "\nQuy tắc giá Shopee ở đầu và price.quotable_price ưu tiên hơn mọi ví dụ. Không nói giá khác hoặc bảo khách bấm xem giá. Nếu thiếu dữ kiện giao hàng/tồn kho/ưu đãi thì skip; không suy ra từ giá."
+        system = system_with_brief(SHOPEE_SYSTEM_PROMPT, common,
+            "Quy tắc giá Shopee ở đầu và price.quotable_price ưu tiên hơn mọi ví dụ. Không nói giá khác hoặc bảo khách bấm xem giá. Nếu thiếu dữ kiện giao hàng/tồn kho/ưu đãi thì skip; không suy ra từ giá.",
+            SHOPEE_REPLY_TASK)
         result = self._call_model(key, nickname, comment, context, body_limit, system_override=system)
         correction = price_violation(self.owner, clean(result.get("reply"), 2000), price, signal) if result.get("action") == "reply" else ""
         if correction:
@@ -409,7 +430,7 @@ class ShopeeAiEngine:
             if not context_budget.enabled("persona_all_lanes"):
                 if context.get("video_context"):
                     small["video_context"] = context["video_context"]
-                if persona and (persona.get("style_guide") or persona.get("description")):
+                if persona:
                     style = self.owner._persona_context(learning, persona).get("phong_cach_nguoi_truc")
                     if style:
                         small["phong_cach_nguoi_truc"] = style
@@ -452,7 +473,7 @@ class ShopeeAiEngine:
         if liters <= 0:
             return None
         rule_note = DOSE_RULE_NOTE
-        system = SHOPEE_SYSTEM_PROMPT + chr(10) + rule_note
+        system = system_with_brief(SHOPEE_SYSTEM_PROMPT, rule_note, SHOPEE_DOSE_TASK)
         return select_dose_rule(
             lambda ask, correction: self._call_model(key, nickname, comment, ask, 150, system_override=system,
                 **({'correction': correction} if correction else {})),
@@ -473,7 +494,7 @@ class ShopeeAiEngine:
         """One short model-written message, or '' so the caller uses its template."""
         try:
             limit = max(1, 150 - utf16_length('@' + nickname) - 1)
-            system = SHOPEE_SYSTEM_PROMPT + '\n' + context.get('rule', '')
+            system = system_with_brief(SHOPEE_SYSTEM_PROMPT, context.get('rule', ''), SHOPEE_REPLY_TASK)
             result = self.owner.responder.reply(nickname, comment, context, limit, system_override=system)
             if not isinstance(result, dict) or result.get('action') != 'reply':
                 return ''
@@ -604,7 +625,7 @@ class ShopeeAiEngine:
                 context['delivery_protocol_version'] = 2
             body_limit = max(1, 150 - utf16_length('@' + nickname) - 1)
             common = processor(self.owner, 'model-deepseek').system_prompt().replace('TikTok', 'Shopee')
-            system = SHOPEE_SYSTEM_PROMPT + '\n' + common
+            system = system_with_brief(SHOPEE_SYSTEM_PROMPT, common, SHOPEE_REPLY_TASK)
             result = self._call_model(key, nickname, comment, context, body_limit, system_override=system)
             if not isinstance(result, dict) or result.get('action') != 'reply':
                 return None
@@ -648,7 +669,7 @@ class ShopeeAiEngine:
         if multi:
             context['delivery_protocol_version'] = 2
         limit = max(1, 150 - utf16_length('@' + nickname) - 1)
-        system = SHOPEE_SYSTEM_PROMPT + '\n' + context['range_rule']
+        system = system_with_brief(SHOPEE_SYSTEM_PROMPT, context['range_rule'], SHOPEE_RANGE_TASK)
         result = self._call_model(key, nickname, comment, context, limit, system_override=system)
         if result.get('action') != 'reply':
             return {'ok': True, 'should_send': False, 'reason': 'model_skipped',

@@ -158,8 +158,9 @@ def test_flags_off_reproduces_old_messages_exactly(rig):
               persona_all_lanes=False, customer_card=False, playbook=False)
     got = h.run_fixed(engine, captured)
     expected = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    # Gói C thêm mục "khách quen/lạ + sổ tay" vào lời nhắc hệ thống (tệp tĩnh, không theo cờ) nên
-    # băm lời nhắc hệ thống đổi; mọi thông điệp còn lại phải y nguyên bản cũ.
+    # Lời nhắc hệ thống (tệp tĩnh, không theo cờ) đổi nên bỏ băm của nó. Giọng host nay nằm ở phong cách
+    # người trực (người trực mặc định luôn có giọng dựng sẵn) => nền cố định có thêm phong_cach_nguoi_truc;
+    # fixture đã được tạo lại cho đúng điều đó, mọi thứ còn lại y nguyên bản cũ.
     for rows in (got, expected):
         for row in rows:
             for call in row["calls"]:
@@ -217,14 +218,16 @@ def test_stable_block_is_byte_identical_across_turns_and_compact(rig):
     assert "234.090" not in stables[0]  # blob JSON giá sale của sàn không lọt vào prompt
 
 
-def test_policies_kept_when_operator_override_prompt_exists(rig):
+def test_legacy_override_file_no_longer_changes_policy_dedupe(rig):
+    """Lời nhắc ghi đè kiểu cũ không còn được dùng => chuỗi chính sách trùng vẫn bị bỏ như bản gốc."""
     engine, captured, tmp_path, monkeypatch = rig
     override = tmp_path / "override.txt"
     override.write_text("Lời nhắc riêng của chủ shop", encoding="utf-8")
     monkeypatch.setattr(server_module._model_processor, "SYSTEM_PROMPT_OVERRIDE_PATH", override)
     _out, calls = messages_for(engine, captured, "TC01 giá bao nhiêu", "o1", "o1")
     stable = calls[0]["messages"][1]["content"]
-    assert "kien_thuc_policy" in stable and "approved_example_policy" in stable
+    assert "kien_thuc_policy" not in stable and "approved_example_policy" not in stable
+    assert "Lời nhắc riêng của chủ shop" not in calls[0]["messages"][0]["content"]
 
 
 def test_product_ref_not_sent_but_recorded_in_metrics(rig):

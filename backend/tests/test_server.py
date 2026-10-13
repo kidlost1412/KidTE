@@ -38,7 +38,7 @@ class FakeResponder:
     def __init__(self):
         self.calls = []
 
-    def reply(self, nickname, comment, context, max_chars):
+    def reply(self, nickname, comment, context, max_chars, **kwargs):
         self.calls.append((nickname, comment, context, max_chars))
         return {"action": "reply", "reply": "Dạ, câu trả lời đủ dữ kiện ạ."}
 
@@ -83,7 +83,7 @@ class DenyingResponder(FakeResponder):
         self.bad_reply = bad_reply
         self.good_reply = good_reply
 
-    def reply(self, nickname, comment, context, max_chars, correction=""):
+    def reply(self, nickname, comment, context, max_chars, correction="", **kwargs):
         self.calls.append((nickname, comment, context, max_chars))
         if correction:
             return {"action": "reply", "reply": self.good_reply}
@@ -91,7 +91,7 @@ class DenyingResponder(FakeResponder):
 
 
 class StubbornResponder(DenyingResponder):
-    def reply(self, nickname, comment, context, max_chars, correction=""):
+    def reply(self, nickname, comment, context, max_chars, correction="", **kwargs):
         self.calls.append((nickname, comment, context, max_chars))
         return {"action": "reply", "reply": self.bad_reply}
 

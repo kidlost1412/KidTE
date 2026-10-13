@@ -156,7 +156,8 @@ def test_playbook_hint_only_on_matching_turns(rig):
     assert "tinh_huong_phu_hop" not in parts(calls[0])[1]
 
 
-def test_prompt_override_puts_guidance_in_stable_context_instead(rig):
+def test_legacy_prompt_override_is_ignored_not_a_full_replacement(rig):
+    """File ghi đè kiểu cũ KHÔNG còn thay lời nhắc: luật gốc luôn được dùng, cập nhật luật tới được AI."""
     engine, captured, tmp_path, monkeypatch = rig
     override = tmp_path / "override.txt"
     override.write_text("Lời nhắc riêng của chủ shop", encoding="utf-8")
@@ -164,7 +165,10 @@ def test_prompt_override_puts_guidance_in_stable_context_instead(rig):
     _o, small = ask(engine, captured, "hello", "o1", "o1")
     _o, full = ask(engine, captured, "TC01 giá bao nhiêu", "o2", "o2")
     assert small[0]["messages"][1]["content"] == full[0]["messages"][1]["content"]
-    assert "the_khach_so_tay_policy" in parts(full[0])[0]
+    system = full[0]["messages"][0]["content"]
+    assert "Lời nhắc riêng của chủ shop" not in system
+    assert server_module._model_processor.default_system_prompt() in system
+    assert server_module._model_processor.has_prompt_override() is False
 
 
 def test_default_system_prompt_documents_card_and_playbook():

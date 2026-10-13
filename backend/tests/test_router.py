@@ -154,7 +154,7 @@ class Client:
         self.chat = SimpleNamespace(completions=self)
 
     def create(self, **inference):
-        if inference["messages"][0]["content"] == router.SYSTEM_PROMPT:
+        if inference["messages"][0]["content"].endswith(router.SYSTEM_PROMPT):
             self.router_calls.append(inference)
             if isinstance(self.route_answer, Exception):
                 raise self.route_answer

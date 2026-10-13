@@ -251,3 +251,17 @@ def test_endpoint_is_local_only_and_put_has_no_other_route(server):
     assert call(server, "PUT", "/api/workspace/sales-playbook", {"entries": [ENTRY]}, origin=ext)[0] == 403
     assert call(server, "PUT", "/api/workspace/other", {"entries": []})[0] == 403
     assert call(server, "PUT", "/api/other", {})[0] == 404
+
+
+def test_attack_hint_is_exclusive():
+    import sales_playbook as sp
+    entries = [{"id": "cong_kich_lua_dao", "dau_hieu": ["lừa", "ko tặng"], "tinh_huong": "x", "huong_xu_ly": "y",
+                "du_kien_duoc_dung": [], "cam": []},
+               {"id": "noi_that_khong", "dau_hieu": ["ko tặng"], "tinh_huong": "x", "huong_xu_ly": "y",
+                "du_kien_duoc_dung": [], "cam": []}]
+    orig = sp.match
+    sp.match = lambda text, acts=(), entries_=entries, limit=3: orig(text, acts, entries_, limit)
+    try:
+        assert sp.hint_ids(["Bán lừa ngta ko tặng"]) == ["cong_kich_lua_dao"]
+    finally:
+        sp.match = orig

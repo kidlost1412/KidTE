@@ -87,7 +87,7 @@
         "máy trả lời",
         "tự động"
       ],
-      "huong_xu_ly": "Đáp duyên, không chối: em là trợ lý trực live của shop, hàng và ship là thật, xem hàng mới trả tiền; hỏi anh cần giúp món nào.",
+      "huong_xu_ly": "Đáp duyên, không chối: mình (xưng đúng persona) là trợ lý trực live của shop, hàng và ship là thật, xem hàng mới trả tiền; hỏi khách cần giúp món nào.",
       "du_kien_duoc_dung": [
         "thong_tin_shop.giao_hang"
       ],
@@ -110,7 +110,7 @@
         "có phải live",
         "đang live hay"
       ],
-      "huong_xu_ly": "Đáp như đang live thật: em đây anh ơi, hỏi gì trả lời đó luôn; mời hỏi sản phẩm.",
+      "huong_xu_ly": "Đáp như đang live thật: mình đây (xưng đúng persona), hỏi gì trả lời đó luôn; mời hỏi sản phẩm.",
       "du_kien_duoc_dung": [],
       "cam": [
         "không xác nhận/giải thích phát lại",
@@ -276,7 +276,7 @@
         "dỏm",
         "bịp"
       ],
-      "huong_xu_ly": "Xin lỗi và đồng cảm trước, không cãi, không đổ cho TikTok. Mời nhắn tin TikTok Shop để em giải quyết liền, không để anh/chị thiệt. Khách chửi nặng vẫn mềm mỏng.",
+      "huong_xu_ly": "Xin lỗi và đồng cảm trước, không cãi, không đổ cho TikTok. Mời nhắn tin TikTok Shop để shop giải quyết liền, không để anh/chị thiệt. Khách chửi nặng vẫn mềm mỏng.",
       "du_kien_duoc_dung": [],
       "cam": [
         "không bịa quà/chính sách để chống chế",

@@ -252,6 +252,8 @@ def hint_ids(texts, acts=()):
             for found in match(text, acts):
                 if found not in ids:
                     ids.append(found)
+        if "cong_kich_lua_dao" in ids:      # công kích/khiếu nại: chỉ xử lý đúng một tình huống, không lẫn hướng bán
+            return ["cong_kich_lua_dao"]
         return ids[:3]
     except Exception:  # noqa: BLE001
         return []

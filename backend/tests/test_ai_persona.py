@@ -300,3 +300,11 @@ def test_backup_policy_includes_notes_file():
     import backup_policy
     assert backup_policy.part_of("ghi_chu_ai.txt") == "cai_dat"
     assert backup_policy._restore_target("ghi_chu_ai.txt") is not None
+
+
+def test_base_prompt_has_hard_attack_rule_and_no_fake_familiarity():
+    text = PROC.default_system_prompt()
+    assert "LUẬT CỨNG: KHÁCH CÔNG KÍCH" in text and "cong_kich_lua_dao" in text
+    assert text.index("LUẬT CỨNG: KHÁCH CÔNG KÍCH") < text.index("CÁCH TƯ VẤN")     # đứng trước luật bán hàng
+    assert "TUYỆT ĐỐI không cãi" in text and "nhắn tin qua TikTok Shop" in text
+    assert "KHÔNG giả vờ quen" in text and "KHÔNG tự so sánh giá" in text

@@ -31,7 +31,7 @@ test('proposal turns into an editable form with a sample per typical comment', (
   assert.equal(proposalToForm({style_guide: 'x'.repeat(3000)}).guide.length, LIMITS.style);
 });
 
-test('style counter flags text over the 1600 character limit', () => {
+test('style counter flags text over the 2400 character limit', () => {
   assert.deepEqual(styleCounter('abc'), {used: 3, left: LIMITS.style - 3, over: false});
   assert.equal(styleCounter('x'.repeat(LIMITS.style + 1)).over, true);
 });

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import prompt_view
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -61,9 +62,11 @@ def _sources():
         })},
         "cai_dat": {"json": existing({"thong_tin_shop.json": SHOP_INFO_PATH,
                                       "cai_dat_bo_xu_ly.json": PROCESSOR_SETTINGS_PATH,
-                                      "sales_playbook.json": SALES_PLAYBOOK_PATH}),
+                                      "sales_playbook.json": SALES_PLAYBOOK_PATH,
+                                      "quy_tac_ban_hang.meta.json": prompt_view.META_PATH}),
                     "text": existing({"loi_nhac_he_thong.txt": SYSTEM_PROMPT_OVERRIDE_PATH,
-                                          "ghi_chu_ai.txt": AI_NOTES_PATH})},
+                                          "ghi_chu_ai.txt": AI_NOTES_PATH,
+                                          "quy_tac_ban_hang.txt": prompt_view.OVERRIDE_PATH})},
         "tai_lieu": {"file": {f"tai_lieu/{p.relative_to(DOCUMENTS_DIR).as_posix()}": p
                               for p in sorted(Path(DOCUMENTS_DIR).rglob("*"))
                               if p.is_file() and not p.name.endswith(".tmp")}},
@@ -86,6 +89,7 @@ def part_of(path):
         "operator_workspace.sqlite3": "hop_thu",
         "ai_learning.sqlite3": "tri_nho_ai", "thong_tin_shop.json": "cai_dat",
         "cai_dat_bo_xu_ly.json": "cai_dat", "loi_nhac_he_thong.txt": "cai_dat", "ghi_chu_ai.txt": "cai_dat",
+        "quy_tac_ban_hang.txt": "cai_dat", "quy_tac_ban_hang.meta.json": "cai_dat",
         "sales_playbook.json": "cai_dat",
     }.get(path, "san_pham")
 
@@ -116,6 +120,8 @@ def _restore_target(path):
         "sales_playbook.json": SALES_PLAYBOOK_PATH,
         "loi_nhac_he_thong.txt": SYSTEM_PROMPT_OVERRIDE_PATH,
         "ghi_chu_ai.txt": AI_NOTES_PATH,
+        "quy_tac_ban_hang.txt": prompt_view.OVERRIDE_PATH,
+        "quy_tac_ban_hang.meta.json": prompt_view.META_PATH,
     }.get(str(path))
 
 

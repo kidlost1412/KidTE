@@ -57,7 +57,7 @@ MAX_STATEMENT_CHARS = 400
 # Bao nhiêu mục được đưa vào MỘT lượt trả lời. Ít mà trúng hơn nhiều mà nhiễu.
 MAX_FACTS_PER_TURN = 8
 MAX_RULES = 12
-MAX_STYLE_CHARS = 1600
+MAX_STYLE_CHARS = 2400
 
 # Phong cách dựng sẵn (giọng cũ nằm trong lời nhắc hệ thống, nay tách ra đây). Lời nhắc hệ thống chỉ còn LUẬT
 # BÁN HÀNG trung tính; mọi giọng/tính cách/xưng hô nằm ở lớp phong cách này.

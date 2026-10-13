@@ -64,7 +64,8 @@ from video_analysis import (
     VideoAnalysisManager,
 )
 from workspace import WorkspaceStore
-from learning import Learner, LearningStore, style_text as _persona_style_text
+import prompt_view
+from learning import Learner, LearningStore, MAX_STYLE_CHARS, style_text as _persona_style_text
 from ai_context import task_block as _task_block
 from media_assets import ProductImageCache, VideoAssetManager
 from knowledge import (
@@ -2537,14 +2538,14 @@ class ReplyEngine:
         return context
 
     def _reply_context(self, comment, live, sel, memory_context, *, video=None, mark_used=True,
-                       history=None, memory_prompt=None):
-        """Ngữ cảnh gửi model. Trả (context, price_signal)."""
+                       history=None, memory_prompt=None, persona_id=""):
+        """Ngữ cảnh gửi model. Trả (context, price_signal). persona_id: thử với người trực khác (chỉ "Thử AI")."""
         learning = getattr(self, "learning", None)
         product, approved, intents = sel["product"], sel["approved"], sel["intents"]
         recommendations = sel["recommendations"]
         shop_id = (product or {}).get("product_id", "")
         question_type = self.workspace._question_type(comment)
-        persona = learning.persona() if learning is not None else None
+        persona = learning.persona(persona_id) if learning is not None else None
         persona_id = (persona or {}).get("persona_id", "")
         shared_context = shared_shop_context(self, comment, shop_id, persona_id, mark_used=mark_used)
         approved_examples = shared_context.get('operator_approved_reply_examples', [])
@@ -3461,11 +3462,37 @@ class ReplyEngine:
             if payload.get("delete"):
                 return learning.delete_persona(clean(payload.get("persona_id"), 80))
             return {"ok": True, "persona": learning.save_persona(payload)}
+        if action == "base-rules":
+            return self.base_rules_action(payload)
         if action == "settings":
             return {"ok": True, "settings": learning.save_settings(payload)}
         if action == "try":
             return self.learning_try(payload)
         raise ValueError("learning_action_unknown")
+
+    def learning_prompt_view(self, persona_id=""):
+        """Toàn bộ lời nhắc theo thứ tự gửi cho một người trực (xem được, sửa từng phần)."""
+        persona = self.learning.persona(clean(persona_id, 80))
+        style = _persona_style_text(persona) if persona else ""
+        return prompt_view.build_view(
+            shipped=_model_processor.default_system_prompt(), notes=_model_processor.ai_notes(),
+            notes_header=_model_processor.NOTES_HEADER, notes_max=_model_processor.MAX_NOTES_CHARS,
+            persona=persona, voice=style, builtin_voice=(persona or {}).get("builtin_voice", ""),
+            style_max=MAX_STYLE_CHARS)
+
+    def base_rules_action(self, payload):
+        """Lưu / đặt lại / xử lý thông báo cập nhật cho luật bán hàng gốc."""
+        shipped = _model_processor.default_system_prompt()
+        action = clean(payload.get("action"), 20)
+        out = {}
+        if action == "save":
+            out = prompt_view.save_override(payload.get("text"), shipped)
+        elif action == "reset":
+            prompt_view.reset()
+        else:
+            prompt_view.resolve(action, shipped)
+        return {**self.learning_prompt_view(payload.get("persona_id") or ""), "saved": bool(out),
+                "appended": out.get("appended", 0)}
 
     def learning_try(self, payload):
         """Chạy đúng đường trả lời thật nhưng KHÔNG ghi bình luận, KHÔNG gửi."""
@@ -3491,7 +3518,8 @@ class ReplyEngine:
         }
         if sel["missing"]:
             return {"ok": True, "reply": "", "reason": "missing_data", "explain": explain}
-        context, _signal = self._reply_context(comment, live, sel, "", mark_used=False)
+        context, _signal = self._reply_context(comment, live, sel, "", mark_used=False,
+                                               persona_id=clean(payload.get("persona_id"), 80))
         explain.update({
             "learned": context.get("kien_thuc_da_hoc") or [],
             "rules": context.get("quy_tac_da_hoc") or [],
@@ -4233,6 +4261,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if route == "/api/learning":
                     self.send_json(200, self.engine.learning_state())
+                elif route == "/api/learning/prompt-view":
+                    self.send_json(200, self.engine.learning_prompt_view(
+                        (parse_qs(parsed.query).get("persona_id") or [""])[0]))
                 elif route == "/api/learning/runs":
                     ref = (parse_qs(parsed.query).get("ref") or [""])[0]
                     self.send_json(200, {"ok": True, "runs": [

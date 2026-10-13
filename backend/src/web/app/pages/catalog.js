@@ -8,6 +8,7 @@ import {loadCatalog, invalidateCatalog} from './video/data.js';
 import {doseRulesPanel} from './dose-rules-ui.js';
 import * as mm from './mapping-model.js';
 import * as pd from './profile-delete-model.js';
+import * as pl from './product-list-model.js';
 import {openProductIngest} from './product-ingest-ui.js';
 
 const TABS = [
@@ -34,6 +35,26 @@ const PROFILE_FIELDS = [
 ];
 
 function listOf(value) { return Array.isArray(value) ? value : value ? [String(value)] : []; }
+
+/** Ảnh vuông đầu dòng danh sách; thiếu ảnh hoặc ảnh lỗi thì hiện icon thay thế. */
+function rowThumb(url, fallbackIcon, size = 52) {
+  const box = h('span', {class: 'row-thumb', style: {'--size': size + 'px'}});
+  const placeholder = () => { box.classList.add('none'); box.replaceChildren(icon(fallbackIcon, {size: 22})); };
+  if (!url) { placeholder(); return box; }
+  const img = h('img', {src: url, alt: '', loading: 'lazy', decoding: 'async', draggable: 'false'});
+  img.addEventListener('error', placeholder, {once: true});
+  box.append(img);
+  return box;
+}
+
+/** Dòng "Chọn tất cả" theo danh sách đang hiện; onToggle(bật?) do nơi gọi xử lý. */
+function selectAllRow(sel, onToggle) {
+  const box = h('input', {type: 'checkbox', 'aria-label': 'Chọn tất cả', checked: sel.all, onChange: e => onToggle(e.target.checked)});
+  box.indeterminate = sel.some;
+  return h('label', {class: 'list-head'}, box,
+    h('span', {class: 'fw-7'}, sel.all ? 'Bỏ chọn tất cả' : 'Chọn tất cả'),
+    h('span', {class: 'fs-xs muted'}, `${sel.count}/${sel.total} đang hiện`));
+}
 
 // Máy mới cài không có hồ sơ nào: chủ shop tự tạo (gắn luôn với SKU nếu tạo từ sản phẩm).
 async function createProfile(ctx, product) {
@@ -74,11 +95,13 @@ export default {
 // ======================================================================
 function mountProducts(ctx, host, d) {
   let products = null, workspace = {}, error = null, query = '', filter = 'all';
+  const picked = new Set();
   const search = h('input', {class: 'input', type: 'search', placeholder: 'Tìm theo tên, số giỏ, hồ sơ…'});
   const filterSlot = h('span');
-  const grid = h('div', {}, skeletonRows(4, 120));
+  const bulkBar = h('span', {class: 'row'});
+  const grid = h('div', {class: 'card'}, skeletonRows(4, 60));
   const meta = h('span', {class: 'fs-xs muted'});
-  clear(host, h('div', {class: 'toolbar'}, h('div', {class: 'search-input'}, icon('search'), search), filterSlot, h('span', {class: 'grow'}), meta,
+  clear(host, h('div', {class: 'toolbar'}, h('div', {class: 'search-input'}, icon('search'), search), filterSlot, h('span', {class: 'grow'}), meta, bulkBar,
     btn('Làm mới', {kind: 'ghost', icon: 'refresh', onClick: load})), grid);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
 
@@ -90,15 +113,52 @@ function mountProducts(ctx, host, d) {
     let items = products.filter(p => (filter === 'all' || (filter === 'unmapped' && !p.profile_id) || (filter === 'mismatch' && mismatched.includes(p)) || (filter === 'pinned' && p.is_pinned))
       && (!query || fold(`${p.bag_index} #${p.bag_index} ${p.name} ${p.title} ${p.profile_name}`).includes(query)));
     meta.textContent = `Quét lúc ${relative(products.syncedAt)}`;
+    const ids = items.map(p => p.product_id);
+    renderBulk();
     if (!items.length) { clear(grid, empty('Không có sản phẩm phù hợp', query ? 'Thử từ khoá khác.' : 'Mở phiên LIVE để tiện ích quét giỏ hàng.', {iconName: 'box'})); return; }
-    clear(grid, h('div', {class: 'prod-grid'}, items.map(p => h('article', {class: 'card prod-card', tabindex: '0', onClick: () => openProduct(p), onKeydown: e => { if (e.key === 'Enter') openProduct(p); }},
-      h('div', {class: 'prod-img'}, p.image_url ? h('img', {src: p.image_url, alt: '', loading: 'lazy'}) : productAvatar(p, 120, {showBag: false}), bag(p.bag_index, {size: 'lg'}),
-        h('span', {class: 'prod-flag'}, p.is_pinned ? chip('Đang ghim', 'live', {dot: true}) : null)),
-      h('div', {class: 'prod-body'}, h('div', {class: 'prod-name clamp-2'}, p.name), h('div', {class: 'prod-title clamp-2', title: p.title}, p.title),
-        h('div', {class: 'row between', style: {marginTop: 'auto', paddingTop: '6px'}}, h('span', {class: 'prod-price'}, p.price || '—'), p.stock !== undefined && p.stock !== null ? h('span', {class: 'fs-xs muted'}, `Kho ${number(p.stock)}`) : null)),
-      h('div', {class: 'prod-foot'}, p.profile_id ? (sizeMismatch(p.title, p.profile_name)
-        ? [h('span', {style: {color: 'var(--danger-text)', display: 'flex', gap: '5px', alignItems: 'center', minWidth: '0'}, title: `Listing là ${sizeMismatch(p.title, p.profile_name).listing} nhưng hồ sơ ghi ${sizeMismatch(p.title, p.profile_name).profile} — AI có thể nói sai quy cách/liều`}, icon('alert', {size: 14}), h('span', {class: 'truncate'}, `Hồ sơ khác quy cách (${sizeMismatch(p.title, p.profile_name).profile})`))]
-        : [icon('checkCircle', {size: 14}), h('span', {class: 'truncate', title: p.profile_name}, p.profile_name)]) : [h('span', {style: {color: 'var(--warn-text)', display: 'flex', gap: '5px', alignItems: 'center'}}, icon('alert', {size: 14}), 'Chưa có hồ sơ — AI sẽ không tư vấn')])))));
+    clear(grid, h('div', {class: 'list'}, selectAllRow(pl.selectionState(ids, picked), on => { pl.setAllVisible(picked, ids, on); render(); }),
+      items.map(p => productRow(p))));
+  }
+
+  function productRow(p) {
+    const sizeBad = p.profile_id && sizeMismatch(p.title, p.profile_name);
+    const full = p.title || p.name || '';
+    const name = p.name || pl.shortProductName(full, 60);
+    return h('div', {class: 'list-row prod-row'},
+      h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + name, checked: picked.has(p.product_id), onChange: e => { e.target.checked ? picked.add(p.product_id) : picked.delete(p.product_id); render(); }}),
+      h('button', {class: 'prod-open', type: 'button', title: full, onClick: () => openProduct(p)},
+        rowThumb(p.image_url, 'box', 52),
+        h('span', {class: 'prod-info'},
+          h('span', {class: 'row', style: {gap: '6px', minWidth: '0'}}, bag(p.bag_index), p.is_pinned ? chip('Đang ghim', 'live', {dot: true}) : null, h('strong', {class: 'fs-sm truncate'}, name)),
+          h('span', {class: 'fs-xs muted truncate'}, full))),
+      h('span', {class: 'prod-side'},
+        h('span', {class: 'prod-price'}, p.price || '—'),
+        p.stock !== undefined && p.stock !== null ? h('span', {class: 'fs-xs muted'}, `Kho ${number(p.stock)}`) : null,
+        p.profile_id ? (sizeBad
+          ? h('span', {class: 'fs-xs', style: {color: 'var(--danger-text)', display: 'flex', gap: '5px', alignItems: 'center'}, title: `Listing là ${sizeBad.listing} nhưng hồ sơ ghi ${sizeBad.profile} — AI có thể nói sai quy cách/liều`}, icon('alert', {size: 13}), `Hồ sơ khác quy cách (${sizeBad.profile})`)
+          : h('span', {class: 'fs-xs muted', style: {display: 'flex', gap: '5px', alignItems: 'center'}, title: p.profile_name}, icon('checkCircle', {size: 13}), h('span', {class: 'truncate', style: {maxWidth: '180px'}}, p.profile_name)))
+          : h('span', {class: 'fs-xs', style: {color: 'var(--warn-text)', display: 'flex', gap: '5px', alignItems: 'center'}}, icon('alert', {size: 13}), 'Chưa có hồ sơ')));
+  }
+
+  // Hàng loạt: chỉ sản phẩm CHƯA có hồ sơ mới tạo được hồ sơ nháp.
+  function renderBulk() {
+    const chosen = [...picked].filter(id => products.some(p => p.product_id === id));
+    const noProfile = chosen.filter(id => !products.find(p => p.product_id === id).profile_id);
+    clear(bulkBar, picked.size ? [
+      h('span', {class: 'fs-xs muted'}, `Đã chọn ${picked.size}`),
+      btn(`Tạo hồ sơ nháp (${noProfile.length})`, {kind: 'primary', size: 'sm', icon: 'plus', disabled: !noProfile.length,
+        title: noProfile.length ? 'Tạo một hồ sơ nháp cho mỗi sản phẩm chưa có hồ sơ' : 'Các sản phẩm đã chọn đều có hồ sơ', onClick: () => bulkDraft(noProfile)}),
+    ] : null);
+  }
+
+  async function bulkDraft(ids) {
+    const {title, text} = pl.bulkDraftText(ids.length);
+    if (!await confirmDialog({title, text, confirm: 'Tạo hồ sơ nháp'})) return;
+    try {
+      const out = await request('/api/profiles/bulk-draft', {method: 'POST', body: {product_ids: ids}});
+      toast(`${pl.bulkResultText('Đã tạo', out.created.length, 0)}${out.skipped.length ? ` Bỏ qua ${out.skipped.length}.` : ''} Điền nội dung rồi Duyệt để AI dùng.`, 'ok');
+      picked.clear(); invalidateCatalog(); load();
+    } catch (e) { toast(friendlyError(e), 'danger'); }
   }
 
   function openProduct(p) {
@@ -187,15 +247,18 @@ function mountProfiles(ctx, host, d) {
           {iconName: 'fileText', action: btn('Tạo hồ sơ mới', {kind: 'primary', icon: 'plus', onClick: () => createProfile(ctx, null)})}));
       return;
     }
-    clear(list, h('div', {class: 'list'}, items.map(p => h('div', {class: 'list-row'},
-      h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + p.title, checked: picked.has(p.id), onChange: e => { e.target.checked ? picked.add(p.id) : picked.delete(p.id); renderBulk(); }}),
-      h('button', {class: 'list-row', type: 'button', style: {flex: '1', border: '0', background: 'none', padding: '0'}, onClick: () => openProfile(p.id)},
-        h('span', {class: 'pavatar', style: {'--size': '46px'}}, p.featured_image_url ? h('img', {src: profileThumbUrl(p.id), alt: '', loading: 'lazy', onError: e => e.target.remove()}) : icon('fileText')),
-        h('div', {class: 'grow'}, h('div', {class: 'title clamp-2'}, p.title), h('div', {class: 'sub clamp-2'}, listOf(p.cong_dung).slice(0, 2).join(' · ') || p.mo_ta_ngan || '')),
-        h('div', {class: 'col', style: {alignItems: 'flex-end', gap: '4px'}},
-          p.mapped_skus ? chip(`${p.mapped_skus} SP đang dùng`, 'ok') : chip('Chưa gắn SP nào', ''),
-          p.local_override ? chip('Đã sửa trên máy', 'info') : null)),
-      btn('', {size: 'sm', kind: 'ghost', icon: 'trash', attrs: {title: 'Xoá hồ sơ này (vào Thùng rác 30 ngày)', 'aria-label': 'Xoá ' + p.title}, onClick: () => removeProfiles([p.id])})))));
+    const ids = items.map(p => p.id);
+    clear(list, h('div', {class: 'list'}, selectAllRow(pl.selectionState(ids, picked), on => { pl.setAllVisible(picked, ids, on); renderBulk(); render(); }),
+      items.map(p => h('div', {class: 'list-row'},
+        h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + p.title, checked: picked.has(p.id), onChange: e => { e.target.checked ? picked.add(p.id) : picked.delete(p.id); renderBulk(); render(); }}),
+        h('button', {class: 'list-row prod-open', type: 'button', title: p.title, onClick: () => openProfile(p.id)},
+          rowThumb(p.featured_image_url ? profileThumbUrl(p.id) : '', 'fileText', 52),
+          h('div', {class: 'grow', style: {minWidth: '0'}}, h('div', {class: 'title truncate'}, pl.shortProductName(p.title, 60)),
+            h('div', {class: 'sub clamp-2'}, listOf(p.cong_dung).slice(0, 2).join(' · ') || p.mo_ta_ngan || '')),
+          h('div', {class: 'col', style: {alignItems: 'flex-end', gap: '4px'}},
+            p.mapped_skus ? chip(`${p.mapped_skus} SP đang dùng`, 'ok') : chip('Chưa gắn SP nào', ''),
+            p.local_override ? chip('Đã sửa trên máy', 'info') : null)),
+        btn('', {size: 'sm', kind: 'ghost', icon: 'trash', attrs: {title: 'Xoá hồ sơ này (vào Thùng rác 30 ngày)', 'aria-label': 'Xoá ' + p.title}, onClick: () => removeProfiles([p.id])})))));
   }
 
   function renderBulk() {
@@ -220,19 +283,48 @@ function mountProfiles(ctx, host, d) {
   }
 
   async function openDeleted() {
-    let items;
-    try { items = await pd.loadDeletedProfiles(request); } catch (e) { toast(friendlyError(e), 'danger'); return; }
+    const chosen = new Set();
+    let items = [];
+    const body = h('div', {class: 'card-body'}, skeletonRows(3, 50));
+    const bulkSlot = h('span', {class: 'row'});
     const drawer = openDrawer({
       title: 'Hồ sơ đã xoá', sub: 'Giữ 30 ngày trong Thùng rác, khôi phục bất cứ lúc nào trước hạn.', width: 560,
-      body: h('div', {class: 'card-body'}, items.length ? h('div', {class: 'list'}, items.map(t => h('div', {class: 'list-row'},
-        h('div', {class: 'grow'}, h('div', {class: 'title'}, t.label || t.record_id), h('div', {class: 'sub'}, `xoá ${relative(t.deleted_at)} · giữ tới ${dateTime(t.expires_at)}`)),
-        btn('Khôi phục', {size: 'sm', icon: 'undo', onClick: async () => {
-          const out = await pd.restoreProfiles(request, [t.record_id]);
-          if (out.failed.length) { toast(friendlyError(out.failed[0].error), 'danger'); return; }
-          invalidateCatalog(); toast('Đã khôi phục hồ sơ.', 'ok'); drawer.close(); load();
-        }})))) : empty('Không có hồ sơ nào đã xoá', '', {iconName: 'trash'})),
-      footer: [h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()})],
+      body,
+      footer: [bulkSlot, h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()})],
     });
+    // Khôi phục một hồ sơ hoặc cả nhóm đã chọn; báo số lượng thành công/lỗi rồi làm mới danh sách.
+    async function restore(ids) {
+      const out = await pd.restoreProfiles(request, ids);
+      out.done.forEach(id => chosen.delete(id));
+      invalidateCatalog();
+      toast(pl.bulkResultText('Đã khôi phục', out.done.length, out.failed.length), out.failed.length ? 'warn' : 'ok');
+      if (out.failed.length) toast(friendlyError(out.failed[0].error), 'danger');
+      load();
+      await refresh();
+    }
+    async function restoreChosen() {
+      const ids = [...chosen];
+      const {title, text} = pl.bulkRestoreText(ids.length);
+      if (!await confirmDialog({title, text, confirm: 'Khôi phục'})) return;
+      await restore(ids);
+    }
+    function paint() {
+      const ids = items.map(t => t.record_id);
+      clear(body, items.length ? h('div', {class: 'list'}, selectAllRow(pl.selectionState(ids, chosen), on => { pl.setAllVisible(chosen, ids, on); paint(); }),
+        items.map(t => h('div', {class: 'list-row'},
+          h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + (t.label || t.record_id), checked: chosen.has(t.record_id), onChange: e => { e.target.checked ? chosen.add(t.record_id) : chosen.delete(t.record_id); paint(); }}),
+          h('div', {class: 'grow', style: {minWidth: '0'}}, h('div', {class: 'title truncate', title: t.label || t.record_id}, pl.shortProductName(t.label || t.record_id, 60)),
+            h('div', {class: 'sub'}, `xoá ${relative(t.deleted_at)} · giữ tới ${dateTime(t.expires_at)}`)),
+          btn('Khôi phục', {size: 'sm', icon: 'undo', onClick: () => restore([t.record_id])})))) : empty('Không có hồ sơ nào đã xoá', '', {iconName: 'trash'}));
+      clear(bulkSlot, chosen.size ? btn(`Khôi phục ${chosen.size} đã chọn`, {kind: 'primary', size: 'sm', icon: 'undo', onClick: restoreChosen}) : null);
+    }
+    async function refresh() {
+      try { items = await pd.loadDeletedProfiles(request); } catch (e) { toast(friendlyError(e), 'danger'); return; }
+      const live = new Set(items.map(t => t.record_id));
+      [...chosen].forEach(id => { if (!live.has(id)) chosen.delete(id); });
+      paint();
+    }
+    await refresh();
   }
 
   async function openProfile(id) {
@@ -340,10 +432,11 @@ function mountMapping(ctx, host, d) {
   const filterSlot = h('span');
   const autoBar = h('div');
   const list = h('div', {class: 'card'}, skeletonRows(6, 60));
+  const pickHead = h('div');
   const bar = h('div');
   clear(host, h('div', {class: 'toolbar'}, h('div', {class: 'search-input'}, icon('search'), search), filterSlot),
     notice('info', 'Lưu ánh xạ = cho AI được dùng hồ sơ này', 'Sản phẩm nào đã gắn hồ sơ thì AI mới tư vấn thành phần, công dụng, liều dùng. Hồ sơ rỗng không thể gắn.'),
-    autoBar, list, bar);
+    autoBar, pickHead, list, bar);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
 
   const profileName = id => ((state && state.profiles) || []).find(p => p.id === id)?.name || id;
@@ -377,9 +470,11 @@ function mountMapping(ctx, host, d) {
   function renderDrafts() {
     const rows = mm.draftRows((state && state.profiles) || []);
     if (!rows.length) { clear(list, empty('Chưa có hồ sơ nháp', 'Chọn các sản phẩm chưa có hồ sơ rồi bấm “Tạo hồ sơ nháp”.', {iconName: 'fileText'})); clear(bar); return; }
-    clear(list, h('div', {}, rows.map(r => h('div', {class: 'map-row', style: {gridTemplateColumns: '28px minmax(0, 1fr) auto'}},
-      h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + r.name, disabled: !r.ready, checked: draftPicked.has(r.id), onChange: e => { e.target.checked ? draftPicked.add(r.id) : draftPicked.delete(r.id); renderDraftBar(rows); }}),
-      h('div', {style: {minWidth: '0'}}, h('strong', {class: 'fs-sm truncate'}, r.name),
+    const readyIds = rows.filter(r => r.ready).map(r => r.id);
+    clear(list, h('div', {}, readyIds.length ? selectAllRow(pl.selectionState(readyIds, draftPicked), on => { pl.setAllVisible(draftPicked, readyIds, on); renderDrafts(); }) : null,
+      rows.map(r => h('div', {class: 'map-row', style: {gridTemplateColumns: '28px minmax(0, 1fr) auto'}},
+      h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + r.name, disabled: !r.ready, checked: draftPicked.has(r.id), onChange: e => { e.target.checked ? draftPicked.add(r.id) : draftPicked.delete(r.id); renderDrafts(); }}),
+      h('div', {style: {minWidth: '0'}}, h('strong', {class: 'fs-sm truncate', title: r.name}, pl.shortProductName(r.name, 60)),
         h('div', {class: 'row', style: {gap: '6px', marginTop: '4px', flexWrap: 'wrap'}}, r.chips.map(c => chip((c.done ? '✓ ' : '○ ') + c.label, c.done ? 'ok' : ''))),
         r.ready ? null : h('div', {class: 'fs-xs', style: {color: 'var(--warn-text)', marginTop: '4px'}}, mm.missingForApproval(r)),
         r.draft_for ? h('div', {class: 'fs-xs muted'}, 'Duyệt xong sẽ gắn vào sản phẩm ' + (((state.products || []).find(x => x.product_id === r.draft_for) || {}).title || r.draft_for).slice(0, 90)) : null),
@@ -388,8 +483,16 @@ function mountMapping(ctx, host, d) {
     renderDraftBar(rows);
   }
   function renderDraftBar(rows) {
+    const readyCount = mm.approvalItems(rows, draftPicked).length;
     clear(bar, h('div', {class: 'sticky-bar'}, icon('info'), h('span', {class: 'grow'}, 'Duyệt = cho AI được dùng hồ sơ này để tư vấn khách. Hồ sơ chưa đủ nội dung không duyệt được.'),
-      btn(`Duyệt đã chọn (${draftPicked.size})`, {kind: 'primary', disabled: !draftPicked.size, onClick: () => approve(rows, draftPicked)})));
+      btn(`Duyệt đã chọn (${readyCount})`, {kind: 'primary', disabled: !readyCount, onClick: () => approveBulk(rows)})));
+  }
+  async function approveBulk(rows) {
+    const n = mm.approvalItems(rows, draftPicked).length;
+    if (!n) return;
+    const {title, text} = pl.bulkApproveText(n);
+    if (!await confirmDialog({title, text, confirm: 'Duyệt'})) return;
+    approve(rows, draftPicked);
   }
   async function approve(rows, ids) {
     const items = mm.approvalItems(rows, ids);
@@ -401,9 +504,12 @@ function mountMapping(ctx, host, d) {
     } catch (e) { toast(friendlyError(e), 'danger'); }
   }
   async function makeDrafts() {
+    const ids = [...picked];
+    const {title, text} = pl.bulkDraftText(ids.length);
+    if (!await confirmDialog({title, text, confirm: 'Tạo hồ sơ nháp'})) return;
     try {
-      const out = await request('/api/profiles/bulk-draft', {method: 'POST', body: {product_ids: [...picked]}});
-      toast(`Đã tạo ${out.created.length} hồ sơ nháp${out.skipped.length ? `, bỏ qua ${out.skipped.length}` : ''}. Điền nội dung rồi Duyệt để AI dùng.`, 'ok');
+      const out = await request('/api/profiles/bulk-draft', {method: 'POST', body: {product_ids: ids}});
+      toast(`${pl.bulkResultText('Đã tạo', out.created.length, 0)}${out.skipped.length ? ` Bỏ qua ${out.skipped.length}.` : ''} Điền nội dung rồi Duyệt để AI dùng.`, 'ok');
       picked.clear(); filter = 'drafts'; invalidateCatalog(); load();
     } catch (e) { toast(friendlyError(e), 'danger'); }
   }
@@ -431,16 +537,19 @@ function mountMapping(ctx, host, d) {
     const draftCount = mm.draftRows(state.profiles || []).length;
     clear(filterSlot, segmented([['unmapped', `Chưa có hồ sơ (${unmapped})`], ['all', `Tất cả (${products.length})`], ['changed', `Đang sửa (${pending.size})`], ['drafts', `Hồ sơ nháp (${draftCount})`]], filter, v => { filter = v; render(); }));
     renderAutoBar();
-    if (filter === 'drafts') { renderDrafts(); return; }
+    if (filter === 'drafts') { clear(pickHead); renderDrafts(); return; }
     const items = products.filter(p => (filter === 'all' || (filter === 'unmapped' && !current(p)) || (filter === 'changed' && pending.has(p.product_id)) || p.product_id === ctx.route.id)
       && (!query || fold(`${p.bag_index} ${p.title} ${profileName(current(p))}`).includes(query)));
+    // Chọn tất cả chỉ áp cho sản phẩm CHƯA có hồ sơ đang hiện (để tạo hồ sơ nháp hàng loạt).
+    const pickable = items.filter(p => !current(p)).map(p => p.product_id);
+    clear(pickHead, pickable.length ? selectAllRow(pl.selectionState(pickable, picked), on => { pl.setAllVisible(picked, pickable, on); renderAutoBar(); render(); }) : null);
     const options = [['', '— Chưa gắn hồ sơ —'], ...(state.profiles || []).filter(p => p.status !== 'draft' || p.approvable).slice().sort((a, b) => a.name.localeCompare(b.name, 'vi')).map(p => [p.id, p.name + (p.package ? ` (${p.package})` : '')])];
     clear(list, items.length ? h('div', {}, items.map(p => {
       const c = catalog[p.product_id] || p;
       const value = current(p);
       const sel = h('select', {class: 'select', 'aria-label': 'Hồ sơ cho ' + c.name, onChange: e => { if (e.target.value === (p.profile_id || '')) pending.delete(p.product_id); else pending.set(p.product_id, e.target.value); render(); }},
         options.map(([id, label]) => h('option', {value: id, selected: id === (value || '')}, label)));
-      const pick = !value ? h('input', {type: 'checkbox', 'aria-label': 'Chọn để tạo hồ sơ nháp: ' + (c.name || p.title), checked: picked.has(p.product_id), style: {marginRight: '4px'}, onChange: e => { e.target.checked ? picked.add(p.product_id) : picked.delete(p.product_id); renderAutoBar(); }}) : null;
+      const pick = !value ? h('input', {type: 'checkbox', 'aria-label': 'Chọn để tạo hồ sơ nháp: ' + (c.name || p.title), checked: picked.has(p.product_id), style: {marginRight: '4px'}, onChange: e => { e.target.checked ? picked.add(p.product_id) : picked.delete(p.product_id); renderAutoBar(); render(); }}) : null;
       // Ảnh: listing bên trái, hồ sơ đang gắn (hoặc đang gợi ý, viền nét đứt) bên phải. Chỉ dùng ảnh đã cache máy.
       const shownProfile = value || (!value && auto.has(p.product_id) && !skipped.has(p.product_id) ? auto.get(p.product_id).profile_id : '');
       const thumbs = mm.rowThumbs({...p, image_url: p.image_url || c.image_url || '', name: c.name || p.title}, shownProfile, state.profiles);

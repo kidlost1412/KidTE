@@ -50,6 +50,15 @@ async function setup(ctx, host) {
     if (key.value.trim()) body.api_key = key.value.trim();
     try { await request('/api/settings', {method: 'POST', body}); key.value = ''; toast('Đã lưu cài đặt AI.', 'ok'); setup(ctx, host); } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
+  const gemKey = input({type: 'password', placeholder: s.gemini_key_configured ? '•••••••• (đã cấu hình — để trống nếu không đổi)' : 'Dán khoá Gemini (AIza…)', autocomplete: 'off'});
+  const gemModel = input({value: s.gemini_model || '', placeholder: 'gemini-3.8-flash'});
+  const saveGemini = btn('Lưu khoá Gemini', {kind: 'primary', icon: 'save', onClick: async () => {
+    const body = {};
+    if (gemKey.value.trim()) body.gemini_api_key = gemKey.value.trim();
+    if (gemModel.value.trim() && gemModel.value.trim() !== s.gemini_model) body.gemini_model = gemModel.value.trim();
+    if (!Object.keys(body).length) { toast('Chưa có gì để lưu.', 'info'); return; }
+    try { await request('/api/settings', {method: 'POST', body}); gemKey.value = ''; toast('Đã lưu cài đặt Gemini.', 'ok'); setup(ctx, host); } catch (e) { toast(friendlyError(e), 'danger'); }
+  }});
   const userIds = input({value: s.tiktok_user_ids || '', placeholder: 'vd 7496342894195278856, …'});
   const uniqueIds = input({value: s.tiktok_unique_ids || '', placeholder: 'vd tenshopcuaban, …'});
   const saveTiktok = btn('Lưu tài khoản', {kind: 'primary', icon: 'save', onClick: async () => {
@@ -87,6 +96,12 @@ async function setup(ctx, host) {
       field('Model trả lời khách', model, {hint: 'Từ 10/09/2026 “deepseek-flash” CHÍNH LÀ DeepSeek V4.1 Flash — nhanh hơn, rẻ hơn và trả lời tốt hơn V4 Pro. Việc HỌC (rút kiến thức, học lại) chọn model riêng ở trang Trí nhớ AI. Độ dài câu, độ sáng tạo, lời nhắc: Trợ lý tự động → Nhà cung cấp DeepSeek.'}),
       field('Khoá API DeepSeek', key, {hint: 'Khoá được lưu trong file .env trên máy này, không hiển thị lại.'})),
     {sub: 'DeepSeek', footer: saveAi}),
+    card('Đọc ảnh & PDF (Gemini)', h('div', {class: 'card-body form-grid'},
+      notice(s.gemini_key_configured ? 'ok' : 'info', s.gemini_key_configured ? 'Gemini sẵn sàng' : 'Chưa có khoá Gemini', 'Dùng để “Thêm sản phẩm bằng AI” đọc ảnh nhãn và PDF scan. Không có khoá thì chỉ đọc được file có chữ, địa chỉ web và chữ dán (qua DeepSeek).'),
+      field('Key Gemini (đọc ảnh/PDF)', gemKey, {hint: 'Khoá lưu trong file .env trên máy này, không hiển thị lại.'}),
+      h('div', {}, btn('Lấy key miễn phí', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => openTarget('gemini_keys')})),
+      field('Model Gemini', gemModel, {hint: 'Nếu Google đổi tên model và báo lỗi “không nhận model”, nhập tên mới ở đây (xem ai.google.dev/gemini-api/docs/models).'})),
+    {sub: 'Google AI Studio', footer: saveGemini}),
     card('Thông tin shop & sổ tay bán hàng', h('div', {class: 'card-body col gap-3'},
       h('p', {class: 'fs-sm soft'}, 'Thông tin shop (địa chỉ, hotline, giao hàng) và sổ tay tình huống bán hàng nằm ở hai trang riêng trong thanh bên.'),
       h('div', {class: 'row wrap'},

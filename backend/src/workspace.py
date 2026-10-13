@@ -105,6 +105,7 @@ class WorkspaceStore:
         "quy_cach_dong_goi": "text", "gia_goc_duyet": "text",
         "live_promotion": "text", "listing_aliases": "list",
         "nguon_chinh_thuc": "text", "catalog_status": "text",
+        "nha_san_xuat": "text",
     }
 
     # `[F10]` Nguồn định nghĩa DUY NHẤT cho khả năng của từng tài nguyên.
@@ -2070,6 +2071,26 @@ class WorkspaceStore:
         self.engine.knowledge.reload()
         self._touch("profiles", "products", "dashboard")
         return {"ok": True, "id": record_id, "status": "draft", "mapped": False}
+
+    @_serialized_write
+    def set_draft_product(self, record_id, product_id):
+        """Chủ shop xác nhận SKU cho hồ sơ nháp tự tạo (chỉ ghi nhớ; duyệt/gắn làm ở tab Gắn hồ sơ)."""
+        record_id, product_id = _safe_text(record_id, 80), _safe_text(product_id, 160)
+        raw = self._read_overrides()
+        entry = raw["overrides"].get(record_id)
+        if not isinstance(entry, dict) or entry.get("created_local") is not True:
+            raise ValueError("draft_not_found")
+        if entry.get("approved_for_live"):
+            raise ValueError("draft_already_approved")
+        if not any(row.get("product_id") == product_id for row in self.engine.mapping_state().get("products", [])):
+            raise ValueError("product_not_found")
+        entry["draft_for_product_id"] = product_id
+        entry.update({"updated_at": _now(), "updated_by": "local_operator"})
+        raw.update({"schema_version": 1, "updated_at": _now()})
+        _atomic_json(self.override_path, raw)
+        self.engine.knowledge.reload()
+        self._touch("profiles", "products", "dashboard")
+        return {"ok": True, "id": record_id, "product_id": product_id}
 
     BULK_DRAFT_MAX = 200
 

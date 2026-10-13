@@ -20,7 +20,7 @@ _net.sanitize_env()
 from config import (
     BACKUP_DIR, DATA_DIR,
     APPROVED_CATALOG_PATH, APPROVED_PROFILES_PATH, AUDIO_DEVICE_ID,
-    DEEPSEEK_MODEL, PROCESSOR_SETTINGS_PATH, EXTENSION_DIR, KNOWLEDGE_PACKAGE_SOURCE, KNOWLEDGE_SEED_PATH,
+    DEEPSEEK_MODEL, GEMINI_API_KEY, GEMINI_MODEL, PROCESSOR_SETTINGS_PATH, EXTENSION_DIR, KNOWLEDGE_PACKAGE_SOURCE, KNOWLEDGE_SEED_PATH,
     LIVE_CATALOG_PATH, LIVE_RAW_CATALOG_PATH, LOG_DIR, MACHINE_CATALOG_MAPPING_PATH,
     MEMORY_DB, MEMORY_JOURNAL_DIR, MEMORY_MAX_TURNS, MISSING_DIR, PLUGINS_DIR, ROOT,
     SHOP_INFO_PATH, SHOPEE_LIVE_MAPPING_PATH, TIKTOK_HOST_UNIQUE_IDS, TIKTOK_HOST_USER_IDS, WEB_DIR,
@@ -28,6 +28,8 @@ from config import (
 from customer_history import CustomerHistory
 from captcha_bridge import CaptchaBridge
 from documents import DocumentLibrary
+from ai_providers import DeepSeekTextProvider, GeminiProvider
+from product_ingest import ProductIngest
 from customer_memory import CustomerMemory
 from delivery_store import DeliveryStore, echo_matches, utf16_length
 from privacy import PrivacyService
@@ -487,6 +489,9 @@ class ReplyEngine:
                           if catalog_path.parent.name == "shared"
                           else catalog_path.parent)
         self.workspace = WorkspaceStore(self, root=workspace_root)
+        # Thêm sản phẩm bằng AI: Gemini đọc ảnh/PDF, DeepSeek đọc chữ.
+        self.gemini = GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL)
+        self.ingest = ProductIngest(self, self.gemini, DeepSeekTextProvider(lambda: self.responder))
         cache_root = Path(workspace_root) / "data" / "cache"
         self.video_assets = VideoAssetManager(cache_root)
         self.product_images = ProductImageCache(cache_root)
@@ -1295,6 +1300,7 @@ class ReplyEngine:
                 "model_labels": dict(getattr(self.responder, "model_labels", None) or {}),
                 "model_error": model_error,
                 "api_key_configured": getattr(self.responder, "client", None) is not None,
+                "gemini_key_configured": self.gemini.configured, "gemini_model": self.gemini.model,
                 "tiktok_user_ids": ",".join(sorted(TIKTOK_HOST_USER_IDS)),
                 "tiktok_unique_ids": ",".join(sorted(TIKTOK_HOST_UNIQUE_IDS)),
                 "audio_devices": devices,
@@ -1352,6 +1358,16 @@ class ReplyEngine:
         if knowledge_source is not None:
             from config_settings import save_knowledge_source
             result.update(save_knowledge_source(knowledge_source))
+        gemini_key = str(payload.get("gemini_api_key") or "").strip()
+        gemini_model = str(payload.get("gemini_model") or "").strip()
+        if gemini_model:
+            from config_settings import save_gemini_model
+            result.update(save_gemini_model(gemini_model))
+            self.gemini.configure(model=gemini_model)
+        if gemini_key:
+            from config_settings import save_gemini_key
+            result.update(save_gemini_key(gemini_key))
+            self.gemini.configure(api_key=gemini_key)
         if api_key:
             if not callable(configure_key):
                 return {"ok": False, "error": "model_provider_not_configurable"}
@@ -3806,6 +3822,7 @@ class ReplyEngine:
         "webview2": "https://developer.microsoft.com/microsoft-edge/webview2/#download",
         "deepseek_keys": "https://platform.deepseek.com/api_keys",
         "deepseek_topup": "https://platform.deepseek.com/top_up",
+        "gemini_keys": "https://aistudio.google.com/apikey",
         "chrome_extensions": "chrome://extensions",
         "ffmpeg": "https://www.gyan.dev/ffmpeg/builds/",
         "sadcaptcha_dashboard": "https://www.sadcaptcha.com/dashboard",
@@ -4174,6 +4191,22 @@ class Handler(BaseHTTPRequestHandler):
                 LOG_DIR, component=(query.get("component") or [""])[0],
                 severity=(query.get("severity") or [""])[0],
             ))
+        elif route.startswith("/api/ingest/"):
+            if not self.local_tool_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
+            try:
+                tail = [unquote(p) for p in route[len("/api/ingest/"):].split("/") if p]
+                if tail == ["status"]:
+                    self.send_json(200, {"ok": True, **self.engine.ingest.status()})
+                elif len(tail) == 2 and tail[0] == "suggest":
+                    self.send_json(200, {"ok": True, "suggestions": self.engine.ingest.suggest_skus(tail[1])})
+                elif len(tail) == 2 and tail[0] == "image":
+                    self.send_local_file(self.engine.ingest.staged_image_path(tail[1]), "image/webp")
+                else:
+                    self.send_json(404, {"ok": False, "error": "not_found"})
+            except ValueError as exc:
+                self.send_json(404, {"ok": False, "error": str(exc)})
         elif route.startswith("/api/product/image/"):
             if not self.local_tool_request():
                 self.send_json(403, {"ok": False, "error": "local_only"})
@@ -4455,6 +4488,30 @@ class Handler(BaseHTTPRequestHandler):
                                                  title=unquote(query.get("title", "")))
                 self.send_json(200, {"ok": True, "document": meta})
             except ValueError as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:
+                report_problem("api_error", f"POST {route}", exc)
+                self.send_json(500, {"ok": False, "error": "internal_error"})
+            return
+        if route in ("/api/ingest/extract", "/api/ingest/draft", "/api/ingest/link"):
+            if not self.local_tool_request():
+                self.reject(403, "local_only")
+                return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if size <= 0 or size > 40 * 1024 * 1024:
+                    raise ValueError("invalid_body_size")
+                payload = request_json_object(self.rfile.read(size))
+                ingest = self.engine.ingest
+                if route == "/api/ingest/extract":
+                    result = {"ok": True, **ingest.extract(payload)}
+                elif route == "/api/ingest/draft":
+                    result = ingest.create_draft(payload)
+                else:
+                    result = ingest.link_draft(clean(payload.get("id"), 80), clean(payload.get("product_id"), 160),
+                                               use_image=payload.get("use_image") is not False)
+                self.send_json(200, result)
+            except (ValueError, json.JSONDecodeError) as exc:
                 self.send_json(400, {"ok": False, "error": str(exc)})
             except Exception as exc:
                 report_problem("api_error", f"POST {route}", exc)

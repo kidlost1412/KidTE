@@ -8,6 +8,7 @@ import {loadCatalog, invalidateCatalog} from './video/data.js';
 import {doseRulesPanel} from './dose-rules-ui.js';
 import * as mm from './mapping-model.js';
 import * as pd from './profile-delete-model.js';
+import {openProductIngest} from './product-ingest-ui.js';
 
 const TABS = [
   {id: 'products', label: 'Sản phẩm đang bán', icon: 'cart'},
@@ -19,6 +20,7 @@ const PROFILE_FIELDS = [
   ['ten_san_pham', 'Tên sản phẩm', 'text'],
   ['phan_khuc', 'Nhóm công dụng', 'text'],
   ['mo_ta_ngan', 'Mô tả ngắn', 'textarea'],
+  ['nha_san_xuat', 'Nhà sản xuất', 'text'],
   ['quy_cach_dong_goi', 'Quy cách đóng gói', 'text'],
   ['gia_goc_duyet', 'Giá AI được phép nói', 'text'],
   ['live_promotion', 'Khuyến mãi trong LIVE', 'textarea'],
@@ -171,6 +173,7 @@ function mountProfiles(ctx, host, d) {
     h('span', {class: 'fs-xs muted'}, 'Sửa, tạo và xoá ở đây chỉ áp dụng trên máy này.'),
     bulkBar,
     btn('Hồ sơ đã xoá', {kind: 'ghost', icon: 'trash', onClick: () => openDeleted()}),
+    btn('Thêm sản phẩm bằng AI', {icon: 'sparkles', onClick: () => openProductIngest(ctx, {onDone: id => { invalidateCatalog(); ctx.navigate('catalog', 'profiles', id); }})}),
     btn('Tạo hồ sơ mới', {kind: 'primary', icon: 'plus', onClick: () => createProfile(ctx, null)})), list);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
 

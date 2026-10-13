@@ -35,7 +35,9 @@ function effectiveTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export function createShell({navigate, commands}) {
+const TO_TOP_AFTER = 400;
+
+export function createShell({navigate, commands, goBack = () => false, canGoBack = () => false}) {
   const root = document.getElementById('app');
   const navButtons = new Map();
   let collapsed = false;
@@ -76,6 +78,9 @@ export function createShell({navigate, commands}) {
     h('div', {class: 'sidebar-foot'}, themeBtn, collapseBtn));
 
   const statusStrip = h('div', {class: 'status-strip', 'aria-label': 'Trạng thái vận hành'});
+  const backBtn = h('button', {class: 'topbar-back', type: 'button', 'aria-label': 'Quay lại trang trước', title: 'Quay lại trang trước (Alt+←)', disabled: true,
+    onClick: () => goBackNow()}, icon('arrowLeft'));
+  function goBackNow() { if (canGoBack()) goBack(); }
   const trigger = h('button', {class: 'command-trigger', type: 'button', onClick: () => openPalette()},
     icon('search'), h('span', {}, 'Tìm trang, lệnh…'), h('span', {class: 'kbd'}, 'Ctrl K'));
   // Banner cập nhật: ẩn theo phiên bản đã đóng trong phiên này (sessionStorage); badge trên sidebar vẫn hiện.
@@ -102,11 +107,15 @@ export function createShell({navigate, commands}) {
   const extBanner = h('div', {class: 'update-banner', role: 'status', hidden: true}, h('span', {class: 'update-banner-go'}, extText),
     h('button', {class: 'update-banner-x', type: 'button', 'aria-label': 'Đã tải lại tiện ích, ẩn thông báo', title: 'Đã tải lại — ẩn thông báo',
       onClick: async () => { try { await request('/api/updates/ack_extension_notice', {method: 'POST', body: {}}); } catch (_) { /* */ } extBanner.hidden = true; }}, '×'));
-  const topbar = h('header', {class: 'topbar'}, trigger, updateBanner, extBanner, statusStrip);
+  const topbar = h('header', {class: 'topbar'}, backBtn, trigger, updateBanner, extBanner, statusStrip);
   const main = h('main', {class: 'main', id: 'main', tabindex: '-1'});
-  const shell = h('div', {class: 'shell'}, sidebar, topbar, main);
+  const toTop = h('button', {class: 'to-top', type: 'button', 'aria-label': 'Lên đầu trang', title: 'Lên đầu trang', hidden: true,
+    onClick: () => main.scrollTo({top: 0, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'})}, icon('arrowUp'));
+  const shell = h('div', {class: 'shell'}, sidebar, topbar, main, toTop);
   root.replaceChildren(shell);
   document.querySelector('.skip-link')?.addEventListener('click', e => { e.preventDefault(); main.focus(); });
+  main.addEventListener('scroll', syncToTop, {passive: true});
+  function syncToTop() { toTop.hidden = main.scrollTop <= TO_TOP_AFTER; }
   setCollapsed(collapsed);
 
   function pill(label, tone, onClick, {title, live} = {}) {
@@ -209,6 +218,7 @@ export function createShell({navigate, commands}) {
 
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+    else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowLeft' && !isOverlayOpen() && !paletteOpen) { e.preventDefault(); goBackNow(); }
     else if (e.key === '?' && !isTypingTarget(e.target) && !isOverlayOpen() && !paletteOpen) { showShortcuts(); }
   });
 
@@ -235,6 +245,8 @@ export function createShell({navigate, commands}) {
       main.classList.toggle('full', fullBleed);
       shell.classList.toggle('collapsed', fullBleed || collapsed);
       shell.classList.toggle('studio-mode', fullBleed);
+      backBtn.disabled = !canGoBack();
+      syncToTop();
     },
     setFullBleed(value) {
       main.classList.toggle('full', value);

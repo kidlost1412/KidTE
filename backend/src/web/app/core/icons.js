@@ -33,6 +33,7 @@ const P = {
   chevronUp: ['M18 15l-6-6-6 6'],
   arrowLeft: ['M19 12H5', 'M12 19l-7-7 7-7'],
   arrowRight: ['M5 12h14', 'M12 5l7 7-7 7'],
+  arrowUp: ['M12 19V5', 'M5 12l7-7 7 7'],
   play: ['M6 4l14 8-14 8z'],
   pause: ['M6 4h4v16H6z', 'M14 4h4v16h-4z'],
   skipBack: ['M19 20 9 12l10-8v16z', 'M5 19V5'],

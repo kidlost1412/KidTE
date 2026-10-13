@@ -9,7 +9,7 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
-from learning import Learner, LearningStore, compact  # noqa: E402
+from learning import Learner, LearningStore, compact, relearn_change_ids  # noqa: E402
 
 CATALOG = [
     {"product_id": "p-dam-1l", "bag_index": 2, "name": "Đạm Cá Amino 1L", "title": "Đạm Cá Amino 1L Chất Hữu Cơ 20%"},
@@ -157,6 +157,62 @@ class LearnerTests(unittest.TestCase):
         self.learner.undo_relearn(run_id)
         self.assertEqual(sorted(i["item_id"] for i in self.store.items("active")), sorted([a, b, wrong]))
         self.assertEqual(self.store.persona("default")["style_guide"], "")
+
+    def test_relearn_partial_apply_keeps_rejected_changes_and_undo_restores(self):
+        a = self.store.add_item(kind="fact", statement="Đạm cá có can 5L", product_id="p-dam-5l", status="active")
+        b = self.store.add_item(kind="fact", statement="Đạm cá bán can 5 lít", product_id="p-dam-5l", status="active")
+        wrong = self.store.add_item(kind="fact", statement="TC01 dùng cho lúa", product_id="p-tc01", status="active")
+        style_before = self.store.persona("default")["style_guide"]
+        self.responder.client = FakeClient([{
+            "summary": "Gộp 2 mục, thêm 1 mục, bỏ 1 mục sai, đổi giọng",
+            "items": [
+                {"from_ids": [a, b], "kind": "fact", "product_id": "p-dam-5l", "terms": [],
+                 "statement": "Đạm Cá Amino có can 5 lít", "confidence": .8},
+                {"from_ids": [], "kind": "fact", "product_id": "p-dam-5l", "terms": [],
+                 "statement": "Đạm cá tan trong nước", "confidence": .9},
+            ],
+            "retire_ids": [wrong], "conflicts": [],
+            "personas": [{"persona_id": "default", "style_guide": "- xưng em\n- câu ngắn"}],
+        }])
+        run_id = self.learner.submit_relearn(sync=True)
+        ids = relearn_change_ids(self.store.run(run_id)["output"])
+        self.assertEqual(ids, ["item:0", "item:1", f"retire:{wrong}", "style:default"])
+
+        # Bỏ đề xuất gộp và đổi giọng; giữ mục mới và tắt mục sai.
+        out = self.learner.apply_relearn(run_id, accepted=["item:1", f"retire:{wrong}"])
+        self.assertEqual((out["applied"], out["total"]), (2, 4))
+        self.assertEqual(sorted(i["item_id"] for i in self.store.items("active") if i["item_id"] in {a, b}), sorted([a, b]),
+                         "merge bị bỏ thì hai mục cũ phải còn nguyên")
+        self.assertEqual(self.store.item(wrong)["status"], "retired")
+        self.assertIn("Đạm cá tan trong nước", [i["statement"] for i in self.store.items("active")])
+        self.assertEqual(self.store.persona("default")["style_guide"], style_before, "giọng bị bỏ thì không đổi")
+        saved = self.store.run(run_id)["output"]
+        self.assertEqual(saved["applied"], ["item:1", f"retire:{wrong}"])
+        self.assertEqual(saved["skipped"], ["item:0", "style:default"])
+
+        self.learner.undo_relearn(run_id)
+        self.assertEqual(sorted(i["item_id"] for i in self.store.items("active")), sorted([a, b, wrong]))
+        self.assertNotIn("Đạm cá tan trong nước", [i["statement"] for i in self.store.items("active")])
+        self.assertEqual(self.store.persona("default")["style_guide"], style_before)
+
+    def test_relearn_apply_validates_accepted_list_without_partial_changes(self):
+        a = self.store.add_item(kind="fact", statement="Đạm cá có can 5L", product_id="p-dam-5l", status="active")
+        wrong = self.store.add_item(kind="fact", statement="TC01 dùng cho lúa", product_id="p-tc01", status="active")
+        self.responder.client = FakeClient([{
+            "summary": "Bỏ 1 mục sai",
+            "items": [], "retire_ids": [wrong], "conflicts": [], "personas": [],
+        }])
+        run_id = self.learner.submit_relearn(sync=True)
+        with self.assertRaisesRegex(ValueError, "learning_change_unknown"):
+            self.learner.apply_relearn(run_id, accepted=["retire:not-real"])
+        with self.assertRaisesRegex(ValueError, "learning_nothing_selected"):
+            self.learner.apply_relearn(run_id, accepted=[])
+        self.assertEqual(self.store.run(run_id)["status"], "done", "lỗi xác thực thì đề xuất vẫn chờ áp dụng")
+        self.assertEqual(self.store.item(wrong)["status"], "active")
+        self.assertEqual(self.store.item(a)["status"], "active")
+        out = self.learner.apply_relearn(run_id, accepted=[f"retire:{wrong}"])
+        self.assertEqual((out["applied"], out["total"]), (1, 1))
+        self.assertEqual(self.store.item(wrong)["status"], "retired")
 
 
 class SplitContextTests(unittest.TestCase):

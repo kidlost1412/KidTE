@@ -3400,8 +3400,14 @@ class ReplyEngine:
             run_id = learner.submit_relearn(trigger="manual")
             return {"ok": True, "run_id": run_id}
         if action == "apply":
+            accepted = payload.get("accepted")
+            if accepted is not None:
+                if not isinstance(accepted, list) or len(accepted) > 500:
+                    raise ValueError("learning_change_unknown")
+                accepted = [clean(x, 80) for x in accepted if isinstance(x, str)]
             return learner.apply_relearn(clean(payload.get("run_id"), 40),
-                                         include_styles=payload.get("include_styles", True) is not False)
+                                         include_styles=payload.get("include_styles", True) is not False,
+                                         accepted=accepted)
         if action == "undo":
             return learner.undo_relearn(clean(payload.get("run_id"), 40))
         if action == "discard":

@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -9,6 +9,16 @@ sys.path.insert(0, str(SRC))
 
 import app_entry
 import backup_policy
+import launch_origin
+
+USER = lambda: (True, "parent=explorer.exe:1")  # noqa: E731
+BACKGROUND = lambda: (False, "parent=python.exe:2")  # noqa: E731
+
+
+@pytest.fixture(autouse=True)
+def _user_launch_and_no_log(monkeypatch):
+    monkeypatch.setenv("KIDTE_FORCE_FOCUS", "1")  # main(): behave like an Explorer start
+    monkeypatch.setattr(app_entry, "record", lambda *a, **k: None)
 
 
 class _Engine:
@@ -226,7 +236,7 @@ def test_frozen_direct_start_hands_over_to_launcher(tmp_path):
     core = tmp_path / "App" / "packages" / "runtime" / "1.0.0"
     core.mkdir(parents=True)
     spawned = []
-    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=core, spawn=spawned.append, argv=["KidTE.exe"]) is True
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=core, spawn=spawned.append, argv=["KidTE.exe"], user_check=USER) is True
     assert spawned == [launcher.resolve()]
 
 
@@ -234,14 +244,14 @@ def test_launcher_redirect_skipped_with_nonce_source_or_missing_launcher(tmp_pat
     (tmp_path / "KidTELauncher.exe").write_bytes(b"x")
     spawned = []
     call = lambda env, frozen=True, d=tmp_path: app_entry.redirect_to_launcher(
-        env, frozen=frozen, exe_dir=d, spawn=spawned.append, argv=["KidTE.exe"])
+        env, frozen=frozen, exe_dir=d, spawn=spawned.append, argv=["KidTE.exe"], user_check=USER)
     assert call({"KIDTE_LAUNCH_NONCE": "abc"}) is False      # launcher always sets it: no loop
     assert call({}, frozen=False) is False                    # source mode
     assert call({"KIDTE_NO_LAUNCHER_REDIRECT": "1"}) is False
     empty = tmp_path / "empty"
     empty.mkdir()
     assert app_entry.find_launcher(empty, max_up=0) is None
-    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=empty, spawn=spawned.append, argv=["KidTE.exe"]) is True  # parent has it
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=empty, spawn=spawned.append, argv=["KidTE.exe"], user_check=USER) is True  # parent has it
     assert len(spawned) == 1
 
 
@@ -249,7 +259,7 @@ def test_launcher_spawn_failure_falls_back_to_normal_start(tmp_path):
     (tmp_path / "KidTELauncher.exe").write_bytes(b"x")
     def boom(_):
         raise OSError("no")
-    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=tmp_path, spawn=boom, argv=["KidTE.exe"]) is False
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=tmp_path, spawn=boom, argv=["KidTE.exe"], user_check=USER) is False
 
 
 def test_launcher_redirect_skipped_when_cli_args_given(tmp_path):
@@ -258,3 +268,41 @@ def test_launcher_redirect_skipped_when_cli_args_given(tmp_path):
     assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=tmp_path, spawn=spawned.append,
                                           argv=["KidTE.exe", "--no-ui"]) is False
     assert spawned == []
+
+
+def test_background_start_never_redirects_to_launcher(tmp_path):
+    (tmp_path / "KidTELauncher.exe").write_bytes(b"x")
+    spawned = []
+    assert app_entry.redirect_to_launcher({}, frozen=True, exe_dir=tmp_path, spawn=spawned.append,
+                                          argv=["KidTE.exe"], user_check=BACKGROUND) is False
+    assert spawned == []
+
+
+def test_background_start_with_running_core_is_silent(tmp_path, monkeypatch):
+    monkeypatch.delenv("KIDTE_FORCE_FOCUS")
+    monkeypatch.delenv("KIDTE_LAUNCH_NONCE", raising=False)
+    monkeypatch.setattr(app_entry, "redirect_to_launcher", lambda *a, **k: False)
+    monkeypatch.setattr(app_entry, "started_by_user", BACKGROUND)
+    calls = []
+    monkeypatch.setattr(app_entry, "notify_existing_instance", lambda *a: calls.append("focus"))
+    monkeypatch.setattr(app_entry, "run_client_ui", lambda *a: calls.append("ui"))
+    monkeypatch.setattr(app_entry, "ensure_std_streams", lambda *a: None)
+    monkeypatch.setattr(app_entry, "prepare_user_layout", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["KidTE.exe"])
+
+    class Locked:
+        def __init__(self, *a): pass
+        def acquire(self): raise app_entry.InstanceAlreadyRunning("busy")
+    monkeypatch.setattr(app_entry, "SingleInstanceLock", Locked)
+    assert app_entry.main() == 0
+    assert calls == []
+
+
+def test_started_by_user_uses_real_parent_skipping_same_exe_bootloader():
+    table = {10: (5, "kidtelauncher.exe"), 5: (3, "kidtelauncher.exe"), 3: (1, "explorer.exe"), 1: (0, "x")}
+    assert launch_origin.started_by_user({}, table=table, own_name="KidTELauncher.exe", pid=10)[0] is True
+    table[3] = (1, "python.exe")
+    ok, detail = launch_origin.started_by_user({}, table=table, own_name="KidTELauncher.exe", pid=10)
+    assert ok is False and "python.exe" in detail
+    assert launch_origin.started_by_user({}, table={10: (99, "kidte.exe")}, own_name="KidTE.exe", pid=10)[0] is False  # parent gone
+    assert launch_origin.started_by_user({"KIDTE_FORCE_FOCUS": "1"}, table=table, pid=10)[0] is True

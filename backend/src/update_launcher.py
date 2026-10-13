@@ -417,6 +417,20 @@ def _live_lock_state(data_root: Path, app_root: Path) -> tuple[str, int | None]:
 
 
 def _call_focus(port: int) -> None:
+    # Only a user-initiated start (Explorer/Start menu/shortcut) may raise the
+    # running window; a background process re-running the exe must stay silent.
+    try:
+        from launch_origin import record, started_by_user
+
+        user, detail = started_by_user()
+        try:
+            record(_app_root().parent / "DuLieu" / "logs", "focus" if user else "focus-suppressed", detail)
+        except Exception:  # noqa: BLE001 - diagnostics only
+            pass
+    except Exception:  # noqa: BLE001 - unknown origin: do not steal focus
+        return
+    if not user:
+        return
     request = urllib.request.Request(
         f"http://{DEFAULT_HOST}:{port}/api/focus", data=b"{}", method="POST",
         headers={"Content-Type": "application/json"},

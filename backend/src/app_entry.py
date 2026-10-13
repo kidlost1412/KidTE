@@ -14,6 +14,7 @@ from pathlib import Path
 from config import CHAT_HOST, CHAT_PORT, INSTALL_ROOT, IS_FROZEN, LOG_DIR, PLUGINS_DIR, ROOT
 from console_io import ensure_std_streams, force_utf8_console, hide_child_consoles
 from instance_lock import InstanceAlreadyRunning, SingleInstanceLock
+from launch_origin import record, started_by_user
 import auto_backup
 import problems
 from port_diagnostics import owners_for_port
@@ -131,7 +132,8 @@ def find_launcher(exe_dir, *, max_up=4):
     return None
 
 
-def redirect_to_launcher(environ=None, *, frozen=None, exe_dir=None, spawn=None, argv=None):
+def redirect_to_launcher(environ=None, *, frozen=None, exe_dir=None, spawn=None, argv=None,
+                         user_check=None):
     """Lõi đóng băng mở thẳng (không có mã launcher) thì nhờ launcher mở thay.
 
     Trả True khi đã bàn giao và tiến trình này phải thoát ngay. Launcher luôn
@@ -146,6 +148,12 @@ def redirect_to_launcher(environ=None, *, frozen=None, exe_dir=None, spawn=None,
     launcher = find_launcher(Path(sys.executable).parent if exe_dir is None else exe_dir)
     if launcher is None:
         return False
+    if user_check is None:
+        user_check = lambda: started_by_user(environ)  # noqa: E731
+    user, detail = user_check()
+    record(LOG_DIR, "redirect" if user else "redirect-suppressed", detail)
+    if not user:
+        return False  # tien trinh nen: khong ban giao cho launcher (launcher se focus cua so)
     if spawn is None:
         def spawn(path):
             flags = 0
@@ -189,6 +197,10 @@ def main() -> int:
             # of opening a second window onto the other instance.
             return ALREADY_RUNNING_EXIT_CODE
         url = f"http://{args.host}:{args.port}/app"
+        user, detail = started_by_user()
+        record(LOG_DIR, "already-running-focus" if user else "already-running-silent", detail)
+        if not user:
+            return 0  # tien trinh nen: khong focus, khong mo cua so thu hai
         if notify_existing_instance(args.host, args.port):
             print("[kid-te] Đã đưa cửa sổ Kid TE đang chạy lên trước.")
             return 0

@@ -97,3 +97,18 @@
 .update-banner[hidden] { display: none; }
 .update-banner-go { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; padding: 4px 0; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .update-banner-x { border: 0; background: transparent; color: inherit; font-size: 16px; line-height: 1; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; flex: none; }
+
+/* Nút quay lại (bên trái ô tìm kiếm) */
+.topbar-back { flex: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); }
+.topbar-back svg { width: 18px; height: 18px; }
+.topbar-back:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-hover); color: var(--text); }
+.topbar-back:disabled { opacity: .45; }
+
+/* Nút lên đầu trang (góc dưới bên phải vùng nội dung) */
+.to-top { position: fixed; right: 24px; bottom: 24px; z-index: 40; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface); color: var(--text-2); box-shadow: var(--shadow-2); animation: pop var(--dur-2) var(--ease); transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); }
+.to-top[hidden] { display: none; }
+.to-top svg { width: 20px; height: 20px; }
+.to-top:hover { border-color: var(--border-strong); background: var(--surface-hover); color: var(--text); }
+.shell.studio-mode .to-top { display: none; }
+@media (max-width: 700px) { .to-top { right: 16px; bottom: 16px; } }
+@media (prefers-reduced-motion: reduce) { .to-top { animation: none; } }

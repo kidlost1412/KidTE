@@ -28,6 +28,8 @@ const router = createRouter(route => mount(route));
 const navigate = (page, sub, id, opts) => router.go(page, sub, id, opts);
 
 const shell = createShell({
+  goBack: () => router.back(),
+  canGoBack: () => router.canBack(),
   navigate,
   commands: () => [
     {group: 'Đi tới', title: 'Tổng quan', sub: 'Tình hình phiên LIVE và việc cần làm', icon: 'home', run: () => navigate('overview')},

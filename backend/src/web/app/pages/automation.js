@@ -4,6 +4,7 @@ import {request, friendlyError} from '../core/api.js';
 import {clock, relative, bytes, number} from '../core/format.js';
 import {btn, chip, errorBox, skeletonRows, pageHead, notice, card, field, input, textarea, select, toggle, empty, stat} from '../ui/kit.js';
 import {toast, confirmDialog} from '../ui/overlays.js';
+import {legacyModel, migrateToNotes, saveNotes, dismissLegacy, LIMITS as NOTE_LIMITS} from './persona-model.js';
 
 // Dịch vụ chạy nền (đồng bộ video) bật/tắt ở trang tổng; bộ xử lý luôn chạy cùng
 // ứng dụng nhưng mỗi bộ có trang riêng: giải thích, cài đặt, thử ngay.
@@ -11,7 +12,7 @@ const ABOUT = {
   'chinh-sach-gia': {icon: 'tag', text: 'Hướng dẫn AI báo đúng giá, tôn trọng giá khách thấy và yêu cầu viết lại khi câu trả lời tự tính giá hoặc khẳng định có mã.'},
   'chon-san-pham': {icon: 'target', text: 'Đoán khách đang hỏi sản phẩm nào (tên gọi đã dạy, sản phẩm đang ghim, “chai này”).'},
   'lieu-dung': {icon: 'activity', text: 'Tính liều pha theo đúng nhãn đã duyệt (vd bình 25 lít pha bao nhiêu ml).'},
-  'model-deepseek': {icon: 'bot', text: 'Gọi DeepSeek soạn câu trả lời: độ dài, độ sáng tạo, chế độ suy nghĩ, lời nhắc hệ thống.'},
+  'model-deepseek': {icon: 'bot', text: 'Gọi DeepSeek soạn câu trả lời: độ dài, độ sáng tạo, chế độ suy nghĩ, ghi chú thêm cho AI.'},
   'thu-du-lieu': {icon: 'database', text: 'Ghi mọi bình luận của phiên LIVE — nguồn của Hộp thư, Khách hàng và việc AI tự học.'},
   'dong-bo-video': {icon: 'film', text: 'Theo dõi riêng Shopee qua nguồn phương tiện OBS và TikTok qua âm thanh TikTok Studio. Mỗi sàn ghim theo vị trí video riêng.'},
 };
@@ -228,6 +229,46 @@ function settingsCard(data, onSaved) {
   return node;
 }
 
+// ---------------------------------------------------------------- Ghi chú thêm cho AI
+// Luật bán hàng gốc đi kèm ứng dụng và luôn được cập nhật (không còn sửa/ghi đè toàn bộ). Ghi chú ngắn của chủ shop
+// được nối SAU luật gốc, TRƯỚC phong cách người trực. Giọng nói: sửa ở Trí nhớ AI → Phong cách người trực.
+function aiNotesCard(ctx, s, reload) {
+  const legacy = legacyModel(s);
+  const max = s.notes_max || NOTE_LIMITS.notes;
+  const area = textarea({rows: 6, value: s.notes || '', maxlength: max, placeholder: 'vd: Shop có xe giao tận vườn trong bán kính 20km. Khách hỏi bón cho sầu riêng thì nhắc xem giai đoạn cây.'});
+  const counter = h('div', {class: 'fs-xs muted'});
+  const update = () => { counter.textContent = `${area.value.length}/${max} ký tự`; };
+  area.addEventListener('input', update); update();
+  let archive = false;
+  const legacyBox = h('div', {class: 'col gap-2'});
+  if (legacy.has) {
+    legacyBox.append(notice('warn', 'Máy này còn “lời nhắc hệ thống” kiểu cũ — không còn được dùng',
+      `Bản cũ ghi đè TOÀN BỘ luật nên các cập nhật luật mới không tới được AI, vì vậy ứng dụng đã bỏ cách này (${number(legacy.chars)} ký tự, chưa bị xoá). Bạn có thể chuyển thành ghi chú ngắn để xem lại, hoặc bỏ qua.`),
+      h('div', {class: 'row', style: {gap: '8px'}},
+        btn('Chuyển thành ghi chú', {kind: 'primary', size: 'sm', icon: 'arrowRight', onClick: () => {
+          const m = migrateToNotes(legacy.text, max);
+          const joined = (area.value.trim() ? area.value.trim() + '\n' : '') + m.text;
+          area.value = joined.slice(0, max); update(); archive = true;
+          toast(m.truncated || joined.length > max ? 'Lời nhắc cũ dài hơn giới hạn nên đã cắt — hãy đọc, giữ lại ý cần rồi bấm Lưu.' : 'Đã chép vào ô ghi chú — hãy đọc lại rồi bấm Lưu.', 'ok');
+        }}),
+        btn('Bỏ lời nhắc cũ', {kind: 'ghost', size: 'sm', onClick: async () => {
+          const ok = await confirmDialog({title: 'Bỏ lời nhắc hệ thống kiểu cũ?', text: 'File được cất sang tên *.da-chuyen trong thư mục dữ liệu, không bị xoá.', confirm: 'Bỏ'});
+          if (!ok) return;
+          try { await dismissLegacy(request); toast('Đã cất lời nhắc cũ.', 'ok'); reload(); } catch (e) { toast(friendlyError(e), 'danger'); }
+        }})));
+  }
+  const save = btn('Lưu ghi chú', {kind: 'primary', icon: 'save', onClick: async () => {
+    try { await saveNotes(request, area.value, archive); toast('Đã lưu — áp dụng cho câu tiếp theo.', 'ok'); reload(); }
+    catch (e) { toast(friendlyError(e), 'danger'); }
+  }});
+  return card('Ghi chú thêm cho AI', h('div', {class: 'card-body col gap-3'},
+    notice('info', null, 'Luật bán hàng (giá, quà, liều, chống bịa) do ứng dụng giữ và tự cập nhật. Ở đây chỉ ghi vài dòng riêng của shop — AI đọc sau luật gốc và không được trái luật giá/dữ kiện cứng. Giọng nói, xưng hô nằm ở phong cách người trực.'),
+    legacyBox, area, counter,
+    s.persona && s.persona.name ? h('div', {class: 'fs-sm muted'}, `Người đang trực: ${s.persona.name}`) : null,
+    btn('Sửa phong cách người trực', {kind: 'ghost', size: 'sm', icon: 'user', onClick: () => ctx.navigate('brain', 'style')})),
+  {sub: s.notes ? 'Đã có ghi chú' : 'Chưa có ghi chú', footer: [h('span', {class: 'grow'}), save]});
+}
+
 // ---------------------------------------------------------------- Thẻ riêng từng bộ
 function extraCards(ctx, data, reload) {
   const s = data.stats || {};
@@ -253,17 +294,6 @@ function extraCards(ctx, data, reload) {
     {sub: 'Nhãn ghi kiểu “100ml cho 10 bình phun” hay “3kg/ha” thì AI chỉ đọc nguyên văn, không tự quy đổi cho bình khách hỏi. Muốn AI tính được: thêm một dòng theo mẫu “20ml cho bình 16–25 lít” trong hồ sơ.'});
   }
   if (data.id === 'model-deepseek') {
-    const area = textarea({rows: 16, value: s.prompt || '', style: {fontFamily: 'var(--font-mono)', fontSize: '12px'}});
-    const saveP = btn('Lưu lời nhắc', {kind: 'primary', icon: 'save', onClick: async () => {
-      try { await request('/api/system/processors/model-deepseek/prompt', {method: 'POST', body: {text: area.value}}); toast('Đã lưu lời nhắc — áp dụng cho câu tiếp theo.', 'ok'); reload(); }
-      catch (e) { toast(friendlyError(e), 'danger'); }
-    }});
-    const resetP = s.prompt_custom ? btn('Về bản gốc', {kind: 'ghost', icon: 'undo', onClick: async () => {
-      const ok = await confirmDialog({title: 'Bỏ lời nhắc đã sửa, dùng lại bản gốc của ứng dụng?', confirm: 'Về bản gốc'});
-      if (!ok) return;
-      try { await request('/api/system/processors/model-deepseek/prompt', {method: 'POST', body: {text: ''}}); toast('Đã dùng lại bản gốc.', 'ok'); reload(); }
-      catch (e) { toast(friendlyError(e), 'danger'); }
-    }}) : null;
     return h('div', {class: 'col gap-4'},
       card('Kết nối DeepSeek', h('div', {class: 'card-body col gap-3'},
         !s.key_configured ? notice('danger', 'Chưa có khoá API', 'AI không trả lời được cho tới khi nhập khoá.')
@@ -271,11 +301,7 @@ function extraCards(ctx, data, reload) {
             : notice('warn', 'Chưa dùng được', s.balance_error || 'Không kiểm tra được số dư.')),
       {actions: [btn('Đổi khoá / model', {kind: 'ghost', size: 'sm', icon: 'key', onClick: () => ctx.navigate('system', 'setup')}),
         btn('Nạp tiền', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => openTarget('deepseek_topup')})]}),
-      card('Lời nhắc hệ thống (cách AI được dặn trả lời)', h('div', {class: 'card-body col gap-3'},
-        notice('info', null, 'Đây là “bản hướng dẫn” gửi kèm mọi câu hỏi: giọng nói, luật giá, luật liều, khi nào im lặng. Sửa sai có thể làm AI trả lời lệch — thử lại ở ô “Thử ngay” bên dưới sau khi lưu.'),
-        area),
-      {sub: s.prompt_custom ? 'Đang dùng bản ĐÃ SỬA trên máy này' : 'Đang dùng bản gốc của ứng dụng',
-        footer: [resetP, h('span', {class: 'grow'}), saveP]}));
+      aiNotesCard(ctx, s, reload));
   }
   return null;
 }

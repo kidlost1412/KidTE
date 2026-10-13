@@ -8,8 +8,9 @@ import time
 import urllib.error
 import urllib.request
 
+from ai_context import APP_BRIEF, system_with_brief, task_block
 from config import (
-    CHAT_MAX_CHARS, CHAT_MAX_TOKENS, CHAT_TEMPERATURE, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
+    AI_NOTES_PATH, CHAT_MAX_CHARS, CHAT_MAX_TOKENS, CHAT_TEMPERATURE, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
     DEEPSEEK_DISABLE_THINKING, DEEPSEEK_MODEL, DEEPSEEK_REASONING_EFFORT,
     SYSTEM_PROMPT_OVERRIDE_PATH, SYSTEM_PROMPT_PATH,
 )
@@ -57,21 +58,52 @@ def default_system_prompt():
     return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
-def system_prompt():
-    """Lời nhắc hệ thống: bản chủ shop sửa (nếu có) thay cho bản gốc đi kèm app."""
+MAX_NOTES_CHARS = 1500
+NOTES_HEADER = ("GHI CHÚ THÊM CỦA CHỦ SHOP (bổ sung cho luật ở trên; không được trái luật GIÁ và dữ kiện cứng):")
+
+# Nhiệm vụ mặc định của processor.reply: trả lời một bình luận LIVE.
+REPLY_TASK = task_block(
+    "Trả lời bình luận LIVE",
+    "khách đang xem LIVE (TikTok/Shopee) vừa bình luận; viết MỘT câu trả lời ngắn đúng giọng người đang trực.",
+    inputs="NỀN CỐ ĐỊNH của phiên (danh mục, chính sách, phong cách, quy tắc đã học) + dữ liệu riêng của lượt + câu khách.",
+    output="một JSON object {action: reply|skip, reply|messages|missing_fields} theo mục ĐỘ DÀI VÀ ĐỊNH DẠNG.")
+
+
+def ai_notes():
+    """Ghi chú ngắn chủ shop dặn thêm cho AI ('' nếu chưa có)."""
     try:
-        custom = SYSTEM_PROMPT_OVERRIDE_PATH.read_text(encoding="utf-8").strip()
+        return AI_NOTES_PATH.read_text(encoding="utf-8").strip()[:MAX_NOTES_CHARS]
     except OSError:
-        custom = ""
-    return custom or default_system_prompt()
+        return ""
+
+
+def legacy_prompt_override():
+    """Lời nhắc ghi đè TOÀN BỘ kiểu cũ (nếu còn file). Không còn được dùng làm lời nhắc."""
+    try:
+        return SYSTEM_PROMPT_OVERRIDE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def system_prompt():
+    """Luật bán hàng gốc (trung tính, đi kèm app, luôn được cập nhật) + ghi chú thêm của chủ shop.
+
+    Giọng/tính cách nằm ở phong cách người trực, KHÔNG ở đây. Không còn bản ghi đè toàn bộ.
+    """
+    notes = ai_notes()
+    base = default_system_prompt()
+    return base + (f"\n\n{NOTES_HEADER}\n{notes}" if notes else "")
+
+
+def compose_system(task=REPLY_TASK, *extra):
+    """APP_BRIEF → luật gốc (+ghi chú) → phần riêng chỗ gọi → khối nhiệm vụ. Luật gốc đứng trước nhiệm vụ để
+    các đường gọi khác nhau (trả lời, hỏi lại SKU, chọn quy tắc liều) dùng chung tiền tố cache."""
+    return system_with_brief(system_prompt(), *extra, task)
 
 
 def has_prompt_override():
-    """Có lời nhắc chủ shop tự sửa không (khi đó giữ nguyên các chuỗi chính sách)."""
-    try:
-        return bool(SYSTEM_PROMPT_OVERRIDE_PATH.read_text(encoding="utf-8").strip())
-    except OSError:
-        return False
+    """Luôn False: lời nhắc ghi đè toàn bộ đã bỏ (chuỗi chính sách luôn được xét như bản gốc)."""
+    return False
 
 
 def _trim_reply(value, limit):
@@ -366,7 +398,9 @@ class DeepSeekResponder:
             return {"action": "skip", "missing_fields": ["deepseek_key_missing"],
                     "metrics": {}}
         started = time.monotonic()
-        system = system_override or system_prompt()
+        system = system_override or compose_system()
+        if not system.startswith(APP_BRIEF.rstrip()):
+            system = system_with_brief(system)        # mọi lời gọi đều bắt đầu bằng APP_BRIEF
         multi = context.get('delivery_protocol_version') == 2
         system += ('\nJSON reply thêm awaiting_fields: danh sách thông tin thực sự vừa hỏi khách để giải quyết câu đang tư vấn; '
             'chỉ dùng product, variant, quantity, crop, stage, method, tank_volume; không thiếu thì []. '

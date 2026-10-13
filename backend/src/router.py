@@ -21,6 +21,7 @@ import threading
 import time
 from pathlib import Path
 
+from ai_context import system_with_brief
 from config import DATA_DIR
 
 CONFIG_PATH = DATA_DIR / "machine" / "router.json"
@@ -124,8 +125,12 @@ def _catalog_rows(catalog_names):
     return sorted(rows.items())
 
 
-def build_messages(comment, catalog_rows, recent_turns, pinned):
-    """[system cố định, danh mục ổn định (cache), phần riêng lượt]."""
+def build_messages(comment, catalog_rows, recent_turns, pinned, brief=False):
+    """[system cố định, danh mục ổn định (cache), phần riêng lượt].
+
+    brief=True: APP_BRIEF đứng đầu system (chỉ dùng cho DeepSeek: tiền tố cố định nên được cache, gần như
+    không tốn thêm độ trễ). Máy chủ cục bộ nhỏ (custom) KHÔNG nhận brief để giữ lời gọi tí hon.
+    """
     catalog = "DANH MỤC (id|tên):\n" + "\n".join(f"{pid}|{name}" for pid, name in catalog_rows)
     lines = []
     for turn in list(recent_turns or [])[:2]:
@@ -137,7 +142,8 @@ def build_messages(comment, catalog_rows, recent_turns, pinned):
     pin = _short(pinned, 80)
     turn_part = ("Gần đây:\n" + "\n".join(lines) + "\n" if lines else "") \
         + ("Đang ghim: " + pin + "\n" if pin else "") + "Câu khách: " + _short(comment, 300)
-    return [{"role": "system", "content": SYSTEM_PROMPT},
+    system = system_with_brief(SYSTEM_PROMPT) if brief else SYSTEM_PROMPT
+    return [{"role": "system", "content": system},
             {"role": "system", "content": catalog},
             {"role": "user", "content": turn_part}]
 
@@ -217,7 +223,7 @@ def route(client_call, comment, *, catalog_names, recent_turns=None, pinned="", 
         rows = _catalog_rows(catalog_names)
         if not rows or not _short(comment, 10):
             return None
-        request = {"model": model, "messages": build_messages(comment, rows, recent_turns, pinned),
+        request = {"model": model, "messages": build_messages(comment, rows, recent_turns, pinned, brief=not custom),
                    "max_tokens": MAX_TOKENS, "temperature": 0,
                    "response_format": {"type": "json_object"}, "timeout": timeout}
         if not custom:

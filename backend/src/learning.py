@@ -47,6 +47,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ai_context import system_with_brief, task_block
 from knowledge import clean, fold
 
 KINDS = ("alias", "fact", "rule")
@@ -57,6 +58,33 @@ MAX_STATEMENT_CHARS = 400
 MAX_FACTS_PER_TURN = 8
 MAX_RULES = 12
 MAX_STYLE_CHARS = 1600
+
+# Phong cách dựng sẵn (giọng cũ nằm trong lời nhắc hệ thống, nay tách ra đây). Lời nhắc hệ thống chỉ còn LUẬT
+# BÁN HÀNG trung tính; mọi giọng/tính cách/xưng hô nằm ở lớp phong cách này.
+DEFAULT_PERSONA_ID = "default"
+DEFAULT_PERSONA_NAME = "Mặc định (nữ, vui, lanh)"
+DEFAULT_PERSONA_DESC = "Giọng host nữ mặc định: gần gũi, lanh, vui, hơi tinh nghịch; kỹ thuật thì chắc ý."
+_LEGACY_PERSONA_NAME = "Giọng mặc định"
+_LEGACY_PERSONA_DESC = "Giọng host mặc định trong lời nhắc hệ thống."
+DEFAULT_VOICE = """- Giọng: cô gái dẫn live, nói với khách như khách quen vẫn hay ghé: gần gũi, lanh, vui, có chút tinh nghịch; khi vào kỹ thuật thì chắc ý và có chiều sâu.
+- Xưng hô: tự xưng “em”; gọi khách anh/chị/cô/chú/bác theo cách khách tự xưng hoặc theo ngữ cảnh.
+- Từ hay dùng: “nha”, “nè”, “anh ơi”, “chị ơi”, “nhà mình”, “ok luôn”, “vô tư” khi hợp ngữ cảnh; vừa đủ, không nhồi từ đệm.
+- Độ dài/nhịp: 1–2 câu ngắn vừa khung chat; không mở đầu bằng “Dạ” theo thói quen.
+- Cách chào: khách chỉ chào thì đáp ngắn kiểu “Hello anh nha”, “Chào chị nha”; không tự nối câu hỏi bán hàng như “mình coi dòng nào”, “em hỗ trợ gì”.
+- Cách đùa: khách chào kèm trêu/khen thì bắt một ý rất ngắn, tự nhiên, mỗi lần một kiểu; không ve vãn, không tự nhận “người đẹp”, không quá ngọt hay quá lễ phép.
+- Cách chốt: nói giá gốc rồi nhắc TikTok đang hỗ trợ mã lớn, mời khách xem tài khoản có mã chưa rồi đặt liền; khách báo giá thấp hơn thì mừng cho khách và thúc chốt.
+- Nhịp mẫu (chỉ cảm nhịp, không dùng lại nguyên văn): “Tầm 7–10 ngày, cây ổn rồi mình phun được nha, nhớ đi đúng liều cây con là được.” / “Gốc 289k đó anh, mà nay TikTok hỗ trợ mã lớn lắm, anh xem tài khoản mình có hông rồi đặt liền nha.” / “Vậy là tài khoản anh đang có mã rồi đó, ngon quá, chốt liền đi anh.” / “Kiến thì anh đang gặp ở cây gì để em coi đúng dòng cho anh?”
+- Tránh: giọng chatbot/tổng đài, “quý khách”, “cảm ơn đã ghé”, quá ngọt, quá lễ phép."""
+
+
+def style_text(persona):
+    """Hướng dẫn phong cách THỰC GỬI cho model. Người trực mặc định = giọng dựng sẵn + phần đã học thêm."""
+    if not persona:
+        return DEFAULT_VOICE
+    guide = str(persona.get("style_guide") or "").strip()
+    if persona.get("persona_id") == DEFAULT_PERSONA_ID:
+        return DEFAULT_VOICE + (("\n- Bổ sung đã học từ chủ shop:\n" + guide) if guide else "")
+    return guide
 
 # Từ quá phổ biến trong bình luận LIVE — không dùng để khớp kiến thức.
 _COMMON = frozenset("""
@@ -200,8 +228,14 @@ class LearningStore:
             if not db.execute("SELECT 1 FROM personas LIMIT 1").fetchone():
                 db.execute(
                     "INSERT INTO personas(persona_id,name,description,style_guide,is_active,created_at) "
-                    "VALUES ('default','Giọng mặc định','Giọng host mặc định trong lời nhắc hệ thống.','',1,?)",
-                    (_now(),))
+                    "VALUES (?,?,?,'',1,?)",
+                    (DEFAULT_PERSONA_ID, DEFAULT_PERSONA_NAME, DEFAULT_PERSONA_DESC, _now()))
+            else:
+                # Đổi tên bản cũ (chỉ khi chủ shop chưa tự đổi tên/mô tả).
+                db.execute("UPDATE personas SET name=? WHERE persona_id=? AND name=?",
+                           (DEFAULT_PERSONA_NAME, DEFAULT_PERSONA_ID, _LEGACY_PERSONA_NAME))
+                db.execute("UPDATE personas SET description=? WHERE persona_id=? AND description=?",
+                           (DEFAULT_PERSONA_DESC, DEFAULT_PERSONA_ID, _LEGACY_PERSONA_DESC))
 
     def _bump(self):
         with self._lock:
@@ -494,7 +528,10 @@ class LearningStore:
     # ---------------------------------------------------------------- personas
     def personas(self):
         with self._db() as db:
-            return [dict(r) for r in db.execute("SELECT * FROM personas ORDER BY created_at").fetchall()]
+            rows = [dict(r) for r in db.execute("SELECT * FROM personas ORDER BY created_at").fetchall()]
+        for row in rows:
+            row["builtin_voice"] = DEFAULT_VOICE if row["persona_id"] == DEFAULT_PERSONA_ID else ""
+        return rows
 
     def persona(self, persona_id=""):
         people = self.personas()
@@ -502,7 +539,9 @@ class LearningStore:
             found = next((p for p in people if p["persona_id"] == persona_id), None)
             if found:
                 return found
-        return next((p for p in people if p["is_active"]), people[0] if people else None)
+        # Không ai đang trực => dùng phong cách mặc định.
+        return next((p for p in people if p["is_active"]),
+                    next((p for p in people if p["persona_id"] == DEFAULT_PERSONA_ID), people[0] if people else None))
 
     def save_persona(self, payload):
         persona_id = clean(payload.get("persona_id"), 80)
@@ -636,7 +675,25 @@ class LearningStore:
 
 
 # ====================================================================== LLM
-DISTILL_SYSTEM = """Bạn là người huấn luyện trợ lý AI trả lời bình luận livestream bán vật tư nông nghiệp.
+DISTILL_TASK = task_block(
+    "Rút kiến thức từ một bản sửa",
+    "chủ shop vừa sửa một câu AI trả lời trên LIVE; rút điều dùng lại được cho câu khác.",
+    inputs="câu khách, câu AI đã nói, câu đúng của chủ shop, ghi chú, danh mục, kiến thức hiện có.",
+    output="một JSON: diagnosis, items[], style_notes[], existing_item_ids_to_retire[].")
+RELEARN_TASK = task_block(
+    "Học lại toàn bộ trí nhớ AI",
+    "chủ shop bấm học lại: gộp trùng, bỏ mục sai, viết lại phong cách từng người trực.",
+    inputs="kiến thức đang nhớ (có id), các bản sửa, danh mục sản phẩm, các phong cách người trực.",
+    output="một JSON đề xuất (items, retire_ids, conflicts, personas); chủ shop duyệt rồi mới áp dụng.")
+PERSONA_TASK = task_block(
+    "Tạo phong cách người trực bằng AI",
+    "chủ shop/người trực tả mình (giới tính, vùng miền, xưng hô, tính cách...) để AI trả lời LIVE đúng giọng người đó.",
+    inputs="đoạn tự mô tả tự do của người trực.",
+    output="một JSON: name, description, style_guide (xưng hô, từ hay dùng, độ dài/nhịp, cách đùa, cách chốt, điều tránh), samples[3].")
+
+DISTILL_SYSTEM = DISTILL_TASK + """
+
+Bạn là người huấn luyện trợ lý AI trả lời bình luận livestream bán vật tư nông nghiệp.
 Chủ shop vừa SỬA một câu trả lời. Nhiệm vụ: hiểu vì sao câu cũ chưa đúng và rút ra KIẾN THỨC DÙNG LẠI
 ĐƯỢC cho những câu hỏi KHÁC, không phải chép lại câu trả lời.
 
@@ -664,7 +721,9 @@ Trả đúng một JSON object:
 {"diagnosis":"...","items":[{"kind":"alias|fact|rule","product_id":"","terms":["..."],"statement":"...","confidence":0.8}],
  "style_notes":["..."],"existing_item_ids_to_retire":[]}"""
 
-RELEARN_SYSTEM = """Bạn là người biên tập "trí nhớ" của trợ lý AI trả lời bình luận livestream bán vật tư nông nghiệp.
+RELEARN_SYSTEM = RELEARN_TASK + """
+
+Bạn là người biên tập "trí nhớ" của trợ lý AI trả lời bình luận livestream bán vật tư nông nghiệp.
 Đầu vào: kiến thức AI đang nhớ (có id), các bản sửa của chủ shop (câu khách, câu AI đã nói, câu chủ shop sửa, ghi chú,
 người sửa), danh sách sản phẩm đang bán, các phong cách người trực.
 
@@ -690,6 +749,68 @@ Trả đúng một JSON object:
  "items":[{"from_ids":["..."],"kind":"...","product_id":"","terms":["..."],"statement":"...","confidence":0.8}],
  "retire_ids":["..."],"conflicts":[{"ids":["...","..."],"explain":"..."}],
  "personas":[{"persona_id":"...","style_guide":"- ...\\n- ..."}]}"""
+
+
+PERSONA_SAMPLE_COMMENTS = ("chào shop", "chai này pha bao nhiêu vậy", "giá sao bạn ơi")
+PERSONA_FIELDS = (("xung_ho", "Xưng hô"), ("tu_hay_dung", "Từ hay dùng"), ("do_dai_nhip", "Độ dài/nhịp"),
+                  ("cach_dua", "Cách đùa"), ("cach_chot", "Cách chốt"), ("dieu_tranh", "Điều tránh"))
+PERSONA_SYSTEM = PERSONA_TASK + """
+
+Bạn là người viết "hướng dẫn phong cách" cho trợ lý AI trả lời bình luận LIVE thay một người trực cụ thể.
+Người trực tự tả mình (giới tính, tuổi, vùng miền, xưng hô, tính cách, cảm xúc, câu cửa miệng, cách chốt đơn).
+Dựa ĐÚNG vào lời tả đó; không bịa thêm đặc điểm trái với lời tả. Giới tính nào cũng được: nam thì xưng "anh/tui/mình"
+và gọi khách "bà con", "anh chị"... tuỳ lời tả; nữ thì xưng "em/chị/mình"... Giữ cách xưng hô nhất quán.
+Chỉ viết về GIỌNG: không viết luật giá, liều, khuyến mãi (luật bán hàng đã có sẵn, luôn thắng).
+
+Trả đúng một JSON object:
+{"name":"tên ngắn của phong cách (<= 40 ký tự, vd Anh Ba miền Tây, vui, nói thẳng)",
+ "description":"1 câu mô tả người trực",
+ "style_guide":{"xung_ho":"tự xưng + cách gọi khách","tu_hay_dung":"từ đệm/câu cửa miệng hay dùng",
+   "do_dai_nhip":"độ dài và nhịp câu","cach_dua":"cách đùa/trêu/cảm xúc","cach_chot":"cách mời chốt đơn",
+   "dieu_tranh":"điều tránh"},
+ "samples":["câu trả lời mẫu cho bình luận 1","... bình luận 2","... bình luận 3"]}
+- Mỗi trường style_guide 1–2 câu NGẮN, là XU HƯỚNG ("hay…", "thường…"), tổng cộng gọn dưới 1200 ký tự.
+- samples: đúng 3 câu, mỗi câu 1–2 câu ngắn (<= 140 ký tự) trả lời lần lượt 3 binh_luan_mau bằng đúng giọng đó.
+  KHÔNG nêu con số giá, liều, khuyến mãi hay thông tin shop; câu hỏi giá thì chỉ dẫn dắt ("để mình xem giá nha"...)."""
+
+
+def fit_style(guide, limit=MAX_STYLE_CHARS):
+    """Giữ nguyên từng dòng cho tới khi hết hạn mức (không cắt giữa dòng)."""
+    out, used = [], 0
+    for line in str(guide or "").splitlines():
+        line = clean(line, 400)
+        if not line:
+            continue
+        if used + len(line) + (1 if out else 0) > limit:
+            break
+        out.append(line)
+        used += len(line) + (1 if len(out) > 1 else 0)
+    return "\n".join(out)
+
+
+def normalize_persona_proposal(result, meta=None):
+    """Kết quả model → {name, description, style_guide(text), samples[3], model}. Thiếu style_guide → lỗi."""
+    if not isinstance(result, dict):
+        raise ValueError("persona_proposal_invalid")
+    raw = result.get("style_guide")
+    lines = []
+    if isinstance(raw, dict):
+        for key, label in PERSONA_FIELDS:
+            value = clean(raw.get(key), 360)
+            if value:
+                lines.append(f"- {label}: {value}")
+    elif isinstance(raw, list):
+        lines = ["- " + clean(x, 360).lstrip("-• ").strip() for x in raw if clean(x, 360)]
+    else:
+        lines = [clean(x, 400) for x in str(raw or "").splitlines() if clean(x, 400)]
+    guide = fit_style("\n".join(lines))
+    if not guide:
+        raise ValueError("persona_proposal_invalid")
+    samples = [clean(x, 200) for x in (result.get("samples") or []) if isinstance(x, str) and clean(x, 200)][:3]
+    return {"name": clean(result.get("name"), 80) or "Phong cách mới",
+            "description": clean(result.get("description"), 600), "style_guide": guide,
+            "samples": samples, "sample_comments": list(PERSONA_SAMPLE_COMMENTS),
+            "model": (meta or {}).get("model", "")}
 
 
 def _parse_json(text):
@@ -771,11 +892,12 @@ class Learner:
         model = settings["learning_model"] or getattr(responder, "model", "") or "deepseek-flash"
         return client, model
 
-    def _call(self, system, user, *, timeout=150, max_tokens=8000):
+    def _call(self, system, user, *, timeout=150, max_tokens=8000, think=True):
         client, model = self._client()
         if client is None:
             raise RuntimeError("no_model_client")
         effort = self.store.settings()["learning_effort"]
+        system = system_with_brief(system)          # APP_BRIEF luôn đứng đầu (cache tiền tố)
         try:
             client = client.with_options(timeout=timeout)
         except Exception:
@@ -786,6 +908,10 @@ class Learner:
                    "max_tokens": max_tokens, "response_format": {"type": "json_object"},
                    "reasoning_effort": effort,
                    "extra_body": {"thinking": {"type": "enabled"}}}
+        if not think:       # việc ngắn, người dùng đang chờ (tạo phong cách): không suy luận
+            request.pop("reasoning_effort")
+            request["extra_body"] = {"thinking": {"type": "disabled"}}
+            request["temperature"] = 0.7
         try:
             response = client.chat.completions.create(**request)
         except Exception:
@@ -825,6 +951,17 @@ class Learner:
         except json.JSONDecodeError:
             raise ValueError(f"model_json_invalid (finish={getattr(choice, 'finish_reason', '')}, "
                              f"{len(content)} ký tự)") from None
+
+    # ------------------------------------------------------------ tạo phong cách bằng AI
+    def propose_persona(self, profile_text):
+        """Người trực tả mình bằng lời → đề xuất phong cách (CHƯA lưu) + 3 câu mẫu để duyệt/sửa."""
+        profile = clean(profile_text, 1500)
+        if len(profile) < 12:
+            raise ValueError("persona_profile_required")
+        user = json.dumps({"nguoi_truc_tu_ta": profile, "binh_luan_mau": list(PERSONA_SAMPLE_COMMENTS)},
+                          ensure_ascii=False)
+        result, meta = self._call(PERSONA_SYSTEM, user, timeout=60, max_tokens=2500, think=False)
+        return normalize_persona_proposal(result, meta)
 
     def _catalog_brief(self):
         rows = []

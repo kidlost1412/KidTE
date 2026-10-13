@@ -8,6 +8,7 @@ import {btn, chip, empty, errorBox, skeletonRows, pageHead, tabs, notice, field,
 import {toast, confirmDialog, promptDialog} from '../ui/overlays.js';
 import {loadCatalog} from './video/data.js';
 import {KIND, STATUS, itemRow, lessonCard, watchRun, setItemStatus, tryResult, tryAI} from './learning-ui.js';
+import {LIMITS as PERSONA_LIMITS, PROFILE_HINTS, PROFILE_EXAMPLE, proposePersona, savePersona, styleCounter} from './persona-model.js';
 
 const TABS = [
   {id: 'knowledge', label: 'Kiến thức', icon: 'layers'},
@@ -190,7 +191,8 @@ export default {
     function renderStyle() {
       const people = state.personas;
       clear(body,
-        notice('info', 'Mỗi người trực LIVE một giọng', 'Chọn người đang trực — AI nói theo giọng người đó và ưu tiên câu mẫu của chính họ. Hướng dẫn giọng được AI tự viết lại từ các câu người đó sửa mỗi lần “Học lại toàn bộ”; bạn sửa tay được.'),
+        notice('info', 'Mỗi người trực LIVE một giọng', 'Luật bán hàng (giá, quà, độ dài, chống bịa) là chung và luôn được cập nhật cùng ứng dụng. Giọng nói, tính cách, xưng hô nằm HẾT ở đây: chọn người đang trực — AI nói theo giọng người đó (nam hay nữ đều được). Hướng dẫn giọng được AI tự viết lại từ các câu người đó sửa mỗi lần “Học lại toàn bộ”; bạn sửa tay được.'),
+        personaCreator(),
         h('div', {class: 'settings-grid', style: {marginTop: '14px'}}, people.map(p => personaCard(p)),
           h('section', {class: 'card persona-add'}, h('div', {class: 'card-body col gap-3', style: {alignItems: 'center', textAlign: 'center', padding: '28px'}},
             icon('plus', {size: 22}), h('strong', {}, 'Thêm người trực'), h('p', {class: 'fs-xs muted'}, 'Mỗi người trực LIVE nên có một phong cách riêng để AI không nói lẫn giọng.'),
@@ -199,6 +201,50 @@ export default {
               if (!name) return;
               try { await request('/api/learning/persona', {method: 'POST', body: {name}}); load(); } catch (e) { toast(friendlyError(e), 'danger'); }
             }})))));
+    }
+
+    // Tạo phong cách bằng AI: tả mình bằng lời -> AI đề xuất hướng dẫn giọng + 3 câu mẫu -> sửa -> lưu / chọn trực.
+    function personaCreator() {
+      const profile = textarea({rows: 4, placeholder: PROFILE_EXAMPLE, maxlength: PERSONA_LIMITS.profile});
+      const result = h('div', {class: 'col gap-3'});
+      const go = btn('Tạo bằng AI', {kind: 'primary', icon: 'play', onClick: generate});
+      async function generate() {
+        go.disabled = true;
+        clear(result, h('div', {class: 'muted fs-sm'}, 'Đang nhờ DeepSeek viết phong cách…'));
+        try { showProposal(await proposePersona(request, profile.value)); }
+        catch (e) { clear(result, notice('danger', null, friendlyError(e))); }
+        go.disabled = false;
+      }
+      function showProposal(form) {
+        const name = h('input', {class: 'input', value: form.name, maxlength: PERSONA_LIMITS.name});
+        const desc = h('input', {class: 'input', value: form.description, maxlength: PERSONA_LIMITS.description});
+        const guide = textarea({rows: 8});
+        guide.value = form.guide;
+        const counter = h('div', {class: 'fs-xs muted'});
+        const update = () => { const c = styleCounter(guide.value); counter.textContent = `${c.used}/${PERSONA_LIMITS.style} ký tự`; counter.style.color = c.over ? 'var(--danger, #c0392b)' : ''; };
+        guide.addEventListener('input', update); update();
+        const save = async activate => {
+          try {
+            await savePersona(request, {name: name.value, description: desc.value, guide: guide.value}, activate);
+            toast(activate ? 'Đã lưu và chọn người này trực.' : 'Đã lưu phong cách.', 'ok');
+            load();
+          } catch (e) { toast(friendlyError(e), 'danger'); }
+        };
+        clear(result,
+          field('Tên phong cách', name), field('Mô tả ngắn', desc),
+          field('Hướng dẫn giọng (sửa thoải mái)', guide, {hint: 'Mỗi dòng một ý: xưng hô, từ hay dùng, độ dài/nhịp, cách đùa, cách chốt, điều tránh.'}), counter,
+          h('div', {class: 'col gap-2'}, h('strong', {class: 'fs-sm'}, 'AI trả lời thử theo giọng này'),
+            ...form.samples.map(x => h('div', {class: 'fs-sm'}, h('div', {class: 'muted fs-xs'}, x.comment ? `Khách: “${x.comment}”` : 'Khách:'), h('div', {}, x.reply || '—')))),
+          h('div', {class: 'row', style: {gap: '8px', justifyContent: 'flex-end'}},
+            btn('Tạo lại', {kind: 'ghost', icon: 'refresh', onClick: generate}),
+            btn('Lưu', {icon: 'save', onClick: () => save(false)}),
+            btn('Lưu và chọn người này trực', {kind: 'primary', icon: 'user', onClick: () => save(true)})));
+      }
+      return h('section', {class: 'card', style: {marginTop: '14px'}},
+        h('header', {class: 'card-head'}, h('div', {class: 'row', style: {gap: '8px'}}, icon('user', {size: 16}), h('h3', {}, 'Tạo phong cách bằng AI'))),
+        h('div', {class: 'card-body col gap-3'},
+          h('p', {class: 'fs-sm muted'}, `Tả về mình như đang kể cho bạn nghe: ${PROFILE_HINTS.join(', ')}. AI sẽ viết hướng dẫn giọng và trả lời thử 3 câu để bạn xem trước.`),
+          profile, h('div', {class: 'row', style: {justifyContent: 'flex-end'}}, go), result));
     }
 
     function personaCard(p) {
@@ -212,7 +258,9 @@ export default {
       return h('section', {class: 'card' + (active ? ' persona-active' : '')},
         h('header', {class: 'card-head'}, h('div', {class: 'row', style: {gap: '8px'}}, icon('user', {size: 16}), h('h3', {}, p.name)),
           active ? chip('Đang trực', 'ok', {dot: true}) : btn('Chọn người này trực', {size: 'sm', onClick: async () => { await request('/api/learning/persona', {method: 'POST', body: {persona_id: p.persona_id, activate: true}}); toast(`AI sẽ nói theo giọng ${p.name}.`, 'ok'); load(); }})),
-        h('div', {class: 'card-body col gap-3'}, field('Mô tả', desc), field('Hướng dẫn giọng AI đang dùng', guide, {hint: p.style_updated_at ? `Cập nhật ${relative(p.style_updated_at)}` : ''})),
+        h('div', {class: 'card-body col gap-3'}, field('Mô tả', desc),
+          p.builtin_voice ? h('details', {}, h('summary', {class: 'fs-sm'}, 'Giọng dựng sẵn của ứng dụng (luôn áp dụng, không sửa được)'), h('pre', {class: 'style-pre'}, p.builtin_voice)) : null,
+          field(p.builtin_voice ? 'Bổ sung thêm cho giọng này (AI tự học hoặc bạn viết)' : 'Hướng dẫn giọng AI đang dùng', guide, {hint: p.style_updated_at ? `Cập nhật ${relative(p.style_updated_at)}` : ''})),
         h('footer', {class: 'card-foot'},
           p.persona_id !== 'default' ? btn('Xoá', {kind: 'ghost', size: 'sm', onClick: async () => { const ok = await confirmDialog({title: `Xoá phong cách “${p.name}”?`, text: 'Kiến thức đã học không bị xoá.', confirm: 'Xoá', tone: 'danger'}); if (ok) { await request('/api/learning/persona', {method: 'POST', body: {persona_id: p.persona_id, delete: true}}); load(); } }}) : null,
           h('span', {class: 'grow'}), btn('Lưu', {kind: 'primary', size: 'sm', icon: 'save', onClick: save})));

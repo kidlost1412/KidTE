@@ -24,6 +24,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from ai_context import task_block
 from knowledge import clean, tokens
 
 CATEGORIES = {"cong_ty": "Về công ty / shop", "san_pham": "Sản phẩm", "nong_nghiep": "Kiến thức nông nghiệp",
@@ -39,7 +40,14 @@ ban shop nha ne vay duoc con hang mua dat tien ma va roi chua di toi can giup xi
 thu xem coi biet noi hay nen moi cua cac nhung mot hai ba trong ngoai tren duoi rat nhieu it hon nhat cung
 se da dang bi thi neu vi nen ra vao len xuong""".split())
 
-DISTILL_SYSTEM = """Bạn đọc một đoạn tài liệu của shop nông nghiệp (giới thiệu công ty, sản phẩm, hoặc kiến
+DISTILL_TASK = task_block(
+    "Rút dữ kiện từ tài liệu của shop",
+    "chủ shop vừa tải tài liệu (giới thiệu, sản phẩm, kỹ thuật canh tác) lên Trí nhớ AI; rút dữ kiện ngắn để trả lời khách.",
+    inputs="một đoạn tài liệu, danh sách sản phẩm đang bán, kiến thức đã có.",
+    output="một JSON {items: [{kind: fact, ...}]}; chủ shop duyệt rồi mới dùng.")
+DISTILL_SYSTEM = DISTILL_TASK + """
+
+Bạn đọc một đoạn tài liệu của shop nông nghiệp (giới thiệu công ty, sản phẩm, hoặc kiến
 thức canh tác) và rút ra những DỮ KIỆN NGẮN mà người bán cần để trả lời khách trên LIVE.
 
 Trả về JSON: {"items": [{"kind": "fact", "product_id": "", "statement": "...", "terms": [], "confidence": 0.7}]}

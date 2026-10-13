@@ -8,6 +8,7 @@ import {btn, chip, empty, errorBox, skeletonRows, pageHead, tabs, notice, field,
 import {toast, confirmDialog, promptDialog} from '../ui/overlays.js';
 import {loadCatalog} from './video/data.js';
 import {KIND, STATUS, itemRow, lessonCard, watchRun, setItemStatus, tryResult, tryAI} from './learning-ui.js';
+import {openPromptViewer} from './prompt-view-ui.js';
 import {LIMITS as PERSONA_LIMITS, PROFILE_HINTS, PROFILE_EXAMPLE, PROFILE_AGE_HINT, proposePersona, savePersona, styleCounter} from './persona-model.js';
 
 const TABS = [
@@ -264,7 +265,8 @@ export default {
           field(p.builtin_voice ? 'Bổ sung thêm cho giọng này (AI tự học hoặc bạn viết)' : 'Hướng dẫn giọng AI đang dùng', guide, {hint: p.style_updated_at ? `Cập nhật ${relative(p.style_updated_at)}` : ''})),
         h('footer', {class: 'card-foot'},
           p.persona_id !== 'default' ? btn('Xoá', {kind: 'ghost', size: 'sm', onClick: async () => { const ok = await confirmDialog({title: `Xoá phong cách “${p.name}”?`, text: 'Kiến thức đã học không bị xoá.', confirm: 'Xoá', tone: 'danger'}); if (ok) { await request('/api/learning/persona', {method: 'POST', body: {persona_id: p.persona_id, delete: true}}); load(); } }}) : null,
-          h('span', {class: 'grow'}), btn('Lưu', {kind: 'primary', size: 'sm', icon: 'save', onClick: save})));
+          h('span', {class: 'grow'}), btn('Xem toàn bộ lời nhắc', {size: 'sm', icon: 'fileText', onClick: () => openPromptViewer(p, {onChange: load})}),
+          btn('Lưu', {kind: 'primary', size: 'sm', icon: 'save', onClick: save})));
     }
 
     // ---------------------------------------------------------------- Học lại toàn bộ

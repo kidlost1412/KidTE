@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 
+import prompt_view
 from ai_context import APP_BRIEF, system_with_brief, task_block
 from config import (
     AI_NOTES_PATH, CHAT_MAX_CHARS, CHAT_MAX_TOKENS, CHAT_TEMPERATURE, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
@@ -86,12 +87,12 @@ def legacy_prompt_override():
 
 
 def system_prompt():
-    """Luật bán hàng gốc (trung tính, đi kèm app, luôn được cập nhật) + ghi chú thêm của chủ shop.
+    """Luật bán hàng gốc (trung tính; bản đi kèm app hoặc bản chủ shop đã sửa) + ghi chú thêm của chủ shop.
 
     Giọng/tính cách nằm ở phong cách người trực, KHÔNG ở đây. Không còn bản ghi đè toàn bộ.
     """
     notes = ai_notes()
-    base = default_system_prompt()
+    base = prompt_view.base_rules_text(default_system_prompt())
     return base + (f"\n\n{NOTES_HEADER}\n{notes}" if notes else "")
 
 

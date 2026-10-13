@@ -67,7 +67,7 @@ class GeminiProvider:
     name = "gemini"
     supports_files = True
 
-    def __init__(self, api_key="", model="", timeout=90, opener=None, clock=time.time):
+    def __init__(self, api_key="", model="", timeout=150, opener=None, clock=time.time):
         self.api_key = (api_key or "").strip()
         self.explicit_model = (model or "").strip()   # chủ shop tự đặt: không bao giờ bị dò đè
         self.timeout = timeout
@@ -146,7 +146,8 @@ class GeminiProvider:
                                           "data": base64.b64encode(item["data"]).decode("ascii")}})
         return {"systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1}}
+                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1,
+                                     "maxOutputTokens": 32768}}
 
     def generate(self, system, user_text, files=()):
         """Trả về chuỗi JSON thô của model."""
@@ -230,7 +231,7 @@ class DeepSeekTextProvider:
         model = getattr(responder, "model", "") or "deepseek-flash"
         try:
             response = client.with_options(timeout=120).chat.completions.create(
-                model=model, max_tokens=6000, temperature=0.1,
+                model=model, max_tokens=8000, temperature=0.1,
                 response_format={"type": "json_object"},
                 extra_body={"thinking": {"type": "disabled"}},
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user_text}])

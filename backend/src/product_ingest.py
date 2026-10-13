@@ -34,11 +34,15 @@ from documents import extract_text
 MAX_IMAGES = 8
 MAX_FILES = 5
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
-MAX_FILE_BYTES = 20 * 1024 * 1024
-MAX_TOTAL_BYTES = 28 * 1024 * 1024
+MAX_FILE_BYTES = 100 * 1024 * 1024         # danh mục PDF nhiều ảnh có thể nặng hàng chục MB
+MAX_TOTAL_BYTES = 160 * 1024 * 1024
+MAX_UPLOADS_BYTES = 320 * 1024 * 1024      # tổng tệp đang chờ trong bộ nhớ
+UPLOAD_TTL = 3600
+MAX_VISION_BYTES = 15 * 1024 * 1024        # Gemini nhận tối đa ~20 MB/yêu cầu (base64 +33%)
 MAX_PASTED_CHARS = 60_000
-MAX_SOURCE_CHARS = 30_000
-MAX_PROMPT_CHARS = 90_000
+MAX_SOURCE_CHARS = 60_000
+MAX_PROMPT_CHARS = 150_000
+MAX_PRODUCTS = 60
 URL_MAX_BYTES = 2 * 1024 * 1024
 URL_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 URL_TIMEOUT = 10
@@ -212,13 +216,14 @@ def fetch_page(url):
 
 
 # ------------------------------------------------------------------ nguồn đầu vào
-def prepare_sources(payload, fetch=None):
+def prepare_sources(payload, fetch=None, uploads=None):
     """payload: {files:[{name,data}], images:[{name,data}], url, text} -> list nguồn.
 
     Nguồn: {id, kind: file|pdf_scan|image|url|text|og_image, label, text?, mime?, data?}
     ``og_image`` chỉ là ảnh ứng viên (không gửi cho model đọc).
     """
     fetch = fetch or fetch_page
+    uploads = uploads or (lambda upload_id: None)
     payload = payload if isinstance(payload, dict) else {}
     files = payload.get("files") or []
     images = payload.get("images") or []
@@ -237,12 +242,23 @@ def prepare_sources(payload, fetch=None):
     def add(kind, label, **extra):
         sources.append({"id": f"n{len(sources) + 1}", "kind": kind, "label": label, **extra})
 
+    def blob_of(item, default):
+        if not isinstance(item, dict):
+            raise IngestError("Đầu vào không hợp lệ")
+        name = Path(str(item.get("name") or default)).name[:120]
+        if item.get("upload_id"):
+            data = uploads(str(item["upload_id"]))
+            if data is None:
+                raise IngestError(f"Tệp “{name}” đã hết hạn trên máy, hãy chọn lại tệp rồi bấm đọc lại")
+        else:
+            data = _b64(item.get("data"))
+        return name, data
+
     for item in files:
-        name = Path(str(item.get("name") or "tai-lieu")).name[:120]
-        data = _b64(item.get("data"))
+        name, data = blob_of(item, "tai-lieu")
         total += len(data)
         if not data or len(data) > MAX_FILE_BYTES:
-            raise IngestError(f"Tệp “{name}” rỗng hoặc quá lớn (tối đa 20 MB)")
+            raise IngestError(f"Tệp “{name}” rỗng hoặc quá lớn (tối đa {MAX_FILE_BYTES // 1048576} MB)")
         try:
             add("file", name, text=extract_text(name, data)[:MAX_SOURCE_CHARS])
         except ValueError as exc:
@@ -251,14 +267,13 @@ def prepare_sources(payload, fetch=None):
             else:
                 raise IngestError(f"{name}: {exc}") from None
     for item in images:
-        name = Path(str(item.get("name") or "anh")).name[:120]
-        data = _b64(item.get("data"))
+        name, data = blob_of(item, "anh")
         total += len(data)
         if not data or len(data) > MAX_IMAGE_BYTES:
             raise IngestError(f"Ảnh “{name}” rỗng hoặc quá lớn (tối đa 10 MB)")
         add("image", name, mime="image/jpeg", data=normalize_image(data))
     if total > MAX_TOTAL_BYTES:
-        raise IngestError("Tổng dung lượng quá lớn (tối đa 28 MB)")
+        raise IngestError(f"Tổng dung lượng quá lớn (tối đa {MAX_TOTAL_BYTES // 1048576} MB)")
     if url:
         page = fetch(url)
         add("url", page["url"], text=str(page["text"])[:MAX_SOURCE_CHARS])
@@ -295,23 +310,26 @@ hieu_qua_chinh: hiệu quả chính nhà sản xuất nêu (text)"""
 def build_system():
     task = task_block(
         "ĐỌC TÀI LIỆU / NHÃN / TRANG WEB ĐỂ TẠO HỒ SƠ SẢN PHẨM NHÁP",
-        "Chủ shop đưa vào tài liệu, ảnh nhãn hoặc trang web của MỘT sản phẩm; rút ra hồ sơ kỹ thuật để chủ shop duyệt.",
+        "Chủ shop đưa vào tài liệu, ảnh nhãn hoặc trang web (có thể là MỘT sản phẩm hoặc cả DANH MỤC nhiều sản phẩm); "
+        "rút ra hồ sơ kỹ thuật từng sản phẩm để chủ shop duyệt.",
         inputs="Các nguồn đánh số n1, n2... (chữ trích từ tệp/web/chữ dán, và ảnh/PDF scan đính kèm theo thứ tự).",
         output="MỘT đối tượng JSON duy nhất, không giải thích ngoài JSON.")
-    rules = f"""\
-Cấu trúc trả về:
-{{"san_pham": {{"<tên_trường>": {{"gia_tri": ..., "do_tin_cay": 0.0-1.0, "nguon": "n1"}}, ...}}}}
+    rules = f"""Cấu trúc trả về (mỗi SẢN PHẨM KHÁC NHAU là một phần tử của mảng "san_pham"; chỉ một sản phẩm thì mảng có một phần tử):
+{{"san_pham": [{{"ten_san_pham": "...", "nha_san_xuat": "...", ..., "nguon": "n1", "can_xem": ["luu_y"]}}]}}
+- Mỗi phần tử là một đối tượng PHẲNG: tên trường -> giá trị trực tiếp (không bọc thêm lớp).
+- "nguon": mã nguồn (n1, n2...) nơi lấy thông tin của sản phẩm đó.
+- "can_xem": danh sách tên trường mà bạn phải đoán/không chắc (đọc mờ, nguồn mâu thuẫn).
 
 Các trường (đúng các tên này, không thêm tên khác):
 {FIELD_HELP}
 
 Quy tắc bắt buộc (RIÊNG nhiệm vụ này, thay cho phần "hiểu biết chung" của bối cảnh chung; đây là hồ sơ để chủ shop duyệt, không phải câu trả lời cho khách):
+- Tài liệu là danh mục/nhiều sản phẩm: liệt kê MỌI sản phẩm có tên riêng, mỗi sản phẩm một phần tử. Không gộp các sản phẩm khác nhau; cùng một sản phẩm xuất hiện ở nhiều nguồn thì gộp thành MỘT phần tử.
+- Bỏ qua phần giới thiệu công ty, mục lục, liên hệ: đó không phải sản phẩm.
 - KHÔNG ghi giá, khuyến mãi, quà tặng, mã giảm giá, miễn phí vận chuyển, số lượng tồn: chúng chỉ lấy từ giỏ hàng của shop.
 - Chỉ chép những gì có trong nguồn, không bịa, không dùng hiểu biết chung để điền khoảng trống.
-- Chữ mờ/không đọc chắc chắn, hoặc nguồn không nói: đặt "gia_tri": null và "do_tin_cay": 0.
-- do_tin_cay: 0.9+ khi đọc rõ ràng; 0.5-0.8 khi phải đoán/suy ra; dưới 0.5 khi mơ hồ.
-- "nguon": mã nguồn (n1, n2...) nơi lấy thông tin; nhiều nguồn mâu thuẫn thì chọn nhãn chính thức và hạ do_tin_cay.
-- Mọi trường đều phải có mặt (null nếu không có). Viết tiếng Việt như nguồn."""
+- Chữ mờ/không đọc chắc chắn, hoặc nguồn không nói: đặt trường là null.
+- Mọi trường đều phải có mặt trong mỗi sản phẩm (null nếu không có). Viết tiếng Việt như nguồn."""
     return system_with_brief(task, rules)
 
 
@@ -326,7 +344,7 @@ def build_user_text(sources):
         elif s["kind"] in ("image", "pdf_scan"):
             parts.append(f"=== NGUỒN {s['id']} ({'ảnh' if s['kind'] == 'image' else 'PDF scan'}: {s['label']}) "
                          "— đính kèm theo đúng thứ tự ===")
-    return "\n\n".join(parts) + "\n\nHãy trả về JSON hồ sơ sản phẩm."
+    return "\n\n".join(parts) + "\n\nHãy trả về JSON danh sách hồ sơ sản phẩm."
 
 
 # ------------------------------------------------------------------ kiểm tra JSON
@@ -441,6 +459,101 @@ def validate_extraction(raw, source_ids=()):
             "uncertain": uncertain, "filtered_price": filtered}
 
 
+def _salvage_products(raw):
+    """JSON bị cắt giữa chừng (danh mục dài): lấy các sản phẩm đã đủ dấu đóng."""
+    text = str(raw or "")
+    start = text.find("[")
+    if start < 0:
+        return []
+    decoder, pos, out = json.JSONDecoder(), start + 1, []
+    while pos < len(text):
+        while pos < len(text) and text[pos] in " \t\r\n,":
+            pos += 1
+        if pos >= len(text) or text[pos] != "{":
+            break
+        try:
+            item, pos = decoder.raw_decode(text, pos)
+        except json.JSONDecodeError:
+            break
+        out.append(item)
+    return out
+
+
+def _product_items(raw):
+    """Chuỗi/dict/list của model -> (list đối tượng sản phẩm thô, bị_cắt)."""
+    if isinstance(raw, (dict, list)):
+        value = raw
+    else:
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(raw or "").strip(), flags=re.I)
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            start, end = text.find("{"), text.rfind("}")
+            value = None
+            if start >= 0 and end > start:
+                try:
+                    value = json.loads(text[start:end + 1])
+                except json.JSONDecodeError:
+                    value = None
+            if value is None:
+                items = _salvage_products(text)
+                if not items:
+                    raise ExtractionInvalid("không phải JSON") from None
+                return items, True
+    truncated = False
+    if isinstance(value, dict):
+        for key in ("san_pham", "san_pham_list", "products", "danh_sach_san_pham"):
+            if isinstance(value.get(key), list):
+                value = value[key]
+                break
+        else:
+            value = [value.get("san_pham")] if isinstance(value.get("san_pham"), dict) else [value]
+    if not isinstance(value, list):
+        raise ExtractionInvalid("JSON gốc phải là đối tượng hoặc danh sách")
+    return [item for item in value if isinstance(item, dict)], truncated
+
+
+def _wrap_flat(product):
+    """Phần tử phẳng {trường: giá trị, nguon, can_xem} -> dạng ô {gia_tri, do_tin_cay, nguon}."""
+    if not isinstance(product.get("san_pham"), dict) and not any(isinstance(product.get(k), dict) and (
+            "gia_tri" in product[k] or "value" in product[k]) for k in ALL_FIELDS):
+        flagged = {str(x) for x in product.get("can_xem") or [] if isinstance(x, str)}
+        try:
+            base = max(0.0, min(1.0, float(product.get("do_tin_cay", 0.85))))
+        except (TypeError, ValueError):
+            base = 0.85
+        src = str(product.get("nguon") or "")
+        return {key: {"gia_tri": product.get(key), "do_tin_cay": 0.4 if key in flagged else base, "nguon": src}
+                for key in ALL_FIELDS if key in product}
+    return product.get("san_pham") if isinstance(product.get("san_pham"), dict) else product
+
+
+def validate_products(raw, source_ids=()):
+    """Kết quả của model (một hoặc nhiều sản phẩm) -> {"products": [kết quả chuẩn...], "truncated": bool}.
+
+    Sản phẩm không tên bị bỏ, trùng tên (không phân biệt hoa thường) gộp một. Không còn sản phẩm nào -> ExtractionInvalid.
+    """
+    items, truncated = _product_items(raw)
+    products, seen = [], set()
+    for item in items:
+        try:
+            result = validate_extraction(_wrap_flat(item), source_ids)
+        except ExtractionInvalid:
+            continue
+        name = result["fields"].get("ten_san_pham")
+        key = " ".join(str(name or "").lower().split())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        products.append(result)
+        if len(products) >= MAX_PRODUCTS:
+            truncated = True
+            break
+    if not products:
+        raise ExtractionInvalid("không thấy sản phẩm nào có tên")
+    return {"products": products, "truncated": truncated}
+
+
 # ------------------------------------------------------------------ dịch vụ
 def _webp_800(jpeg_bytes):
     with Image.open(io.BytesIO(jpeg_bytes)) as image:
@@ -460,6 +573,7 @@ class ProductIngest:
         self._clock = clock
         self._lock = threading.Lock()
         self._sessions = {}
+        self._uploads = {}
 
     # -- phiên giữ ảnh đã tải để chọn làm ảnh sản phẩm
     def _remember(self, sources):
@@ -479,20 +593,67 @@ class ProductIngest:
                 "deepseek_configured": bool(self.deepseek and self.deepseek.configured),
                 "gemini_model": getattr(self.gemini, "model", "")}
 
-    def extract(self, payload):
-        sources = prepare_sources(payload, fetch=self._fetch)
+    # -- tệp tải lên thô (không base64) chờ AI đọc
+    def add_upload(self, name, data):
+        name = Path(str(name or "tep")).name[:120] or "tep"
+        if not data:
+            raise IngestError(f"Tệp “{name}” rỗng")
+        if len(data) > MAX_FILE_BYTES:
+            raise IngestError(f"Tệp “{name}” quá lớn (tối đa {MAX_FILE_BYTES // 1048576} MB)")
+        now = self._clock()
+        with self._lock:
+            for uid in [k for k, v in self._uploads.items() if now - v["at"] > UPLOAD_TTL]:
+                del self._uploads[uid]
+            while self._uploads and sum(len(v["data"]) for v in self._uploads.values()) + len(data) > MAX_UPLOADS_BYTES:
+                del self._uploads[min(self._uploads, key=lambda k: self._uploads[k]["at"])]
+            upload_id = uuid.uuid4().hex
+            self._uploads[upload_id] = {"at": now, "name": name, "data": data}
+        return {"upload_id": upload_id, "name": name, "size": len(data)}
+
+    def _upload_bytes(self, upload_id):
+        with self._lock:
+            item = self._uploads.get(str(upload_id))
+            return item["data"] if item else None
+
+    def _pick_provider(self, wanted, sources):
+        vision = needs_vision(sources)
+        wanted = str(wanted or "auto").lower()
+        if wanted not in ("auto", "gemini", "deepseek"):
+            raise IngestError("Nhà cung cấp AI không hợp lệ (chọn Gemini hoặc DeepSeek)")
         try:
-            provider = choose_provider(needs_vision(sources), self.gemini, self.deepseek)
+            if wanted == "deepseek":
+                if vision:
+                    raise IngestError("DeepSeek chỉ đọc chữ, không đọc được ảnh hoặc PDF scan. "
+                                      "Chọn Gemini, hoặc bỏ ảnh/PDF scan.")
+                if not (self.deepseek and self.deepseek.configured):
+                    raise IngestError("Chưa có khóa DeepSeek. Dán khóa ở Cài đặt hoặc chọn Gemini.")
+                return self.deepseek
+            if wanted == "gemini":
+                if not (self.gemini and self.gemini.configured):
+                    raise IngestError("Chưa có khóa Gemini. Vào Cài đặt, dán khóa vào ô “Key Gemini (đọc ảnh/PDF)”, "
+                                      "hoặc chọn DeepSeek để đọc tài liệu có chữ.")
+                return self.gemini
+            return choose_provider(vision, self.gemini, self.deepseek)
         except AIProviderError as exc:
             raise IngestError(str(exc)) from exc
+
+    def extract(self, payload):
+        sources = prepare_sources(payload, fetch=self._fetch, uploads=self._upload_bytes)
+        wanted = payload.get("provider") if isinstance(payload, dict) else ""
+        provider = self._pick_provider(wanted, sources)
         system, user = build_system(), build_user_text(sources)
         files = vision_files(sources) if provider.supports_files else []
+        if sum(len(f["data"]) for f in files) > MAX_VISION_BYTES:
+            raise IngestError("Ảnh/PDF scan gửi cho Gemini quá nặng (tối đa 15 MB cộng lại). "
+                              "Bỏ bớt tệp, hoặc dùng bản PDF có chữ.")
         ids = [s["id"] for s in sources]
         try:
             result = self._ask(provider, system, user, files, ids)
         except AIProviderError as exc:
             raise IngestError(str(exc)) from exc
+        first = result["products"][0]
         result.update({
+            **first,                              # tương thích: trường của sản phẩm đầu tiên ở gốc
             "provider": provider.name, "model": getattr(provider, "model", ""),
             "session_id": self._remember(sources),
             "sources": [{"id": s["id"], "kind": s["kind"], "label": s["label"],
@@ -504,13 +665,13 @@ class ProductIngest:
     def _ask(provider, system, user, files, ids):
         raw = provider.generate(system, user, files)
         try:
-            return validate_extraction(raw, ids)
+            return validate_products(raw, ids)
         except ExtractionInvalid as first:
             retry = (user + f"\n\nLẦN TRƯỚC JSON KHÔNG HỢP LỆ ({first}). Trả lại ĐÚNG cấu trúc "
-                     '{"san_pham": {"<trường>": {"gia_tri", "do_tin_cay", "nguon"}}}, chỉ JSON.')
+                     '{"san_pham": [{"ten_san_pham": "...", ..., "nguon": "n1", "can_xem": []}]}, chỉ JSON.')
             raw = provider.generate(system, retry, files)
             try:
-                return validate_extraction(raw, ids)
+                return validate_products(raw, ids)
             except ExtractionInvalid as second:
                 raise IngestError("AI trả về kết quả không đúng dạng hai lần liên tiếp (" + str(second)
                                   + "). Thử lại hoặc đổi nguồn rõ chữ hơn.") from None

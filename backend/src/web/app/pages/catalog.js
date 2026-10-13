@@ -223,6 +223,49 @@ function mountProducts(ctx, host, d) {
 // ======================================================================
 // HỒ SƠ KỸ THUẬT
 // ======================================================================
+/** Ngăn kéo "Hồ sơ đã xoá": khôi phục từng hồ sơ hoặc tất cả cùng lúc. Dùng cho cả tab Hồ sơ và tab Gắn hồ sơ. */
+export async function openDeletedProfiles(onChanged) {
+  let items;
+  try { items = await pd.loadDeletedProfiles(request); } catch (e) { toast(friendlyError(e), 'danger'); return null; }
+  const chosen = new Set();
+  const body = h('div', {class: 'card-body'});
+  const foot = h('div', {class: 'row', style: {width: '100%'}});
+  const drawer = openDrawer({title: 'Hồ sơ đã xoá', sub: 'Giữ 30 ngày trong Thùng rác, khôi phục bất cứ lúc nào trước hạn.', width: 560, body, footer: foot});
+  // Khôi phục một hồ sơ, cả nhóm đã chọn hoặc tất cả; báo số lượng thành công/lỗi rồi làm mới danh sách.
+  const restore = async ids => {
+    const out = await pd.restoreProfiles(request, ids);
+    if (out.failed.length) toast(`${out.failed.length} hồ sơ chưa khôi phục được: ${friendlyError(out.failed[0].error)}`, 'danger');
+    if (out.done.length) {
+      items = items.filter(t => !out.done.includes(t.record_id));
+      out.done.forEach(id => chosen.delete(id));
+      toast(out.done.length === 1 ? 'Đã khôi phục hồ sơ.' : `Đã khôi phục ${out.done.length} hồ sơ.`, 'ok');
+      if (onChanged) onChanged();
+    }
+    render();
+  };
+  async function restoreChosen() {
+    const ids = [...chosen];
+    const {title, text} = pl.bulkRestoreText(ids.length);
+    if (!await confirmDialog({title, text, confirm: 'Khôi phục'})) return;
+    await restore(ids);
+  }
+  function render() {
+    const ids = items.map(t => t.record_id);
+    clear(body, items.length ? h('div', {class: 'list'}, selectAllRow(pl.selectionState(ids, chosen), on => { pl.setAllVisible(chosen, ids, on); render(); }),
+      items.map(t => h('div', {class: 'list-row'},
+        h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + (t.label || t.record_id), checked: chosen.has(t.record_id), onChange: e => { e.target.checked ? chosen.add(t.record_id) : chosen.delete(t.record_id); render(); }}),
+        h('div', {class: 'grow', style: {minWidth: '0'}}, h('div', {class: 'title truncate', title: t.label || t.record_id}, pl.shortProductName(t.label || t.record_id, 60)),
+          h('div', {class: 'sub'}, `xoá ${relative(t.deleted_at)} · giữ tới ${dateTime(t.expires_at)}`)),
+        btn('Khôi phục', {size: 'sm', icon: 'undo', onClick: e => { e.currentTarget.disabled = true; restore([t.record_id]); }}))))
+      : empty('Không có hồ sơ nào đã xoá', '', {iconName: 'trash'}));
+    clear(foot, chosen.size ? btn(`Khôi phục ${chosen.size} đã chọn`, {size: 'sm', icon: 'undo', onClick: restoreChosen}) : null, h('span', {class: 'grow'}),
+      items.length > 1 ? btn(`Khôi phục tất cả (${items.length})`, {kind: 'primary', icon: 'undo', onClick: e => { e.currentTarget.disabled = true; restore(ids); }}) : null,
+      btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}));
+  }
+  render();
+  return drawer;
+}
+
 function mountProfiles(ctx, host, d) {
   let profiles = null, error = null, query = '';
   const picked = new Set();
@@ -268,7 +311,7 @@ function mountProfiles(ctx, host, d) {
   async function removeProfiles(ids, drawer) {
     const chosen = (profiles || []).filter(p => ids.includes(p.id));
     if (!chosen.length) return;
-    const {title, text} = pd.confirmTextFor(chosen);
+    const {title, text} = pd.confirmTextFor(chosen, {total: (profiles || []).length});
     const ok = await confirmDialog({title, text, confirm: 'Xoá', tone: 'danger'});
     if (!ok) return;
     const {done, failed} = await pd.deleteProfiles(request, ids);
@@ -282,50 +325,7 @@ function mountProfiles(ctx, host, d) {
     load();
   }
 
-  async function openDeleted() {
-    const chosen = new Set();
-    let items = [];
-    const body = h('div', {class: 'card-body'}, skeletonRows(3, 50));
-    const bulkSlot = h('span', {class: 'row'});
-    const drawer = openDrawer({
-      title: 'Hồ sơ đã xoá', sub: 'Giữ 30 ngày trong Thùng rác, khôi phục bất cứ lúc nào trước hạn.', width: 560,
-      body,
-      footer: [bulkSlot, h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()})],
-    });
-    // Khôi phục một hồ sơ hoặc cả nhóm đã chọn; báo số lượng thành công/lỗi rồi làm mới danh sách.
-    async function restore(ids) {
-      const out = await pd.restoreProfiles(request, ids);
-      out.done.forEach(id => chosen.delete(id));
-      invalidateCatalog();
-      toast(pl.bulkResultText('Đã khôi phục', out.done.length, out.failed.length), out.failed.length ? 'warn' : 'ok');
-      if (out.failed.length) toast(friendlyError(out.failed[0].error), 'danger');
-      load();
-      await refresh();
-    }
-    async function restoreChosen() {
-      const ids = [...chosen];
-      const {title, text} = pl.bulkRestoreText(ids.length);
-      if (!await confirmDialog({title, text, confirm: 'Khôi phục'})) return;
-      await restore(ids);
-    }
-    function paint() {
-      const ids = items.map(t => t.record_id);
-      clear(body, items.length ? h('div', {class: 'list'}, selectAllRow(pl.selectionState(ids, chosen), on => { pl.setAllVisible(chosen, ids, on); paint(); }),
-        items.map(t => h('div', {class: 'list-row'},
-          h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + (t.label || t.record_id), checked: chosen.has(t.record_id), onChange: e => { e.target.checked ? chosen.add(t.record_id) : chosen.delete(t.record_id); paint(); }}),
-          h('div', {class: 'grow', style: {minWidth: '0'}}, h('div', {class: 'title truncate', title: t.label || t.record_id}, pl.shortProductName(t.label || t.record_id, 60)),
-            h('div', {class: 'sub'}, `xoá ${relative(t.deleted_at)} · giữ tới ${dateTime(t.expires_at)}`)),
-          btn('Khôi phục', {size: 'sm', icon: 'undo', onClick: () => restore([t.record_id])})))) : empty('Không có hồ sơ nào đã xoá', '', {iconName: 'trash'}));
-      clear(bulkSlot, chosen.size ? btn(`Khôi phục ${chosen.size} đã chọn`, {kind: 'primary', size: 'sm', icon: 'undo', onClick: restoreChosen}) : null);
-    }
-    async function refresh() {
-      try { items = await pd.loadDeletedProfiles(request); } catch (e) { toast(friendlyError(e), 'danger'); return; }
-      const live = new Set(items.map(t => t.record_id));
-      [...chosen].forEach(id => { if (!live.has(id)) chosen.delete(id); });
-      paint();
-    }
-    await refresh();
-  }
+  function openDeleted() { return openDeletedProfiles(() => { invalidateCatalog(); load(); }); }
 
   async function openProfile(id) {
     let detail;
@@ -431,12 +431,14 @@ function mountMapping(ctx, host, d) {
   const search = h('input', {class: 'input', type: 'search', placeholder: 'Tìm sản phẩm…'});
   const filterSlot = h('span');
   const autoBar = h('div');
+  const trashSlot = h('div');
+  let trashTotal = 0;
   const list = h('div', {class: 'card'}, skeletonRows(6, 60));
   const pickHead = h('div');
   const bar = h('div');
   clear(host, h('div', {class: 'toolbar'}, h('div', {class: 'search-input'}, icon('search'), search), filterSlot),
     notice('info', 'Lưu ánh xạ = cho AI được dùng hồ sơ này', 'Sản phẩm nào đã gắn hồ sơ thì AI mới tư vấn thành phần, công dụng, liều dùng. Hồ sơ rỗng không thể gắn.'),
-    autoBar, pickHead, list, bar);
+    trashSlot, autoBar, pickHead, list, bar);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
 
   const profileName = id => ((state && state.profiles) || []).find(p => p.id === id)?.name || id;
@@ -528,9 +530,17 @@ function mountMapping(ctx, host, d) {
     render();
   }
 
+  function noProfilesNotice() {
+    const restore = btn(trashTotal ? `Xem và khôi phục (${trashTotal})` : 'Mở Hồ sơ đã xoá', {size: 'sm', icon: 'undo', onClick: () => openDeletedProfiles(() => { invalidateCatalog(); load(); })});
+    return trashTotal
+      ? notice('warn', 'Chưa có hồ sơ nào để gắn', `Có ${trashTotal} hồ sơ trong Thùng rác (đã xoá trên máy này). Khôi phục để gắn lại cho sản phẩm.`, restore)
+      : notice('info', 'Chưa có hồ sơ nào để gắn', 'Tạo hồ sơ ở tab “Hồ sơ kỹ thuật” hoặc dùng “Thêm sản phẩm bằng AI”.');
+  }
+
   function render() {
     if (error) { clear(list, h('div', {class: 'card-body'}, errorBox(friendlyError(error), load))); return; }
     if (!state) return;
+    clear(trashSlot, !(state.profiles || []).length ? noProfilesNotice() : null);
     const products = state.products || [];
     const current = p => pending.has(p.product_id) ? pending.get(p.product_id) : p.profile_id;
     const unmapped = products.filter(p => !current(p)).length;
@@ -590,6 +600,8 @@ function mountMapping(ctx, host, d) {
     try {
       const [m, cat] = await Promise.all([request('/api/mapping'), loadCatalog().catch(() => ({products: []}))]);
       state = m;
+      trashTotal = 0;
+      if (!(m.profiles || []).length) { try { trashTotal = Number((await request('/api/trash?resource=profiles&limit=1')).total) || 0; } catch (_) { trashTotal = 0; } }
       catalog = {};
       (cat.products || []).forEach(p => { catalog[p.product_id] = p; });
     } catch (e) { error = e; }

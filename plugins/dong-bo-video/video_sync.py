@@ -43,7 +43,12 @@ def write_health(path, **changes):
     """Ghi snapshot health nguyên tử; lỗi health không làm chết nhận diện."""
     path = Path(path)
     try:
-        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        try:
+            current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            # File bị cắt/ghi đầy NUL sau khi máy tắt đột ngột: làm lại từ đầu, nếu không
+            # health không bao giờ được ghi lại và bảng LIVE mãi báo "chưa bật".
+            current = {}
         if not isinstance(current, dict):
             current = {}
         current.update(changes)

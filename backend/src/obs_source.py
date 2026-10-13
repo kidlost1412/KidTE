@@ -104,6 +104,8 @@ def obs_measurement(client, settings, timelines):
     item = candidates[0]
     video_id = resolve_obs_video(item, settings, timelines)
     if not video_id:
+        if item.get("verify_error"):
+            return None, "obs_verify_failed", items
         return None, "obs_video_not_linked", items
     timeline = timelines[video_id]
     try:

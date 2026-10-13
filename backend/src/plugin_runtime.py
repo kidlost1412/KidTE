@@ -1,6 +1,7 @@
 """Điều phối lifecycle plugin đã được registry xác thực."""
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -76,6 +77,33 @@ class PluginRuntimeManager:
                       reason=runtime.get("reason"))
 
     @staticmethod
+    def _video_service_env():
+        """Môi trường cho KidTEVideo.exe đã phát hành (video-sync 1.0.0).
+
+        Bản đóng gói cũ chứa bản sao ``component_store`` chỉ biết thế hệ gói
+        trước khi tách runtime/app/extensions, nên đọc ``active.json`` mới sẽ
+        ném ``invalid component mapping`` và không tìm được ffmpeg: nhận diện
+        video Shopee (cần ffmpeg để xác minh file OBS) chết lặng lẽ. Lõi đã
+        xác minh gói ``media-tools`` theo chữ ký, nên chuyển thẳng thư mục
+        công cụ đó cho dịch vụ, và gỡ ``KIDTE_APP_ROOT`` để bản cũ không đọc
+        lại ``active.json`` (vị trí dữ liệu được truyền rõ qua ``KID_TE_ROOT``).
+        """
+        try:
+            from component_runtime import component_path
+            from config import ROOT
+            ffmpeg = component_path("media-tools", "tools/ffmpeg.exe")
+            ffprobe = component_path("media-tools", "tools/ffprobe.exe")
+        except Exception:
+            return ()
+        if ffmpeg is None or ffprobe is None or Path(ffmpeg).parent != Path(ffprobe).parent:
+            return ()
+        tools = str(Path(ffmpeg).parent)
+        return (("KIDTE_MEDIA_TOOLS_DIR", tools),
+                ("PATH", tools + os.pathsep + os.environ.get("PATH", "")),
+                ("KID_TE_ROOT", str(ROOT)),
+                ("KIDTE_APP_ROOT", None))
+
+    @staticmethod
     def _spec(manifest):
         if getattr(sys, "frozen", False) and manifest.kind == "dich-vu" and manifest.plugin_id == "dong-bo-video":
             from component_runtime import component_path
@@ -83,12 +111,15 @@ class PluginRuntimeManager:
             if executable is None:
                 executable = Path(sys.executable).resolve().parent / "KidTEVideo.exe"
             command = (str(executable), *manifest.command[1:])
+            env = PluginRuntimeManager._video_service_env()
         else:
             command = (sys.executable, str(manifest.command_path), *manifest.command[1:])
+            env = ()
         return ServiceSpec(
             manifest.plugin_id,
             command,
             manifest.directory,
+            env,
         )
 
     def snapshot(self):

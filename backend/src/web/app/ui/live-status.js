@@ -7,6 +7,7 @@ export const LIVE_REASONS = {
   source_not_started: 'Chưa bật bộ nhận diện', obs_connection_failed: 'Chưa kết nối OBS — kiểm tra WebSocket và mật khẩu',
   obs_not_streaming: 'OBS chưa phát LIVE', obs_select_one_media: 'Có nhiều nguồn media đang chạy — chọn nguồn Shopee',
   obs_media_not_playing: 'Nguồn media chưa phát hoặc không nằm trong cảnh đang lên sóng',
+  obs_verify_failed: 'Không xác minh được file video OBS (thiếu ffmpeg hoặc đọc file lỗi) — xem Nhật ký',
   obs_video_not_linked: 'Chưa liên kết file OBS với video trong thư viện',
   obs_video_duration_mismatch: 'Thời lượng file OBS khác video đã liên kết',
   obs_position_invalid: 'OBS trả vị trí hoặc thời lượng không hợp lệ',

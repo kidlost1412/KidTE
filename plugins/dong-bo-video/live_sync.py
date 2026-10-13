@@ -54,6 +54,7 @@ class VerifiedObs:
     def __init__(self, client):
         self.client = client
         self.cache = {}
+        self.errors = {}
         self.persisted = None      # Shopee persisted binding entry (restart reuse), None = disabled
         self.room_id = ""
         self.last_bound = None
@@ -103,12 +104,22 @@ class VerifiedObs:
                     self.last_bound = (item["input_name"], key, cached[0])
             if not cached or (not cached[0] and time.time() - cached[1] > 30):
                 references = references if references is not None else load_references()
-                cached = (verify_obs_file(path, references), time.time())
+                try:
+                    cached = (verify_obs_file(path, references), time.time())
+                    self.errors.pop(key, None)
+                except Exception as exc:
+                    # ffmpeg thiếu/hỏng, quá thời gian... : giữ kết nối OBS, báo đúng lý do
+                    # và thử lại sau 30 giây thay vì ngắt-nối lại mỗi 2 giây.
+                    cached = (None, time.time())
+                    self.errors[key] = f"{type(exc).__name__}: {exc}"[:200]
                 self.cache[key] = cached
                 item.update(self.client.request("GetMediaInputStatus", inputName=item["input_name"]))
                 if len(self.cache) > 20:
                     self.cache = {key: cached}
+                    self.errors = {k: v for k, v in self.errors.items() if k == key}
             item["verified_video_id"] = cached[0]
+            if not cached[0] and key in self.errors:
+                item["verify_error"] = self.errors[key]
             if cached[0]:
                 self._persist(item, key, cached[0])
         return items
@@ -172,7 +183,7 @@ def obs_loop(store):
             timelines = {row["video_id"]: row["timeline"] for row in list_videos(False) if not row["errors"]}
             measured, reason, items = obs_measurement(client, settings, timelines)
             publish("shopee", measured)
-            health("shopee", "tracking" if measured else "waiting", reason, inputs=items,
+            health("shopee", "tracking" if measured else "waiting", reason, inputs=items, detail="",
                    video_id=(measured or {}).get("video_id", ""), position_s=(measured or {}).get("position_s"),
                    device="OBS · " + (measured or {}).get("input_name", settings.get("input_name", "")),
                    source="obs_media")

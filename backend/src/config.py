@@ -192,6 +192,10 @@ def find_tool(name):
 
     extension = ".exe" if IS_FROZEN or os.name == "nt" else ""
     filename = name + extension
+    # Lõi đã xác minh gói media-tools rồi truyền thư mục cho dịch vụ nền.
+    handed_over = os.getenv("KIDTE_MEDIA_TOOLS_DIR", "").strip()
+    if handed_over and (Path(handed_over) / filename).is_file():
+        return str(Path(handed_over) / filename)
     if IS_FROZEN:
         # A selected package is authoritative. component_path raises if its
         # active record or installed files are invalid; never hide that by

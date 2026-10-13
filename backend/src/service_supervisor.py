@@ -27,6 +27,8 @@ class ServiceSpec:
     service_id: str
     command: tuple[str, ...]
     cwd: Path
+    # Biến môi trường riêng cho service: (tên, giá trị) hoặc (tên, None) để gỡ bỏ.
+    env: tuple[tuple[str, str | None], ...] = ()
 
     def __post_init__(self):
         if not self.service_id or any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789-" for ch in self.service_id):
@@ -174,6 +176,14 @@ class ServiceSupervisor:
                 return {"state": "backoff", "reason": "restart_backoff",
                         "retry_after_s": round(remaining, 3)}
         kwargs = {"cwd": str(spec.cwd), "shell": False}
+        if spec.env:
+            child_env = dict(os.environ)
+            for name, value in spec.env:
+                if value is None:
+                    child_env.pop(name, None)
+                else:
+                    child_env[name] = value
+            kwargs["env"] = child_env
         if os.name == "nt":
             kwargs["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
                                         | getattr(subprocess, "CREATE_NO_WINDOW", 0))

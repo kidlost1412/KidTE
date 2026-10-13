@@ -249,7 +249,7 @@ def test_smalltalk_lane_sends_minimal_context(rig):
     for absent in ("all_live_products", "approved_product_knowledge", "relevant_approved_products",
                    "quy_tac_da_hoc", "operator_approved_reply_examples", "kien_thuc_da_hoc", "current_product"):
         assert absent not in body, absent
-    assert len(body) < 2500 and "thong_tin_shop" in body  # ngoài lời nhắc hệ thống
+    assert len(body) < 3300 and "thong_tin_shop" in body  # ngoài lời nhắc hệ thống
 
 
 @pytest.mark.parametrize("text", ["ok lấy 2 chai", "giá bao nhiêu ạ?", "TC01 ok", "kích rễ xịt lên lá được không",

@@ -306,5 +306,28 @@ def test_base_prompt_has_hard_attack_rule_and_no_fake_familiarity():
     text = PROC.default_system_prompt()
     assert "LUẬT CỨNG: KHÁCH CÔNG KÍCH" in text and "cong_kich_lua_dao" in text
     assert text.index("LUẬT CỨNG: KHÁCH CÔNG KÍCH") < text.index("CÁCH TƯ VẤN")     # đứng trước luật bán hàng
-    assert "TUYỆT ĐỐI không cãi" in text and "nhắn tin qua TikTok Shop" in text
+    rule = text[text.index("LUẬT CỨNG: KHÁCH CÔNG KÍCH"):text.index("NGUYÊN TẮC LỜI NÓI")]
+    assert "KHÔNG nhận lỗi" in rule and "Không cãi" in rule and "TikTok Shop" in rule and "tra liền" in rule
+    assert "NGUYÊN TẮC" in rule and "KHÔNG phải câu mẫu" in rule                 # nguyên tắc, không phải khuôn câu
+    assert "luot_gan_day" in rule                                                 # lượt sau xử lý theo ngữ cảnh
+    assert "Câu đầu PHẢI là lời xin lỗi" not in rule and "em hiểu anh/chị bực\")" not in rule
     assert "KHÔNG giả vờ quen" in text and "KHÔNG tự so sánh giá" in text
+
+
+def test_base_prompt_address_rule_and_anti_repetition():
+    text = PROC.default_system_prompt()
+    assert "tự xưng “em”" in text and "KHÔNG mặc định gọi “bà con”" in text and "anh chị" in text
+    assert "ĐA DẠNG, KHÔNG LẶP" in text and "cau_da_gui_gan_day" in text and "lich_su_khach" in text
+    assert "dưới khoảng\n  35 tuổi" in text
+
+
+def test_default_voice_and_persona_task_address_rules():
+    assert "Không gọi “bà con”" in DEFAULT_VOICE and "“anh chị”" in DEFAULT_VOICE
+    assert "NAM DƯỚI KHOẢNG 35 TUỔI" in learning_module.PERSONA_SYSTEM
+    assert "không yêu cầu rõ" in learning_module.PERSONA_SYSTEM            # bà con chỉ khi chủ shop đòi
+    import json as _json, pathlib
+    playbook = _json.loads((pathlib.Path(server_module.__file__).parent.parent / "prompts" / "sales_playbook.default.json")
+                           .read_text(encoding="utf-8"))
+    entry = next(e for e in playbook["entries"] if e["id"] == "cong_kich_lua_dao")
+    assert "không xin lỗi" in entry["huong_xu_ly"] and "tra liền" in entry["huong_xu_ly"]
+    assert not entry["huong_xu_ly"].startswith("Xin lỗi")

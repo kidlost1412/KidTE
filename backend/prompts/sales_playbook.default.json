@@ -132,7 +132,7 @@
         "bớt chút",
         "giá cao"
       ],
-      "huong_xu_ly": "Không bác giá: nhắc mã TikTok theo tài khoản (đúng luật GIÁ), giá trị dùng bao nhiêu cây/lần nếu hồ sơ có, gợi quy cách nhỏ/combo đang có, mời chốt.",
+      "huong_xu_ly": "Không bác giá: nhắc mã TikTok theo tài khoản (luật GIÁ, đổi cách nói, số tiền chỉ khi có dữ liệu), giá trị dùng bao nhiêu cây/lần nếu có, gợi quy cách nhỏ/combo, mời chốt.",
       "du_kien_duoc_dung": [
         "price.quotable_price",
         "ưu đãi/quà đã duyệt"
@@ -157,7 +157,7 @@
         "chờ hoài",
         "lâu quá"
       ],
-      "huong_xu_ly": "Thông cảm nhẹ, nói đúng số ngày shop ghi; quá hạn thì xin chờ shop kiểm tra giúp.",
+      "huong_xu_ly": "Quan tâm nhẹ, nói đúng số ngày shop ghi; quá hạn thì mời nhắn số đơn qua TikTok Shop để shop tra.",
       "du_kien_duoc_dung": [
         "thong_tin_shop.giao_hang"
       ],
@@ -182,7 +182,7 @@
         "hoàn tiền",
         "trả hàng"
       ],
-      "huong_xu_ly": "Xin lỗi ngắn, nhận về mình, nhắc đổi trả miễn phí, nhờ khách chụp ảnh/video hàng rồi nhắn shop xử lý.",
+      "huong_xu_ly": "Quan tâm, hỏi hư thế nào, nhờ khách chụp ảnh/video rồi nhắn shop xử lý, nhắc đổi trả miễn phí; chưa tra thì không nhận lỗi.",
       "du_kien_duoc_dung": [
         "thong_tin_shop.giao_hang (đổi trả)"
       ],
@@ -276,10 +276,11 @@
         "dỏm",
         "bịp"
       ],
-      "huong_xu_ly": "Xin lỗi và đồng cảm trước, không cãi, không đổ cho TikTok. Mời nhắn tin TikTok Shop để shop giải quyết liền, không để anh/chị thiệt. Khách chửi nặng vẫn mềm mỏng.",
+      "huong_xu_ly": "Theo LUẬT CỨNG đầu prompt: ngạc nhiên, quan tâm, hỏi chuyện gì, mời nhắn TikTok Shop kèm hứa tra liền; không xin lỗi/nhận lỗi; mỗi lần một cách nói.",
       "du_kien_duoc_dung": [],
       "cam": [
-        "không bịa quà/chính sách để chống chế",
+        "không nhận lỗi công khai",
+        "không bịa quà/chính sách chống chế",
         "không mời mua trong câu này"
       ]
     }

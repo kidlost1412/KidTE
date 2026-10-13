@@ -8,7 +8,8 @@ export const LEGACY_DISMISS_URL = '/api/system/processors/model-deepseek/legacy-
 
 // Gợi ý người dùng tả mình (hiện thành chip/placeholder).
 export const PROFILE_HINTS = ['giới tính', 'tuổi', 'vùng miền', 'xưng hô', 'tính cách', 'cảm xúc', 'câu cửa miệng', 'cách chốt đơn'];
-export const PROFILE_EXAMPLE = 'Nam, 35 tuổi, người miền Tây. Xưng “anh”, gọi khách là “bà con” hoặc “anh chị”. Vui, nói thẳng, hay đùa nhẹ, câu cửa miệng “nghe anh nè”. Chốt đơn dứt khoát: “bà con đặt liền anh giữ hàng”.';
+export const PROFILE_EXAMPLE = 'Nam, 28 tuổi, người miền Tây. Vui, nói thẳng, hay đùa nhẹ, câu cửa miệng “nghe nè”. Chốt đơn dứt khoát, không vòng vo.';
+export const PROFILE_AGE_HINT = 'Nhớ ghi TUỔI và giới tính: AI dựa vào đó để chọn xưng hô (mặc định tự xưng “em”, gọi khách “anh/chị”; nam từ khoảng 35 tuổi hoặc bạn muốn xưng khác thì ghi rõ). Chỉ ghi “bà con” khi bạn muốn gọi khách như vậy.';
 
 
 export const clip = (text, limit) => String(text ?? '').slice(0, limit);

@@ -45,19 +45,49 @@ async function setup(ctx, host) {
   const labels = s.model_labels || {};
   const model = select((s.models || []).map(m => [m, labels[m] || m]), s.selected_model);
   const key = input({type: 'password', placeholder: s.api_key_configured ? '•••••••• (đã cấu hình — để trống nếu không đổi)' : 'Dán khoá API DeepSeek (sk-…)', autocomplete: 'off'});
+  // Kiểm tra khoá: gọi một lời gọi rẻ (không đốt token); khoá để trống = kiểm khoá đã lưu. Không bao giờ hiện lại khoá.
+  const keyStatus = (provider) => h('div', {class: 'fs-sm', 'data-key-status': provider, role: 'status'});
+  const showKeyStatus = (box, out) => {
+    const tone = out.status === 'ok' ? 'ok' : (out.status === 'quota' ? 'warn' : 'danger');
+    clear(box, notice(tone, out.status === 'ok' ? 'Khoá dùng được' : 'Khoá chưa dùng được', out.message || ''));
+  };
+  const runKeyCheck = async (provider, box, typed) => {
+    clear(box, h('span', {class: 'muted'}, 'Đang kiểm tra khoá…'));
+    try {
+      const out = await request('/api/settings/check-key', {method: 'POST', body: {provider, api_key: typed || ''}, timeoutMs: 25000});
+      showKeyStatus(box, out);
+      return out;
+    } catch (e) { clear(box, notice('danger', 'Không kiểm tra được', friendlyError(e))); return null; }
+  };
+  const dsStatus = keyStatus('deepseek');
+  const checkDs = btn('Kiểm tra key', {kind: 'ghost', icon: 'shield', onClick: () => runKeyCheck('deepseek', dsStatus, key.value.trim())});
   const saveAi = btn('Lưu cài đặt AI', {kind: 'primary', icon: 'save', onClick: async () => {
     const body = {model: model.value};
-    if (key.value.trim()) body.api_key = key.value.trim();
-    try { await request('/api/settings', {method: 'POST', body}); key.value = ''; toast('Đã lưu cài đặt AI.', 'ok'); setup(ctx, host); } catch (e) { toast(friendlyError(e), 'danger'); }
+    const typed = key.value.trim();
+    if (typed) body.api_key = typed;
+    try {
+      await request('/api/settings', {method: 'POST', body});
+      key.value = ''; toast('Đã lưu cài đặt AI.', 'ok');
+      if (typed) { await runKeyCheck('deepseek', dsStatus, ''); return; }   // hiện kết quả kiểm khoá ngay dưới nút, không vẽ lại trang
+      setup(ctx, host);
+    } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   const gemKey = input({type: 'password', placeholder: s.gemini_key_configured ? '•••••••• (đã cấu hình — để trống nếu không đổi)' : 'Dán khoá Gemini (AIza…)', autocomplete: 'off'});
   const gemModel = input({value: s.gemini_model || '', placeholder: 'Để trống = tự chọn model flash mới nhất'});
+  const gemStatus = keyStatus('gemini');
+  const checkGem = btn('Kiểm tra key', {kind: 'ghost', icon: 'shield', onClick: () => runKeyCheck('gemini', gemStatus, gemKey.value.trim())});
   const saveGemini = btn('Lưu khoá Gemini', {kind: 'primary', icon: 'save', onClick: async () => {
     const body = {};
-    if (gemKey.value.trim()) body.gemini_api_key = gemKey.value.trim();
+    const typed = gemKey.value.trim();
+    if (typed) body.gemini_api_key = typed;
     if (gemModel.value.trim() !== (s.gemini_model || '')) body.gemini_model = gemModel.value.trim();
     if (!Object.keys(body).length) { toast('Chưa có gì để lưu.', 'info'); return; }
-    try { await request('/api/settings', {method: 'POST', body}); gemKey.value = ''; toast('Đã lưu cài đặt Gemini.', 'ok'); setup(ctx, host); } catch (e) { toast(friendlyError(e), 'danger'); }
+    try {
+      await request('/api/settings', {method: 'POST', body});
+      gemKey.value = ''; toast('Đã lưu cài đặt Gemini.', 'ok');
+      if (typed) { await runKeyCheck('gemini', gemStatus, ''); return; }
+      setup(ctx, host);
+    } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   const userIds = input({value: s.tiktok_user_ids || '', placeholder: 'vd 7496342894195278856, …'});
   const uniqueIds = input({value: s.tiktok_unique_ids || '', placeholder: 'vd tenshopcuaban, …'});
@@ -94,15 +124,17 @@ async function setup(ctx, host) {
     card('AI trả lời bình luận', h('div', {class: 'card-body form-grid'},
       dash.ai && dash.ai.deepseek_available ? notice('ok', 'AI đang sẵn sàng', `${labels[s.selected_model] || s.selected_model}. ${s.model_error ? 'Lỗi lấy danh sách model: ' + s.model_error : ''}`) : notice('danger', 'AI chưa sẵn sàng', 'Nhập khoá API DeepSeek để AI có thể trả lời khách.'),
       field('Model trả lời khách', model, {hint: 'Từ 10/09/2026 “deepseek-flash” CHÍNH LÀ DeepSeek V4.1 Flash — nhanh hơn, rẻ hơn và trả lời tốt hơn V4 Pro. Việc HỌC (rút kiến thức, học lại) chọn model riêng ở trang Trí nhớ AI. Độ dài câu, độ sáng tạo, lời nhắc: Trợ lý tự động → Nhà cung cấp DeepSeek.'}),
-      field('Khoá API DeepSeek', key, {hint: 'Khoá được lưu trong file .env trên máy này, không hiển thị lại.'})),
-    {sub: 'DeepSeek', footer: saveAi}),
+      field('Khoá API DeepSeek', key, {hint: 'Khoá được lưu trong file .env trên máy này, không hiển thị lại. “Kiểm tra key” thử khoá đang nhập (để trống = khoá đã lưu) và cho biết còn tiền không.'}),
+      dsStatus),
+    {sub: 'DeepSeek', footer: [checkDs, saveAi]}),
     card('Đọc ảnh & PDF (Gemini)', h('div', {class: 'card-body form-grid'},
       notice(s.gemini_key_configured ? 'ok' : 'info', s.gemini_key_configured ? 'Gemini sẵn sàng' : 'Chưa có khoá Gemini', 'Dùng để “Thêm sản phẩm bằng AI” đọc ảnh nhãn và PDF scan. Không có khoá thì chỉ đọc được file có chữ, địa chỉ web và chữ dán (qua DeepSeek).'),
       field('Key Gemini (đọc ảnh/PDF)', gemKey, {hint: 'Khoá lưu trong file .env trên máy này, không hiển thị lại.'}),
+      gemStatus,
       h('div', {}, btn('Lấy key miễn phí', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => openTarget('gemini_keys')})),
       h('p', {class: 'fs-sm soft', 'data-gemini-model': ''}, `Model đang dùng: ${s.gemini_model_effective || '—'}${s.gemini_model_source === 'auto' ? ' (tự chọn)' : s.gemini_model_source === 'owner' ? ' (bạn đặt)' : ' (dự phòng, đang dò model mới nhất)'}`),
       field('Model Gemini (không bắt buộc)', gemModel, {hint: 'Để trống: Kid TE tự dò model flash ổn định mới nhất từ Google (dò lại mỗi ngày). Chỉ nhập khi muốn cố định một model (xem ai.google.dev/gemini-api/docs/models).'})),
-    {sub: 'Google AI Studio', footer: saveGemini}),
+    {sub: 'Google AI Studio', footer: [checkGem, saveGemini]}),
     card('Thông tin shop & sổ tay bán hàng', h('div', {class: 'card-body col gap-3'},
       h('p', {class: 'fs-sm soft'}, 'Thông tin shop (địa chỉ, hotline, giao hàng) và sổ tay tình huống bán hàng nằm ở hai trang riêng trong thanh bên.'),
       h('div', {class: 'row wrap'},

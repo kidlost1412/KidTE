@@ -55,6 +55,7 @@ import product_blocklist
 import customer_card
 import router
 import sales_playbook
+import reply_variety
 import smalltalk
 from live_sources import LiveSources, PLATFORMS, read_channel_health
 from video_analysis import (
@@ -1423,6 +1424,23 @@ class ReplyEngine:
         result.update(save_model(selected))
         return result
 
+    def check_key(self, payload):
+        """Kiểm tra khóa DeepSeek/Gemini (khóa trong ô nhập, hoặc khóa đã lưu nếu để trống). Không trả lại khóa."""
+        import key_check
+        from config import DEEPSEEK_BASE_URL
+        provider = str(payload.get("provider") or "").strip().lower()
+        typed = str(payload.get("api_key") or "").strip()
+        if provider == "deepseek":
+            key = typed or str(getattr(self.responder, "api_key", "") or "")
+            return key_check.check_deepseek(key, DEEPSEEK_BASE_URL)
+        if provider == "gemini":
+            key = typed or self.gemini.api_key
+            out = key_check.check_gemini(key, self.gemini.explicit_model)
+            if out.get("status") == "ok" and key == self.gemini.api_key and not self.gemini.explicit_model:
+                self.gemini.detect_model(force=True)          # khóa đang dùng: cập nhật model tự chọn luôn
+            return out
+        raise ValueError("key_provider_unknown")
+
     def test_audio_device(self, payload):
         device_id = str(payload.get("audio_device_id") or "").strip()
         devices = self.settings_state().get("audio_devices", [])
@@ -2593,6 +2611,7 @@ class ReplyEngine:
         recent = self._recent_sent_replies()
         if recent:
             context["cau_da_gui_gan_day"] = recent
+            context["tranh_mo_dau"] = reply_variety.openings(recent, words=2)
         if history:
             context["lich_su_khach"] = history
         documents = getattr(self, "documents", None)
@@ -2746,6 +2765,7 @@ class ReplyEngine:
         recent = self._recent_sent_replies()
         if recent:
             context["cau_da_gui_gan_day"] = recent
+            context["tranh_mo_dau"] = reply_variety.openings(recent, words=2)
         if isinstance(video, dict):
             try:
                 position_s = round(max(0.0, float(video.get("position_s", 0))), 2)
@@ -2959,8 +2979,11 @@ class ReplyEngine:
                     if (result.get('action') != 'reply'
                             or not dose_selection.reply_dose_numbers_ok(clean(result.get('reply'), 2000), dose_gate['rows'])):
                         result = {'action': 'reply', 'reply': dose_selection.DOSE_HANDOFF, 'metrics': {}}
+        own_replies = [clean(t.get("response"), 300) for t in reversed(turns or [])
+                       if isinstance(t, dict) and t.get("delivery_status") == "sent" and t.get("response")]
         correction = (self._policy_violation(comment, result, price_signal)
-                      or self._invented_price(result, live, sel["approved"], price_signal))
+                      or self._invented_price(result, live, sel["approved"], price_signal)
+                      or self._variety_correction(result, own_replies))
         if dose_gate and dose_gate.get('handoff'):
             correction = ''
         retried = False
@@ -2975,7 +2998,8 @@ class ReplyEngine:
             if result.get("action") != "reply":
                 result = drafted
             if (self._policy_violation(comment, result, price_signal)
-                    or self._invented_price(result, live, sel["approved"], price_signal)):
+                    or self._invented_price(result, live, sel["approved"], price_signal)
+                    or reply_variety.admits_fault(result.get("reply"))):
                 logging.getLogger("kid-te.core").warning(
                     "TikTok reply advisory interaction_id=%s", ref.get('interaction_id', ''),
                     extra={"event":"ai_reply_advisory"})
@@ -3477,7 +3501,8 @@ class ReplyEngine:
         result = self.responder.reply("Khách", comment, context, max_body, system_override=try_system)
         # Cùng lớp kiểm chính sách như lúc LIVE, để "Thử AI" phản ánh đúng câu sẽ gửi.
         correction = (self._policy_violation(comment, result, _signal)
-                      or self._invented_price(result, live, sel["approved"], _signal))
+                      or self._invented_price(result, live, sel["approved"], _signal)
+                      or self._variety_correction(result))
         if correction:
             drafted = result
             result = self.responder.reply("Khách", comment, context, max_body, correction=correction,
@@ -3581,6 +3606,22 @@ class ReplyEngine:
         return (f"Câu vừa soạn có số tiền {extra[0]:,}đ không phải giá gốc của sản phẩm nào (có vẻ tự "
                 "nhân/cộng hoặc tự đoán). Chỉ nói đúng giá gốc của MỘT sản phẩm trong price.quotable_price; "
                 "khách mua nhiều thì mời chọn số lượng trong giỏ, TikTok tự tính tổng theo mã của họ.").replace(",", ".")
+
+    def _variety_correction(self, result, own_replies=()):
+        """Câu soạn xong mà xin lỗi/nhận lỗi công khai, hoặc lặp câu đã gửi gần đây -> lời nhắc sinh lại (1 lần)."""
+        if result.get("action") != "reply":
+            return ""
+        reply = result.get("reply") or ""
+        fault = reply_variety.admits_fault(reply)
+        if fault:
+            return (f"Câu vừa soạn có '{fault}' = công khai nhận lỗi/xin lỗi trước những người xem khác. Viết lại theo "
+                    "LUẬT CỨNG: không xin lỗi, không nhận lỗi; ngạc nhiên, quan tâm, hỏi khách chuyện gì, mời nhắn "
+                    "riêng TikTok Shop kèm lời hứa tra liền, bằng cách mở câu khác hẳn.")
+        old = reply_variety.repeats_recent(reply, [*own_replies, *self._recent_sent_replies()])
+        if old:
+            return (f"Câu vừa soạn lặp lại cách nói của một câu đã gửi gần đây: «{old}». Viết lại bằng cách mở câu, "
+                    "từ nối và nhịp khác hẳn, vẫn đúng nội dung và dữ kiện.")
+        return ""
 
     @staticmethod
     def _policy_violation(comment, result, price_signal):
@@ -4709,7 +4750,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
-        elif route == "/api/settings":
+        elif route in ("/api/settings", "/api/settings/check-key"):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
@@ -4738,7 +4779,7 @@ class Handler(BaseHTTPRequestHandler):
                          "/api/audio/test", "/api/backup/restore", "/api/privacy/forget", "/api/privacy/purge-ack",
                          "/api/backup/v2", "/api/backup/v2/delete/preview", "/api/backup/v2/delete", "/api/backup/restore/reenable-ai", "/api/backup/indexeddb",
                          *local_video_routes} and not workspace_route and not trash_route and not video_draft_route and not dose_test_route and not duplicate_route and not conversation_example_route and not video_job_draft_route and not video_job_publish_route and not product_image_route:
-            if route != "/api/settings":
+            if route not in ("/api/settings", "/api/settings/check-key"):
                 self.reject(404, "not_found")
                 return
         try:
@@ -4899,6 +4940,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.engine.support_report_create()
             elif route == "/api/settings":
                 result = self.engine.save_settings(payload)
+            elif route == "/api/settings/check-key":
+                result = self.engine.check_key(payload)
             elif route == "/api/audio/test":
                 result = self.engine.test_audio_device(payload)
             elif route == "/api/extension/setup":

@@ -8,7 +8,7 @@ import {btn, chip, empty, errorBox, skeletonRows, pageHead, tabs, notice, field,
 import {toast, confirmDialog, promptDialog} from '../ui/overlays.js';
 import {loadCatalog} from './video/data.js';
 import {KIND, STATUS, itemRow, lessonCard, watchRun, setItemStatus, tryResult, tryAI} from './learning-ui.js';
-import {LIMITS as PERSONA_LIMITS, PROFILE_HINTS, PROFILE_EXAMPLE, proposePersona, savePersona, styleCounter} from './persona-model.js';
+import {LIMITS as PERSONA_LIMITS, PROFILE_HINTS, PROFILE_EXAMPLE, PROFILE_AGE_HINT, proposePersona, savePersona, styleCounter} from './persona-model.js';
 
 const TABS = [
   {id: 'knowledge', label: 'Kiến thức', icon: 'layers'},
@@ -244,6 +244,7 @@ export default {
         h('header', {class: 'card-head'}, h('div', {class: 'row', style: {gap: '8px'}}, icon('user', {size: 16}), h('h3', {}, 'Tạo phong cách bằng AI'))),
         h('div', {class: 'card-body col gap-3'},
           h('p', {class: 'fs-sm muted'}, `Tả về mình như đang kể cho bạn nghe: ${PROFILE_HINTS.join(', ')}. AI sẽ viết hướng dẫn giọng và trả lời thử 3 câu để bạn xem trước.`),
+          h('p', {class: 'fs-sm', 'data-persona-age-hint': ''}, PROFILE_AGE_HINT),
           profile, h('div', {class: 'row', style: {justifyContent: 'flex-end'}}, go), result));
     }
 

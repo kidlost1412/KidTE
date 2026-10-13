@@ -588,9 +588,13 @@ class DeepSeekResponder:
         if utf16_length(body) > max_chars and SETTINGS["viet_gon_khi_dai"]:
             # Dài quá thì nhờ model tự viết gọn (cùng tiền tố → gần như toàn bộ
             # là cache hit, ~1 giây) thay vì chặt cụt câu trước mặt khách.
-            shorter = self._shorten(inference, content, len(body), max_chars, metrics)
-            if shorter:
-                body = _strip_nickname(shorter, nickname, max_chars)
+            for attempt in range(2):            # lần 2 viết gọn từ bản vừa gọn (giọng dài như miền Tây hay vượt nhẹ)
+                shorter = self._shorten(inference, content, len(body), max_chars, metrics)
+                if shorter:
+                    body = _strip_nickname(shorter, nickname, max_chars)
+                if utf16_length(body) <= max_chars or not shorter:
+                    break
+                content = json.dumps({"action": "reply", "reply": body}, ensure_ascii=False)
         if utf16_length(body) > max_chars:
             return {"action": "skip", "missing_fields": ["model_reply_too_long"], "metrics": metrics}
         if not body:

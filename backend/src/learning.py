@@ -760,10 +760,11 @@ Bạn là người viết "hướng dẫn phong cách" cho trợ lý AI trả l�
 Người trực tự tả mình (giới tính, tuổi, vùng miền, xưng hô, tính cách, cảm xúc, câu cửa miệng, cách chốt đơn).
 Dựa ĐÚNG vào lời tả đó; không bịa thêm đặc điểm trái với lời tả. Giới tính nào cũng được: nam thì xưng "anh/tui/mình"
 và gọi khách "bà con", "anh chị"... tuỳ lời tả; nữ thì xưng "em/chị/mình"... Giữ cách xưng hô nhất quán.
+Không tự bịa tên người trực và không để câu mẫu tự giới thiệu tên (vd "anh Ba đây"): app cấm tự xưng tên.
 Chỉ viết về GIỌNG: không viết luật giá, liều, khuyến mãi (luật bán hàng đã có sẵn, luôn thắng).
 
 Trả đúng một JSON object:
-{"name":"tên ngắn của phong cách (<= 40 ký tự, vd Anh Ba miền Tây, vui, nói thẳng)",
+{"name":"tên ngắn của phong cách (<= 40 ký tự, vd Nam miền Tây, vui, nói thẳng; KHÔNG đặt tên riêng/biệt danh cho người trực)",
  "description":"1 câu mô tả người trực",
  "style_guide":{"xung_ho":"tự xưng + cách gọi khách","tu_hay_dung":"từ đệm/câu cửa miệng hay dùng",
    "do_dai_nhip":"độ dài và nhịp câu","cach_dua":"cách đùa/trêu/cảm xúc","cach_chot":"cách mời chốt đơn",

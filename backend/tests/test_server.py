@@ -1728,6 +1728,14 @@ class ModelRetryLadderTests(unittest.TestCase):
         self.assertEqual(result['action'], 'skip')
         self.assertEqual(result['missing_fields'], ['model_reply_too_long'])
 
+    def test_second_shorten_pass_rescues_a_slightly_long_reply(self):
+        def row(text):
+            return (json.dumps({'action': 'reply', 'reply': text}), 'stop')
+        responder = self._responder([row('a' * 130), row('b' * 110), row('Gọn rồi nha bà con.')])
+        result = responder.reply('Khách', 'Hỏi kỹ', {}, 100)
+        self.assertEqual(result['action'], 'reply')
+        self.assertEqual(result['reply'], 'Gọn rồi nha bà con.')
+
 
 class ModelCostMetricsTests(unittest.TestCase):
     """`[T12]` metrics phải mang đủ model + cache hit/miss để tính được chi

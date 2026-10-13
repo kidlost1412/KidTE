@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from component_store import ComponentStore
+from component_store import ComponentStore, ComponentStoreError, PackageRepairError
 from update_catalog import CatalogError, _version_key, COMPONENT_POLICIES, SPLIT_COMPONENTS, resolve_components, verify_catalog
 from update_transport import GitHubTransport
 from update_trust import TRUSTED_KEYS
@@ -308,8 +308,65 @@ class UpdateManager:
             done += package["archive_bytes"]
             components[component_id] = package
         # Retain installed dependencies/components. Native libraries cannot be switched in this process.
+        self._repair_carried(store, catalog, components, selection, download_root)
         store.prepare(components, catalog_sequence=catalog["sequence"])
         self._set(progress=None)
+
+    def _repair_carried(self, store, catalog, components, selection, download_root):
+        """Make every component carried over unchanged pass verification before ``prepare``.
+
+        (a) Only unlisted files present (e.g. a service log written into its immutable
+        package directory): move them to ``.staging/.trash-<uuid>`` and re-verify.
+        (b) Files missing or modified: download the SAME version again from the signed
+        catalog (record must be identical to the installed one) and re-stage it.
+        (c) Anything else: fail with a Vietnamese message naming component and file.
+        """
+        for component_id, row in components.items():
+            if component_id in selection:
+                continue
+            record = row["package"] if isinstance(row, dict) and "package" in row else row
+            if not isinstance(record, dict) or "files" not in record:
+                continue
+            try:
+                report = store.inspect_package(record)
+            except ComponentStoreError as exc:
+                raise PackageRepairError(f"Gói {component_id} {record.get('version', '')} không kiểm tra được: {exc}",
+                                         component=component_id, version=record.get("version", "")) from exc
+            if report["state"] == "ok":
+                continue
+            if report["state"] == "extra":
+                logger.warning("update: %s %s has unlisted files %s; moving them to trash",
+                               component_id, record["version"], report["extra"])
+                store.quarantine_extras(record, report["extra"])
+                if store.inspect_package(record)["state"] == "ok":
+                    continue
+                report = store.inspect_package(record)
+            problem = store.describe_problem(record, report)
+            fresh = next((p for p in catalog["components"]
+                          if p["id"] == component_id and p["version"] == record["version"]
+                          and p["files"] == record["files"] and p["archive_sha256"] == record["archive_sha256"]), None)
+            files = report["extra"] + report["missing"] + report["modified"] + report["unsafe"]
+            if report["unsafe"] or fresh is None:
+                raise PackageRepairError(
+                    problem + " Không có bản giống hệt trong danh mục để tải lại; hãy cài lại Kid TE bằng bộ cài.",
+                    component=component_id, version=record["version"], files=files)
+            logger.warning("update: re-downloading %s %s (%s)", component_id, record["version"], problem)
+            self._set(progress={"component": component_id, "received": 0, "total": fresh["archive_bytes"],
+                                "overall_received": 0, "overall_total": fresh["archive_bytes"], "index": 1, "count": 1})
+            archive = download_root / (fresh["archive_sha256"] + ".zip")
+            try:
+                self.transport.download(fresh["url"], archive, expected_sha256=fresh["archive_sha256"],
+                                        expected_bytes=fresh["archive_bytes"])
+                store.restage_package(fresh, archive)
+            except PackageRepairError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - surface a precise, actionable message
+                raise PackageRepairError(
+                    f"{problem} Tải lại gói để sửa không được ({exc}).",
+                    component=component_id, version=record["version"], files=files) from exc
+            if store.inspect_package(record)["state"] != "ok":
+                raise PackageRepairError(problem + " Sau khi tải lại gói vẫn không khớp danh mục.",
+                                         component=component_id, version=record["version"], files=files)
 
 
 class UpdateScheduler:

@@ -217,3 +217,56 @@ def test_updates_page_defaults_to_beta_and_keeps_stable_option():
     src = (Path(server.__file__).parent / "web/app/pages/updates.js").read_text(encoding="utf-8")
     assert "state.channel || 'beta'" in src
     assert "['stable'," in src and "['beta'," in src
+
+
+def _carried_setup(tmp_path):
+    core_archive, core = package(tmp_path)
+    gpu_archive, gpu = package(tmp_path, "gpu-cuda12")
+    root = tmp_path / "App"
+    store = ComponentStore(root)
+    store.stage_package(core, core_archive)
+    old = store.prepare({"core": core}, 1)
+    store.activate_pending()
+    store.confirm_active(old["generation"])
+    raw, keys = signed([core, gpu])
+    transport = Transport(raw, {gpu["url"]: gpu_archive, core["url"]: core_archive})
+    manager = UpdateManager(root, transport=transport, trusted_keys=keys, store=store)
+    manager.action("check", {})
+    assert done(manager)["error"] == ""
+    return manager, store, transport, core, gpu, root / "packages" / "core" / core["version"]
+
+
+def test_install_trims_stray_extra_file_in_unchanged_component(tmp_path):
+    manager, store, transport, core, gpu, core_dir = _carried_setup(tmp_path)
+    (core_dir / "svc.out").write_bytes(b"")
+    manager.action("install", {"components": {"gpu-cuda12": "1.0.0"}})
+    state = done(manager)
+    assert state["error"] == "" and state["pending"] == {"core": "1.0.0", "gpu-cuda12": "1.0.0"}
+    assert not (core_dir / "svc.out").exists()
+    assert any(p.name.startswith(".trash-") for p in store.staging_dir.iterdir())
+    assert core["url"] not in transport.calls  # nothing re-downloaded for extras
+
+
+def test_install_redownloads_unchanged_component_with_modified_or_missing_file(tmp_path):
+    manager, store, transport, core, gpu, core_dir = _carried_setup(tmp_path)
+    (core_dir / "KidTE.exe").write_bytes(b"tampered")
+    manager.action("install", {"components": {"gpu-cuda12": "1.0.0"}})
+    assert done(manager)["error"] == ""
+    assert (core_dir / "KidTE.exe").read_bytes() == b"fixture"
+    assert transport.calls.count(core["url"]) == 1
+    store.cancel_pending()
+    (core_dir / "KidTE.exe").unlink()
+    manager.action("install", {"components": {"gpu-cuda12": "1.0.0"}})
+    assert done(manager)["error"] == ""
+    assert (core_dir / "KidTE.exe").read_bytes() == b"fixture"
+
+
+def test_install_fails_with_precise_message_when_repair_impossible(tmp_path):
+    manager, store, transport, core, gpu, core_dir = _carried_setup(tmp_path)
+    (core_dir / "KidTE.exe").write_bytes(b"tampered")
+    transport.archives.pop(core["url"])  # download of the same version fails
+    manager.action("install", {"components": {"gpu-cuda12": "1.0.0"}})
+    state = done(manager)
+    assert "core 1.0.0" in state["error"] and "KidTE.exe" in state["error"]
+    assert store.load_pending() is None
+    assert (core_dir / "KidTE.exe").read_bytes() == b"tampered"  # untouched when repair fails

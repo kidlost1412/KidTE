@@ -35,6 +35,20 @@ class ComponentStoreError(RuntimeError):
     """Invalid package, unsafe filesystem state, or failed transaction."""
 
 
+class PackageRepairError(ComponentStoreError):
+    """A staged package differs from its inventory and could not be repaired.
+
+    The message is Vietnamese and names the component and the first offending file,
+    because it is shown to the operator verbatim.
+    """
+
+    def __init__(self, message: str, *, component: str, version: str, files=()):
+        super().__init__(message)
+        self.component = component
+        self.version = version
+        self.files = list(files)
+
+
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_FILES = 100_000
 _MAX_JSON = 64 * 1024 * 1024
@@ -344,7 +358,8 @@ class ComponentStore:
             full = self.app_root / Path(*PurePosixPath(rel).parts)
             _check_ancestry(full)
             if not full.is_dir():
-                raise ComponentStoreError("package is not staged: stored directory is missing")
+                raise PackageRepairError(f"Gói {component_id} {record['version']} chưa được chuẩn bị: thiếu thư mục đã cài '{rel}'.",
+                                         component=component_id, version=record["version"])
             if verify_files and not self._verify_existing(full, record):
                 raise ComponentStoreError("stored package files failed inventory verification")
             records[component_id] = record
@@ -392,6 +407,114 @@ class ComponentStore:
             if size != row["size"] or digest.hexdigest() != row["sha256"]:
                 return False
         return True
+
+    def inspect_package(self, record: dict) -> dict:
+        """Compare a staged package directory with its inventory without changing anything.
+
+        Returns ``{"state": "ok"|"absent"|"extra"|"damaged", "extra": [...], "missing": [...],
+        "modified": [...], "unsafe": [...]}``; ``extra`` alone means every inventory file is
+        intact and only unlisted files are present.
+        """
+        report = {"state": "ok", "extra": [], "missing": [], "modified": [], "unsafe": []}
+        target = self.packages_dir / record["id"] / record["version"]
+        _check_ancestry(target)
+        if not target.is_dir():
+            report["state"] = "absent"
+            return report
+        expected = {row["path"].casefold(): row for row in record["files"]}
+        actual = {}
+        for path in target.rglob("*"):
+            rel = path.relative_to(target).as_posix()
+            if _is_reparse(path):
+                report["unsafe"].append(rel)
+            elif path.is_file():
+                actual[rel.casefold()] = rel
+        report["extra"] = sorted(actual[key] for key in actual if key not in expected)
+        for key, row in expected.items():
+            if key not in actual:
+                report["missing"].append(row["path"])
+                continue
+            path = target / Path(*row["path"].split("/"))
+            digest = hashlib.sha256()
+            size = 0
+            with path.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    size += len(block)
+                    digest.update(block)
+            if size != row["size"] or digest.hexdigest() != row["sha256"]:
+                report["modified"].append(row["path"])
+        if report["missing"] or report["modified"] or report["unsafe"]:
+            report["state"] = "damaged"
+        elif report["extra"]:
+            report["state"] = "extra"
+        return report
+
+    @staticmethod
+    def describe_problem(record: dict, report: dict) -> str:
+        """One Vietnamese sentence naming the component and the offending file."""
+        name = f"{record['id']} {record['version']}"
+        if report["state"] == "absent":
+            return f"Gói {name} không còn thư mục đã cài trên máy."
+        for key, text in (("unsafe", "có liên kết không an toàn tại"), ("missing", "bị thiếu tệp"),
+                          ("modified", "có tệp bị sửa"), ("extra", "có tệp thừa không thuộc danh mục")):
+            files = report[key]
+            if files:
+                more = f" (và {len(files) - 1} tệp khác)" if len(files) > 1 else ""
+                return f"Gói {name} {text} '{files[0]}'{more}."
+        return f"Gói {name} không khớp danh mục."
+
+    def quarantine_extras(self, record: dict, extras: list[str]) -> Path:
+        """Move unlisted files out of an immutable package into ``.staging/.trash-<uuid>``.
+
+        Crash-safe in the same way as garbage collection: files are renamed (never deleted
+        in place), so a package never holds a half-removed inventory file, and the trash
+        directory is swept later by ``collect_garbage``.
+        """
+        target = self.packages_dir / record["id"] / record["version"]
+        trash = self.staging_dir / f".trash-{uuid.uuid4().hex}"
+        _check_ancestry(trash)
+        with self._locked():
+            trash.mkdir(parents=True)
+            for rel in extras:
+                source = target / Path(*rel.split("/"))
+                destination = trash / Path(*rel.split("/"))
+                try:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(source, destination)
+                except OSError as exc:
+                    raise PackageRepairError(
+                        f"Gói {record['id']} {record['version']}: không dọn được tệp thừa '{rel}' ({exc.strerror or exc}).",
+                        component=record["id"], version=record["version"], files=[rel]) from exc
+        return trash
+
+    def restage_package(self, package: dict, archive_path: str | os.PathLike) -> Path:
+        """Replace a damaged version directory by a freshly verified copy of the same package.
+
+        The old directory is renamed into ``.staging/.trash-<uuid>`` first and put back if
+        staging fails, so a failed repair never leaves the version missing.
+        """
+        target = self.packages_dir / package["id"] / package["version"]
+        trash = self.staging_dir / f".trash-{uuid.uuid4().hex}"
+        _check_ancestry(trash)
+        with self._locked():
+            _check_ancestry(target)
+            if target.exists():
+                try:
+                    os.replace(target, trash)
+                except OSError as exc:
+                    raise PackageRepairError(
+                        f"Gói {package['id']} {package['version']} đang được dùng nên chưa thay được ({exc.strerror or exc}).",
+                        component=package["id"], version=package["version"]) from exc
+        try:
+            result = self.stage_package(package, archive_path)
+        except Exception:
+            with self._locked():
+                if trash.exists() and not target.exists():
+                    os.replace(trash, target)
+            raise
+        if trash.exists():
+            self._rmtree(trash)
+        return result
 
     def baseline_matches(self, package: dict) -> bool:
         """Verify installer core against a signed catalog without downloading it."""
@@ -650,7 +773,12 @@ class ComponentStore:
         for component_id, component in components.items():
             package_path = self.packages_dir / component_id / component["version"]
             if not self._verify_existing(package_path, component["package"]):
-                raise ComponentStoreError("package is not staged or does not match inventory")
+                record = component["package"]
+                report = self.inspect_package(record)
+                raise PackageRepairError(
+                    self.describe_problem(record, report) + " Hãy thử cập nhật lại.",
+                    component=component_id, version=record["version"],
+                    files=report["extra"] + report["missing"] + report["modified"] + report["unsafe"])
         with self._locked():
             if catalog_sequence < self._sequence():
                 raise ComponentStoreError("catalog sequence rollback")

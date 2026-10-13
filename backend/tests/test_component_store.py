@@ -255,7 +255,7 @@ def test_prepare_rejects_missing_staged_package_and_cancel_keeps_versions(tmp_pa
     archive = tmp_path / "missing.zip"
     package = _package(archive)
     store = ComponentStore(tmp_path / "install")
-    with pytest.raises(ComponentStoreError, match="not staged"):
+    with pytest.raises(ComponentStoreError, match="Gói core 1.0.0"):
         store.prepare({"core": package}, 1)
     store.stage_package(package, archive)
     store.prepare({"core": package}, 1)
@@ -303,3 +303,53 @@ def test_store_refuses_reparse_point_in_app_ancestry(tmp_path):
         pytest.skip("directory symlink creation unavailable")
     with pytest.raises(ComponentStoreError, match="reparse point"):
         ComponentStore(alias / "install")
+
+
+def test_inspect_package_classifies_extra_missing_and_modified(tmp_path):
+    store, package, installed = _staged(tmp_path)
+    assert store.inspect_package(package)["state"] == "ok"
+    (installed / "svc.out").write_bytes(b"")
+    report = store.inspect_package(package)
+    assert report["state"] == "extra" and report["extra"] == ["svc.out"]
+    (installed / "KidTE.exe").write_bytes(b"changed")
+    assert store.inspect_package(package)["state"] == "damaged"
+    (installed / "KidTE.exe").unlink()
+    report = store.inspect_package(package)
+    assert report["missing"] == ["KidTE.exe"] and "KidTE.exe" in store.describe_problem(package, report)
+
+
+def test_quarantine_extras_moves_files_into_staging_trash(tmp_path):
+    store, package, installed = _staged(tmp_path)
+    (installed / "plugins").mkdir()
+    (installed / "plugins" / "svc.out").write_bytes(b"log")
+    report = store.inspect_package(package)
+    trash = store.quarantine_extras(package, report["extra"])
+    assert trash.parent == store.staging_dir and trash.name.startswith(".trash-")
+    assert (trash / "plugins" / "svc.out").read_bytes() == b"log"
+    assert not (installed / "plugins" / "svc.out").exists()
+    assert store.inspect_package(package)["state"] == "ok"
+    store.prepare({"core": package}, 1)
+
+
+def test_prepare_error_names_component_and_file(tmp_path):
+    store, package, installed = _staged(tmp_path)
+    (installed / "plugins").mkdir()
+    (installed / "plugins" / "svc.out").write_bytes(b"")
+    with pytest.raises(ComponentStoreError) as caught:
+        store.prepare({"core": package}, 1)
+    message = str(caught.value)
+    assert "core 1.0.0" in message and "plugins/svc.out" in message and "thừa" in message
+
+
+def test_restage_package_replaces_damaged_dir_and_restores_on_failure(tmp_path):
+    store, package, installed = _staged(tmp_path)
+    archive = tmp_path / "1.0.0.zip"
+    (installed / "KidTE.exe").write_bytes(b"changed")
+    store.restage_package(package, archive)
+    assert store.inspect_package(package)["state"] == "ok"
+    (installed / "KidTE.exe").write_bytes(b"changed")
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"not a zip")
+    with pytest.raises(ComponentStoreError):
+        store.restage_package(package, bad)
+    assert (installed / "KidTE.exe").read_bytes() == b"changed"  # old directory put back

@@ -8,7 +8,19 @@ const MAX_IMAGES = 8;
 const MAX_FILES = 5;
 const DOC_ACCEPT = '.pdf,.docx,.txt,.md,.html,.htm,.csv';
 const UPLOAD_TIMEOUT = 10 * 60 * 1000;
-const READ_TIMEOUT = 5 * 60 * 1000;
+const READ_TIMEOUT = 15 * 60 * 1000;
+
+/** Đồng hồ trên nút: "nhãn… (m:ss)". Trả hàm dừng. */
+function startElapsed(button, label) {
+  const t0 = Date.now();
+  const tick = () => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    button.textContent = `${label} (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`;
+  };
+  tick();
+  const timer = setInterval(tick, 1000);
+  return () => clearInterval(timer);
+}
 
 /** Kết quả quét thêm trang sản phẩm (nếu có). */
 function crawlNotice(crawl) {
@@ -100,10 +112,12 @@ export function openProductIngest(ctx, {onDone} = {}) {
             crawl: !!url.value.trim() && crawlBox.checked,
           };
           // Tiến trình: một yêu cầu duy nhất, nên nhãn nút đổi theo giai đoạn đang chạy.
-          button.textContent = payload.crawl
+          const label = payload.crawl
             ? 'Đang đọc trang chủ và quét các trang sản phẩm… (có thể mất vài phút)'
             : 'Đang đọc… (có thể mất 10–90 giây)';
-          const result = await request('/api/ingest/extract', {method: 'POST', body: payload, timeoutMs: READ_TIMEOUT});
+          const stop = startElapsed(button, label);
+          let result;
+          try { result = await request('/api/ingest/extract', {method: 'POST', body: payload, timeoutMs: READ_TIMEOUT}); } finally { stop(); }
           stepReview(result, payload.url);
         } catch (err) { toast(friendlyError(err), 'danger'); button.disabled = false; button.textContent = 'AI đọc ngay'; }
       }}));

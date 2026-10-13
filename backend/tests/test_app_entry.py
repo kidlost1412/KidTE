@@ -306,3 +306,18 @@ def test_started_by_user_uses_real_parent_skipping_same_exe_bootloader():
     assert ok is False and "python.exe" in detail
     assert launch_origin.started_by_user({}, table={10: (99, "kidte.exe")}, own_name="KidTE.exe", pid=10)[0] is False  # parent gone
     assert launch_origin.started_by_user({"KIDTE_FORCE_FOCUS": "1"}, table=table, pid=10)[0] is True
+
+def test_frozen_stray_start_by_background_parent_exits_silently():
+    bg = lambda: (False, "parent=python.exe:1")
+    usr = lambda: (True, "parent=explorer.exe:1")
+    assert app_entry.background_stray_start({}, frozen=True, argv=["KidTE.exe"], user_check=bg) is True
+    assert app_entry.background_stray_start({}, frozen=True, argv=["KidTE.exe"], user_check=usr) is False
+    assert app_entry.background_stray_start({"KIDTE_LAUNCH_NONCE": "x"}, frozen=True, argv=["KidTE.exe"], user_check=bg) is False
+    assert app_entry.background_stray_start({}, frozen=False, argv=["KidTE.exe"], user_check=bg) is False
+    assert app_entry.background_stray_start({}, frozen=True, argv=["KidTE.exe", "--no-ui"], user_check=bg) is False
+
+
+def test_main_returns_before_taking_lock_on_stray_background_start(monkeypatch):
+    monkeypatch.setattr(app_entry, "background_stray_start", lambda *a, **k: True)
+    monkeypatch.setattr(app_entry, "SingleInstanceLock", lambda *a, **k: pytest.fail("lock taken"))
+    assert app_entry.main() == 0

@@ -171,7 +171,25 @@ def redirect_to_launcher(environ=None, *, frozen=None, exe_dir=None, spawn=None,
     return True
 
 
+def background_stray_start(environ=None, *, frozen=None, argv=None, user_check=None):
+    """Loi dong bang chay truc tiep (khong ma launcher, khong tham so) boi tien trinh nen:
+    thoat im lang, khong bao gio dung mot loi lac."""
+    environ = os.environ if environ is None else environ
+    if len(sys.argv if argv is None else argv) > 1:
+        return False
+    frozen = IS_FROZEN if frozen is None else frozen
+    if not frozen or environ.get("KIDTE_LAUNCH_NONCE") or environ.get("KIDTE_NO_LAUNCHER_REDIRECT"):
+        return False
+    user, detail = (user_check or (lambda: started_by_user(environ)))()
+    if user:
+        return False
+    record(LOG_DIR, "stray-start-silent", detail)
+    return True
+
+
 def main() -> int:
+    if background_stray_start():
+        return 0
     if redirect_to_launcher():
         return 0
     ensure_std_streams(LOG_DIR / "console.log")

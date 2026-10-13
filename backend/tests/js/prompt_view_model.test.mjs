@@ -4,7 +4,7 @@ import {sectionsModel, noticeModel, missingProtected, rulesSaveBody, personaSect
   loadPromptView, savePersonaSection, resolveRules, STYLE_MAX} from '../../src/web/app/pages/prompt-view-model.js';
 
 const view = (over = {}) => ({sections: [
-  {id: 'persona', title: '4)', text: 'giọng', editable: true, is_default: true, max: 1600, persona_id: 'default'},
+  {id: 'persona', title: '4)', text: 'giọng', editable: true, is_default: true, max: 2400, persona_id: 'default'},
   {id: 'notes', title: '3)', text: '', editable: true, max: 1500},
   {id: 'rules', title: '2)', text: 'luật', editable: true, customized: false, stale: false, min: 300, max: 40000},
   {id: 'brief', title: '1)', text: 'brief', editable: false}], notice: null, ...over});

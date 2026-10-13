@@ -5,7 +5,7 @@ export const PERSONA_URL = '/api/learning/persona';
 export const NOTES_URL = '/api/system/processors/model-deepseek/notes';
 export const TRY_URL = '/api/learning/try';
 export const SECTION_ORDER = ['brief', 'rules', 'notes', 'persona'];
-export const STYLE_MAX = 1600;
+export const STYLE_MAX = 2400;
 
 const squash = text => String(text ?? '').replace(/\s+/g, '');
 

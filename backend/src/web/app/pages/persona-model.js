@@ -1,6 +1,6 @@
 // Mô hình thuần (không DOM) cho "Tạo phong cách bằng AI" và "Ghi chú thêm cho AI".
 // api = (url, {method, body}) => Promise. Backend vẫn là nơi kiểm tra cuối cùng.
-export const LIMITS = {profile: 1500, minProfile: 12, style: 1600, name: 80, description: 600, notes: 1500};
+export const LIMITS = {profile: 1500, minProfile: 12, style: 2400, name: 80, description: 600, notes: 1500};
 export const PROPOSE_URL = '/api/learning/persona-propose';
 export const PERSONA_URL = '/api/learning/persona';
 export const NOTES_URL = '/api/system/processors/model-deepseek/notes';

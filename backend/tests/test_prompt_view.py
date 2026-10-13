@@ -140,3 +140,13 @@ def test_diff_rows_side_by_side():
     rows = pv.diff_rows("a\nb\nc", "a\nB\nc\nd")
     assert [r["kind"] for r in rows] == ["same", "changed", "same", "added"]
     assert rows[1]["left"] == "b" and rows[1]["right"] == "B"
+
+
+def test_default_voice_fits_style_limit_so_it_can_be_saved_as_own(rig):
+    from learning import MAX_STYLE_CHARS
+    engine, _ = rig
+    assert MAX_STYLE_CHARS == 2400 and len(DEFAULT_VOICE) < MAX_STYLE_CHARS
+    voice = engine.learning_prompt_view("")["sections"][3]
+    assert voice["max"] == MAX_STYLE_CHARS
+    own = engine.learning.save_persona({"name": "Của tôi", "style_guide": voice["text"]})
+    assert own["style_guide"] == voice["text"].strip()

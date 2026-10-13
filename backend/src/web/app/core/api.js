@@ -174,7 +174,7 @@ const MESSAGES = {
   persona_profile_required: 'Hãy tả về mình dài hơn một chút (giới tính, xưng hô, tính cách...).',
   persona_proposal_invalid: 'AI trả về chưa đúng dạng. Bấm “Tạo lại”.',
   persona_proposal_failed: 'Chưa gọi được DeepSeek lúc này. Kiểm tra khoá/số dư rồi thử lại.',
-  persona_style_too_long: 'Hướng dẫn giọng tối đa 1.600 ký tự — hãy rút gọn bớt.',
+  persona_style_too_long: 'Hướng dẫn giọng tối đa 2.400 ký tự — hãy rút gọn bớt.',
   persona_name_required: 'Phong cách cần có tên.',
   model_not_ready: 'Chưa có khoá DeepSeek nên chưa tạo được. Nhập khoá ở Cài đặt → Hệ thống.',
   processor_not_found: 'Không có bộ xử lý này.',

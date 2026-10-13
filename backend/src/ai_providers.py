@@ -10,11 +10,48 @@ from __future__ import annotations
 
 import base64
 import json
+import re
+import time
 import urllib.error
 import urllib.request
 
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GEMINI_MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"   # chỉ dùng khi chưa dò được danh sách model
+GEMINI_DETECT_TTL = 24 * 3600                # dò lại model mới sau ~1 ngày
+GEMINI_DETECT_RETRY = 600                    # dò lỗi (mạng/khóa) thì 10 phút sau mới thử lại
 GEMINI_KEY_LINK_TARGET = "gemini_keys"       # khóa trong OPEN_TARGETS của server
+
+_SPECIAL = ("image", "tts", "audio", "live", "embed", "robotics", "computer", "learnlm", "gemma", "aqa")
+_VERSION = re.compile(r"gemini-(\d+(?:\.\d+)*)-flash")
+
+
+def pick_flash_model(models):
+    """Chọn model "flash" mới nhất, ổn định, có generateContent từ phản hồi ``models.list``.
+
+    Ưu tiên: bản ổn định không lite > bản preview/exp không lite > bất kỳ flash (kể cả lite).
+    Trong cùng nhóm: số phiên bản lớn nhất, rồi tên ngắn nhất (bỏ hậu tố ngày). Trả về "" nếu không có.
+    """
+    tiers = ([], [], [])
+    for item in models or []:
+        name = str(item.get("name") or "").split("/")[-1].strip()
+        low = name.lower()
+        methods = item.get("supportedGenerationMethods") or []
+        if "flash" not in low or "generateContent" not in methods or any(s in low for s in _SPECIAL):
+            continue
+        found = _VERSION.search(low)
+        version = tuple(int(x) for x in found.group(1).split(".")) if found else ()
+        if "lite" in low:
+            tier = 2
+        elif any(s in low for s in ("preview", "exp", "thinking")):
+            tier = 1
+        else:
+            tier = 0
+        tiers[tier].append(((version, -len(name)), name))
+    for tier in tiers:
+        if tier:
+            return max(tier)[1]
+    return ""
 
 
 class AIProviderError(Exception):
@@ -30,27 +67,77 @@ class GeminiProvider:
     name = "gemini"
     supports_files = True
 
-    def __init__(self, api_key="", model="gemini-3.8-flash", timeout=90, opener=None):
+    def __init__(self, api_key="", model="", timeout=90, opener=None, clock=time.time):
         self.api_key = (api_key or "").strip()
-        self.model = (model or "gemini-3.8-flash").strip()
+        self.explicit_model = (model or "").strip()   # chủ shop tự đặt: không bao giờ bị dò đè
         self.timeout = timeout
         self._opener = opener            # test: hàm (request, timeout) -> response
+        self._clock = clock
+        self._detected = ""              # model dò được từ danh sách của Google
+        self._detected_at = 0.0
+        self._failed_at = 0.0
 
     @property
     def configured(self):
         return bool(self.api_key)
 
+    @property
+    def model(self):
+        """Model đang dùng: chủ shop đặt > model dò được (còn hạn) > mặc định dự phòng."""
+        return self.explicit_model or self._detected or GEMINI_FALLBACK_MODEL
+
+    @property
+    def model_source(self):
+        return "owner" if self.explicit_model else ("auto" if self._detected else "fallback")
+
     def configure(self, api_key=None, model=None):
         if api_key is not None:
-            self.api_key = str(api_key).strip()
-        if model:
-            self.model = str(model).strip()
+            new_key = str(api_key).strip()
+            if new_key != self.api_key:
+                self._detected, self._detected_at, self._failed_at = "", 0.0, 0.0
+            self.api_key = new_key
+        if model is not None:
+            self.explicit_model = str(model).strip()
 
-    def _open(self, request):
+    def detect_model(self, force=False):
+        """Gọi GET /v1beta/models, chọn flash mới nhất. Không bao giờ ném lỗi; trả model hiện hành.
+
+        Có khóa + chưa đặt tay: lần đầu hoặc quá ~1 ngày mới gọi; lỗi thì thử lại sau 10 phút.
+        """
+        if self.explicit_model or not self.api_key:
+            return self.model
+        now = self._clock()
+        if not force:
+            if self._detected and now - self._detected_at < GEMINI_DETECT_TTL:
+                return self.model
+            if self._failed_at and now - self._failed_at < GEMINI_DETECT_RETRY:
+                return self.model
+        try:
+            models, token = [], ""
+            for _ in range(10):                      # tối đa 10 trang
+                url = GEMINI_MODELS_ENDPOINT + "?pageSize=1000" + (f"&pageToken={token}" if token else "")
+                request = urllib.request.Request(url, method="GET", headers={"x-goog-api-key": self.api_key})
+                with self._open(request, timeout=min(self.timeout, 15)) as response:
+                    page = json.loads(response.read().decode("utf-8"))
+                models.extend(page.get("models") or [])
+                token = str(page.get("nextPageToken") or "")
+                if not token:
+                    break
+            picked = pick_flash_model(models)
+        except Exception:
+            picked = ""
+        if picked:
+            self._detected, self._detected_at, self._failed_at = picked, now, 0.0
+        else:
+            self._failed_at = now
+        return self.model
+
+    def _open(self, request, timeout=None):
+        timeout = timeout or self.timeout
         if self._opener:
-            return self._opener(request, self.timeout)
+            return self._opener(request, timeout)
         from net import ssl_context
-        return urllib.request.urlopen(request, timeout=self.timeout, context=ssl_context())
+        return urllib.request.urlopen(request, timeout=timeout, context=ssl_context())
 
     def build_body(self, system, user_text, files=()):
         parts = [{"text": user_text}]
@@ -67,6 +154,7 @@ class GeminiProvider:
             raise AIProviderError("gemini_key_missing",
                                   "Chưa có khóa Gemini. Vào Cài đặt, dán khóa vào ô “Key Gemini (đọc ảnh/PDF)”.")
         body = json.dumps(self.build_body(system, user_text, files)).encode("utf-8")
+        self.detect_model()                      # lười: chỉ gọi khi chưa có/hết hạn
         request = urllib.request.Request(
             GEMINI_ENDPOINT.format(model=self.model), data=body, method="POST",
             headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key})
@@ -99,7 +187,7 @@ class GeminiProvider:
         if status == 404:
             return AIProviderError("gemini_model_rejected",
                                    f"Gemini không nhận model “{self.model}”. Google có thể đã đổi tên: "
-                                   "sửa GEMINI_MODEL trong file .env (xem danh sách ở ai.google.dev/gemini-api/docs/models).")
+                                   "nhập tên mới ở Cài đặt → Model Gemini (xem ai.google.dev/gemini-api/docs/models).")
         if status == 400:
             return AIProviderError("gemini_bad_request", "Gemini không đọc được tệp này: " + message[:200])
         if status >= 500:

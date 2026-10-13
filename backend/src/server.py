@@ -1317,12 +1317,15 @@ class ReplyEngine:
                        for item in list_devices()]
         except Exception:
             devices = []
+        if self.gemini.configured and self.gemini.model_source == "fallback":
+            threading.Thread(target=self.gemini.detect_model, daemon=True).start()   # dò nền, không chặn trang
         return {"ok": True, "models": models,
                 "selected_model": getattr(self.responder, "model", DEEPSEEK_MODEL),
                 "model_labels": dict(getattr(self.responder, "model_labels", None) or {}),
                 "model_error": model_error,
                 "api_key_configured": getattr(self.responder, "client", None) is not None,
-                "gemini_key_configured": self.gemini.configured, "gemini_model": self.gemini.model,
+                "gemini_key_configured": self.gemini.configured, "gemini_model": self.gemini.explicit_model,
+                "gemini_model_effective": self.gemini.model, "gemini_model_source": self.gemini.model_source,
                 "tiktok_user_ids": ",".join(sorted(TIKTOK_HOST_USER_IDS)),
                 "tiktok_unique_ids": ",".join(sorted(TIKTOK_HOST_UNIQUE_IDS)),
                 "audio_devices": devices,
@@ -1386,10 +1389,19 @@ class ReplyEngine:
             from config_settings import save_gemini_model
             result.update(save_gemini_model(gemini_model))
             self.gemini.configure(model=gemini_model)
+        elif "gemini_model" in payload and self.gemini.explicit_model:
+            from config_settings import clear_gemini_model        # xóa ô = quay về tự dò
+            result.update(clear_gemini_model())
+            self.gemini.configure(model="")
         if gemini_key:
             from config_settings import save_gemini_key
             result.update(save_gemini_key(gemini_key))
             self.gemini.configure(api_key=gemini_key)
+        if gemini_key or gemini_model == "" and "gemini_model" in payload:
+            self.gemini.detect_model(force=bool(gemini_key))     # lưu khóa mới -> dò model ngay (không ném lỗi)
+        if gemini_key or "gemini_model" in payload:
+            result["gemini_model_effective"] = self.gemini.model
+            result["gemini_model_source"] = self.gemini.model_source
         if api_key:
             if not callable(configure_key):
                 return {"ok": False, "error": "model_provider_not_configurable"}

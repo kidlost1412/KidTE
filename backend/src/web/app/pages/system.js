@@ -51,11 +51,11 @@ async function setup(ctx, host) {
     try { await request('/api/settings', {method: 'POST', body}); key.value = ''; toast('Đã lưu cài đặt AI.', 'ok'); setup(ctx, host); } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   const gemKey = input({type: 'password', placeholder: s.gemini_key_configured ? '•••••••• (đã cấu hình — để trống nếu không đổi)' : 'Dán khoá Gemini (AIza…)', autocomplete: 'off'});
-  const gemModel = input({value: s.gemini_model || '', placeholder: 'gemini-3.8-flash'});
+  const gemModel = input({value: s.gemini_model || '', placeholder: 'Để trống = tự chọn model flash mới nhất'});
   const saveGemini = btn('Lưu khoá Gemini', {kind: 'primary', icon: 'save', onClick: async () => {
     const body = {};
     if (gemKey.value.trim()) body.gemini_api_key = gemKey.value.trim();
-    if (gemModel.value.trim() && gemModel.value.trim() !== s.gemini_model) body.gemini_model = gemModel.value.trim();
+    if (gemModel.value.trim() !== (s.gemini_model || '')) body.gemini_model = gemModel.value.trim();
     if (!Object.keys(body).length) { toast('Chưa có gì để lưu.', 'info'); return; }
     try { await request('/api/settings', {method: 'POST', body}); gemKey.value = ''; toast('Đã lưu cài đặt Gemini.', 'ok'); setup(ctx, host); } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
@@ -100,7 +100,8 @@ async function setup(ctx, host) {
       notice(s.gemini_key_configured ? 'ok' : 'info', s.gemini_key_configured ? 'Gemini sẵn sàng' : 'Chưa có khoá Gemini', 'Dùng để “Thêm sản phẩm bằng AI” đọc ảnh nhãn và PDF scan. Không có khoá thì chỉ đọc được file có chữ, địa chỉ web và chữ dán (qua DeepSeek).'),
       field('Key Gemini (đọc ảnh/PDF)', gemKey, {hint: 'Khoá lưu trong file .env trên máy này, không hiển thị lại.'}),
       h('div', {}, btn('Lấy key miễn phí', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => openTarget('gemini_keys')})),
-      field('Model Gemini', gemModel, {hint: 'Nếu Google đổi tên model và báo lỗi “không nhận model”, nhập tên mới ở đây (xem ai.google.dev/gemini-api/docs/models).'})),
+      h('p', {class: 'fs-sm soft', 'data-gemini-model': ''}, `Model đang dùng: ${s.gemini_model_effective || '—'}${s.gemini_model_source === 'auto' ? ' (tự chọn)' : s.gemini_model_source === 'owner' ? ' (bạn đặt)' : ' (dự phòng, đang dò model mới nhất)'}`),
+      field('Model Gemini (không bắt buộc)', gemModel, {hint: 'Để trống: Kid TE tự dò model flash ổn định mới nhất từ Google (dò lại mỗi ngày). Chỉ nhập khi muốn cố định một model (xem ai.google.dev/gemini-api/docs/models).'})),
     {sub: 'Google AI Studio', footer: saveGemini}),
     card('Thông tin shop & sổ tay bán hàng', h('div', {class: 'card-body col gap-3'},
       h('p', {class: 'fs-sm soft'}, 'Thông tin shop (địa chỉ, hotline, giao hàng) và sổ tay tình huống bán hàng nằm ở hai trang riêng trong thanh bên.'),

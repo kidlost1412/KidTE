@@ -190,7 +190,7 @@ function mountProfiles(ctx, host, d) {
     clear(list, h('div', {class: 'list'}, items.map(p => h('div', {class: 'list-row'},
       h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + p.title, checked: picked.has(p.id), onChange: e => { e.target.checked ? picked.add(p.id) : picked.delete(p.id); renderBulk(); }}),
       h('button', {class: 'list-row', type: 'button', style: {flex: '1', border: '0', background: 'none', padding: '0'}, onClick: () => openProfile(p.id)},
-        h('span', {class: 'pavatar', style: {'--size': '46px'}}, p.featured_image_url ? h('img', {src: p.featured_image_url, alt: '', loading: 'lazy', onError: e => e.target.remove()}) : icon('fileText')),
+        h('span', {class: 'pavatar', style: {'--size': '46px'}}, p.featured_image_url ? h('img', {src: profileThumbUrl(p.id), alt: '', loading: 'lazy', onError: e => e.target.remove()}) : icon('fileText')),
         h('div', {class: 'grow'}, h('div', {class: 'title clamp-2'}, p.title), h('div', {class: 'sub clamp-2'}, listOf(p.cong_dung).slice(0, 2).join(' · ') || p.mo_ta_ngan || '')),
         h('div', {class: 'col', style: {alignItems: 'flex-end', gap: '4px'}},
           p.mapped_skus ? chip(`${p.mapped_skus} SP đang dùng`, 'ok') : chip('Chưa gắn SP nào', ''),
@@ -260,7 +260,7 @@ function mountProfiles(ctx, host, d) {
     const drawer = openDrawer({
       title: data.ten_san_pham || id, sub: `${id} · ${data.mapped_skus || 0} sản phẩm đang dùng hồ sơ này`, width: 720,
       body: h('div', {class: 'card-body col gap-4'},
-        data.featured_image_url ? h('img', {src: data.featured_image_url, alt: '', style: {maxHeight: '180px', objectFit: 'contain', background: '#fff', borderRadius: '12px', border: '1px solid var(--border)'}}) : null,
+        data.featured_image_url ? h('img', {src: profileThumbUrl(id), alt: '', style: {maxHeight: '180px', objectFit: 'contain', background: '#fff', borderRadius: '12px', border: '1px solid var(--border)'}}) : null,
         composition.length ? h('div', {class: 'col'}, h('div', {class: 'section-title'}, 'Thành phần đăng ký (chỉ đọc)'), h('ul', {class: 'list-lines'}, composition.map(line => h('li', {}, line)))) : null,
         h('section', {class: 'card flat'}, h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h3', {}, 'Thử AI tính liều'), h('div', {class: 'sub'}, 'Nhập dung tích bình để xem AI sẽ trả lời liều bao nhiêu theo nhãn.'))),
           h('div', {class: 'card-body col gap-3'}, h('div', {class: 'row'}, liters, h('span', {class: 'fs-sm'}, 'lít nước'), doseBtn), doseOut)),
@@ -309,6 +309,9 @@ function mountProfiles(ctx, host, d) {
 // ======================================================================
 // ÁNH XẠ SẢN PHẨM -> HỒ SƠ
 // ======================================================================
+// Ảnh hồ sơ luôn qua cache máy (/api/profile/thumb), không nhúng thẳng link web của nhà sản xuất.
+function profileThumbUrl(id) { return '/api/profile/thumb/' + encodeURIComponent(id); }
+
 /** Ô ảnh vuông 56px: có ảnh thì bấm để phóng to; thiếu ảnh thì hiện icon thay thế. */
 function thumb(url, label, {fallbackIcon, dashed = false} = {}) {
   const box = h('span', {class: 'map-thumb' + (dashed ? ' sugg' : ''), title: label || ''});

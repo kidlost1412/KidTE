@@ -305,7 +305,7 @@ Cấu trúc trả về:
 Các trường (đúng các tên này, không thêm tên khác):
 {FIELD_HELP}
 
-Quy tắc bắt buộc:
+Quy tắc bắt buộc (RIÊNG nhiệm vụ này, thay cho phần "hiểu biết chung" của bối cảnh chung; đây là hồ sơ để chủ shop duyệt, không phải câu trả lời cho khách):
 - KHÔNG ghi giá, khuyến mãi, quà tặng, mã giảm giá, miễn phí vận chuyển, số lượng tồn: chúng chỉ lấy từ giỏ hàng của shop.
 - Chỉ chép những gì có trong nguồn, không bịa, không dùng hiểu biết chung để điền khoảng trống.
 - Chữ mờ/không đọc chắc chắn, hoặc nguồn không nói: đặt "gia_tri": null và "do_tin_cay": 0.

@@ -213,7 +213,7 @@ def _http_error(status, message="x"):
 
 @pytest.mark.parametrize("status,message,code,needle", [
     (429, "quota", "gemini_quota", "Hết lượt miễn phí hôm nay"),
-    (404, "not found", "gemini_model_rejected", "GEMINI_MODEL"),
+    (404, "not found", "gemini_model_rejected", "Model Gemini"),
     (400, "API key not valid", "gemini_key_rejected", "Khóa Gemini"),
     (403, "denied", "gemini_key_rejected", "Khóa Gemini"),
     (503, "overloaded", "gemini_server", "tạm thời"),
@@ -470,3 +470,118 @@ def test_http_routes_extract_draft_link_and_image(tmp_path):
         http.shutdown()
         http.server_close()
         worker.join()
+
+
+# ---------------------------------------------------------------- Gemini: tự dò model
+def _m(name, methods=("generateContent",)):
+    return {"name": "models/" + name, "supportedGenerationMethods": list(methods)}
+
+
+MODEL_LIST = [
+    _m("gemini-2.5-flash"), _m("gemini-2.5-flash-lite"), _m("gemini-2.5-pro"),
+    _m("gemini-3.0-flash-preview"), _m("gemini-2.0-flash"), _m("gemini-2.0-flash-001"),
+    _m("gemini-2.5-flash-image"), _m("gemini-2.5-flash-preview-tts"),
+    _m("gemini-embedding-flash", ("embedContent",)), _m("gemini-3.1-flash-live", ("bidiGenerateContent",)),
+]
+
+
+def test_pick_flash_prefers_newest_stable_non_lite():
+    assert ai_providers.pick_flash_model(MODEL_LIST) == "gemini-2.5-flash"
+    # bản ổn định mới hơn thắng, cả khi nhiều chữ số phiên bản
+    assert ai_providers.pick_flash_model(MODEL_LIST + [_m("gemini-2.10-flash")]) == "gemini-2.10-flash"
+    # không có bản ổn định: lấy preview mới nhất; không có gì: lite; không flash: rỗng
+    previews = [_m("gemini-3.0-flash-preview"), _m("gemini-2.5-flash-lite"), _m("gemini-2.5-pro")]
+    assert ai_providers.pick_flash_model(previews) == "gemini-3.0-flash-preview"
+    assert ai_providers.pick_flash_model([_m("gemini-2.5-flash-lite"), _m("gemini-2.5-pro")]) == "gemini-2.5-flash-lite"
+    assert ai_providers.pick_flash_model([_m("gemini-2.5-pro"), _m("gemini-x-flash", ("embedContent",))]) == ""
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def _listing_opener(calls, pages=None, fail=False):
+    pages = pages or [{"models": MODEL_LIST}]
+
+    def opener(request, timeout):
+        calls.append(request)
+        if request.full_url.split("?")[0] == ai_providers.GEMINI_MODELS_ENDPOINT:
+            if fail:
+                raise urllib.error.URLError("offline")
+            index = 0 if "pageToken" not in request.full_url else int(request.full_url.rsplit("=", 1)[1])
+            return FakeResponse(json.dumps(pages[index]).encode())
+        return FakeResponse(json.dumps({"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}).encode())
+
+    return opener
+
+
+def test_detect_model_header_pagination_and_cache():
+    calls, clock = [], Clock()
+    pages = [{"models": MODEL_LIST[:3], "nextPageToken": "1"}, {"models": MODEL_LIST[3:]}]
+    provider = GeminiProvider("AIza-test-key", "", opener=_listing_opener(calls, pages), clock=clock)
+    assert provider.model == ai_providers.GEMINI_FALLBACK_MODEL and provider.model_source == "fallback"
+    assert provider.detect_model() == "gemini-2.5-flash" and provider.model_source == "auto"
+    assert len(calls) == 2
+    first = calls[0]
+    assert first.get_method() == "GET" and first.header_items() and dict(first.header_items())["X-goog-api-key"] == "AIza-test-key"
+    assert "AIza-test-key" not in first.full_url
+    provider.detect_model()                      # còn hạn: không gọi lại
+    assert len(calls) == 2
+    clock.now += ai_providers.GEMINI_DETECT_TTL + 1
+    provider.detect_model()                      # quá ~1 ngày: dò lại
+    assert len(calls) == 4
+
+
+def test_generate_lazily_detects_and_uses_detected_model():
+    calls = []
+    provider = GeminiProvider("AIza-test-key", "", opener=_listing_opener(calls))
+    provider.generate("s", "u")
+    urls = [c.full_url for c in calls]
+    assert urls[0].startswith(ai_providers.GEMINI_MODELS_ENDPOINT)
+    assert urls[1].endswith("/gemini-2.5-flash:generateContent")
+    provider.generate("s", "u")
+    assert len(calls) == 3                       # lần hai không dò lại
+
+
+def test_owner_model_is_never_overridden_or_probed():
+    calls = []
+    provider = GeminiProvider("AIza-test-key", "gemini-mine", opener=_listing_opener(calls))
+    assert provider.detect_model(force=True) == "gemini-mine" and provider.model_source == "owner"
+    provider.generate("s", "u")
+    assert all("/models?" not in c.full_url for c in calls)
+    provider.configure(model="")                 # xóa model tay -> quay về tự dò
+    assert provider.detect_model() == "gemini-2.5-flash" and provider.model_source == "auto"
+
+
+def test_detect_failure_falls_back_and_retries_later():
+    calls, clock = [], Clock()
+    provider = GeminiProvider("AIza-test-key", "", opener=_listing_opener(calls, fail=True), clock=clock)
+    assert provider.detect_model() == ai_providers.GEMINI_FALLBACK_MODEL
+    provider.detect_model()
+    assert len(calls) == 1                       # không dò dồn dập khi lỗi
+    clock.now += ai_providers.GEMINI_DETECT_RETRY + 1
+    provider.detect_model()
+    assert len(calls) == 2
+    # không có khóa: không gọi mạng
+    assert GeminiProvider("", "", opener=_listing_opener(calls)).detect_model() == ai_providers.GEMINI_FALLBACK_MODEL
+    assert len(calls) == 2
+
+
+def test_new_key_forces_fresh_detection_and_clear_setting(tmp_path):
+    calls = []
+    provider = GeminiProvider("AIza-old-key-1", "", opener=_listing_opener(calls))
+    provider.detect_model()
+    provider.configure(api_key="AIza-new-key-2")
+    assert provider.model_source == "fallback"
+    provider.detect_model(force=True)
+    assert len(calls) == 2 and dict(calls[1].header_items())["X-goog-api-key"] == "AIza-new-key-2"
+    from config_settings import clear_gemini_model, save_gemini_model
+    env = tmp_path / ".env"
+    env.write_text("KEEP=1" + chr(10), encoding="utf-8")
+    save_gemini_model("gemini-mine", env)
+    clear_gemini_model(env)
+    assert env.read_text(encoding="utf-8") == "KEEP=1" + chr(10)

@@ -61,6 +61,12 @@ def save_gemini_model(model: str, env_path=None):
     return {"ok": True, "gemini_model": model, "restart_required": False}
 
 
+def clear_gemini_model(env_path=None):
+    """Bỏ model Gemini do chủ shop đặt tay để quay về tự dò."""
+    _save_values({}, env_path, remove_keys={"GEMINI_MODEL"})
+    return {"ok": True, "gemini_model": "", "restart_required": False}
+
+
 def save_audio_device(device_id: str, env_path=None):
     device_id = str(device_id or "").strip()
     if not device_id or any(ch in device_id for ch in "\r\n\0"):

@@ -78,7 +78,7 @@ DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-flash").strip()   # = V4.1 Flash
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-# Để trống = tự dò model flash mới nhất từ Google (ai_providers.pick_flash_model); chủ shop đặt tay thì giữ nguyên.
+# Để trống = tự dò model (ưu tiên gemini-flash-latest, không có thì flash mới nhất; ai_providers.pick_default_model); chủ shop đặt tay thì giữ nguyên.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip()
 KNOWLEDGE_PACKAGE_SOURCE = os.getenv("KNOWLEDGE_PACKAGE_SOURCE", "").strip()
 DEEPSEEK_DISABLE_THINKING = os.getenv("DEEPSEEK_DISABLE_THINKING", "1") == "1"

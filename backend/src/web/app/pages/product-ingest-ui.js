@@ -10,6 +10,13 @@ const DOC_ACCEPT = '.pdf,.docx,.txt,.md,.html,.htm,.csv';
 const UPLOAD_TIMEOUT = 10 * 60 * 1000;
 const READ_TIMEOUT = 5 * 60 * 1000;
 
+/** Kết quả quét thêm trang sản phẩm (nếu có). */
+function crawlNotice(crawl) {
+  if (!crawl || !crawl.enabled) return null;
+  const failed = crawl.failed ? `, ${crawl.failed} trang lỗi được bỏ qua` : '';
+  return notice('info', 'Đã quét website', `Tìm thấy ${crawl.found || 0} liên kết sản phẩm, đọc được ${crawl.read || 0} trang${failed}.`);
+}
+
 /** Tải tệp thô lên máy chủ (không base64: danh mục PDF có thể nặng hàng chục MB). */
 async function uploadFile(f) {
   const out = await request('/api/ingest/upload?name=' + encodeURIComponent(f.name), {method: 'POST', body: f, timeoutMs: UPLOAD_TIMEOUT});
@@ -37,6 +44,13 @@ export function openProductIngest(ctx, {onDone} = {}) {
     const docInput = h('input', {type: 'file', accept: DOC_ACCEPT, multiple: true, hidden: true});
     const imgInput = h('input', {type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, hidden: true});
     const url = input({placeholder: 'https://… (trang giới thiệu sản phẩm)'});
+    const crawlBox = h('input', {type: 'checkbox', checked: true, 'aria-label': 'Quét thêm các trang sản phẩm cùng website'});
+    const crawlRow = h('label', {class: 'row fs-sm', hidden: true}, crawlBox,
+      'Quét thêm các trang sản phẩm cùng website (tối đa 20 trang)');
+    url.addEventListener('input', () => {
+      crawlBox.checked = pm.isRootUrl(url.value);                  // trang chủ: mặc định bật; trang con: tắt
+      crawlRow.hidden = !url.value.trim();
+    });
     const text = textarea({rows: 5, placeholder: 'Hoặc dán chữ: thành phần, công dụng, cách dùng…'});
     const fileList = h('div', {class: 'col', style: {gap: '4px'}});
     const warn = h('div');
@@ -67,6 +81,7 @@ export function openProductIngest(ctx, {onDone} = {}) {
       h('div', {class: 'row wrap'}, btn('Tải tài liệu (PDF, Word, TXT, HTML)…', {icon: 'fileText', onClick: () => docInput.click()}),
         imgButton, docInput, imgInput),
       fileList, field('Địa chỉ web của sản phẩm', url, {hint: 'Chỉ nhận http/https. Ảnh đại diện (og:image) của trang được giữ làm ảnh sản phẩm ứng viên.'}),
+      crawlRow,
       field('Chữ dán', text), warn,
       notice('info', 'Một sản phẩm hoặc cả danh mục', 'Tài liệu có nhiều sản phẩm (danh mục, bảng giá…): AI liệt kê từng sản phẩm để bạn chọn cái nào tạo hồ sơ nháp. Giá và khuyến mãi không bao giờ được đọc: chúng lấy từ giỏ hàng.'));
     renderFiles();
@@ -82,8 +97,12 @@ export function openProductIngest(ctx, {onDone} = {}) {
             files: await Promise.all(files.map(uploadFile)),
             images: await Promise.all(images.map(uploadFile)),
             url: url.value.trim(), text: text.value.trim(), provider,
+            crawl: !!url.value.trim() && crawlBox.checked,
           };
-          button.textContent = 'Đang đọc… (có thể mất 10–90 giây)';
+          // Tiến trình: một yêu cầu duy nhất, nên nhãn nút đổi theo giai đoạn đang chạy.
+          button.textContent = payload.crawl
+            ? 'Đang đọc trang chủ và quét các trang sản phẩm… (có thể mất vài phút)'
+            : 'Đang đọc… (có thể mất 10–90 giây)';
           const result = await request('/api/ingest/extract', {method: 'POST', body: payload, timeoutMs: READ_TIMEOUT});
           stepReview(result, payload.url);
         } catch (err) { toast(friendlyError(err), 'danger'); button.disabled = false; button.textContent = 'AI đọc ngay'; }
@@ -146,6 +165,7 @@ export function openProductIngest(ctx, {onDone} = {}) {
       result.truncated ? notice('warn', 'Danh sách có thể chưa đủ', 'Tài liệu dài nên AI chỉ liệt kê được một phần. Lưu các sản phẩm này rồi đọc lại phần còn lại.') : null,
       notice('warn', 'Đây mới là bản NHÁP', 'Ô viền cam là chỗ AI không chắc hoặc không đọc được — hãy đối chiếu với nhãn thật. Chỉ chép đúng liều lượng trên nhãn.'),
       entries.some(e => e.model.filteredPrice) ? notice('info', 'Đã bỏ các câu có giá/khuyến mãi', 'Giá và khuyến mãi không đi vào hồ sơ.') : null,
+      crawlNotice(result.crawl),
       first.sources.length ? h('div', {class: 'fs-xs muted'}, 'Nguồn đã đọc: ' + first.sources.map(s => s.label).join(' · ')) : null,
       multi ? h('div', {class: 'col gap-3'}, h('div', {class: 'row'}, h('div', {class: 'section-title grow'}, 'Chọn sản phẩm cần tạo hồ sơ nháp'),
         btn('Chọn hết', {size: 'sm', kind: 'ghost', onClick: () => setAll(true)}), btn('Bỏ chọn', {size: 'sm', kind: 'ghost', onClick: () => setAll(false)})), listHost) : null,

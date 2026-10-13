@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildReviewModel, markEdited, uncertainCount, canSaveDraft, fieldsPayload, draftBody, defaultImageSource, linesToPairs, pairsToLines, suggestionLabel, needsGeminiWarning, sourceLabel} from '../../src/web/app/pages/product-ingest-model.js';
+import {buildReviewModel, markEdited, uncertainCount, canSaveDraft, fieldsPayload, draftBody, defaultImageSource, linesToPairs, pairsToLines, suggestionLabel, needsGeminiWarning, sourceLabel, providerNoteOf, isRootUrl} from '../../src/web/app/pages/product-ingest-model.js';
 
 const RESULT = {
   provider: 'gemini', session_id: 'sess1', filtered_price: true,
@@ -74,4 +74,15 @@ test('helpers: pairs round trip, labels, Gemini warning', () => {
   assert.match(needsGeminiWarning(true, {gemini_configured: false, deepseek_configured: true}), /Key Gemini/);
   assert.equal(needsGeminiWarning(false, {gemini_configured: false, deepseek_configured: true}), '');
   assert.match(needsGeminiWarning(false, {}), /Chưa có khoá AI/);
+});
+
+test('provider note names the model that actually answered; root-URL detection', () => {
+  assert.equal(providerNoteOf({provider: 'gemini', model: 'gemini-flash-latest'}), 'Đã đọc bằng gemini-flash-latest');
+  assert.equal(providerNoteOf({provider: 'gemini'}), 'Đọc bằng Gemini');
+  assert.equal(providerNoteOf({provider: 'deepseek', model: ''}), 'Đọc bằng DeepSeek (chỉ chữ)');
+  assert.equal(isRootUrl('https://nongduoctoancaugroup.com'), true);
+  assert.equal(isRootUrl('https://nongduoctoancaugroup.com/'), true);
+  assert.equal(isRootUrl('https://shop.example/san-pham/x'), false);
+  assert.equal(isRootUrl('https://shop.example/?page=2'), false);
+  assert.equal(isRootUrl('shop.example'), false);
 });

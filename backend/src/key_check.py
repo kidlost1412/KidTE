@@ -9,7 +9,7 @@ import json
 import urllib.error
 import urllib.request
 
-from ai_providers import GEMINI_MODELS_ENDPOINT, pick_flash_model
+from ai_providers import GEMINI_MODELS_ENDPOINT, pick_default_model
 
 TIMEOUT_S = 12
 
@@ -100,6 +100,6 @@ def check_gemini(api_key, explicit_model="", opener=None):
         return _result("gemini", "error", "Gemini trả về dữ liệu không đọc được.")
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return _net_error("gemini", "Gemini", exc)
-    model = str(explicit_model or "").strip() or pick_flash_model(payload.get("models") or [])
+    model = str(explicit_model or "").strip() or pick_default_model(payload.get("models") or [])
     return _result("gemini", "ok", "Khóa Gemini dùng được." + (f" Model sẽ dùng: {model}." if model else ""),
                    model=model)

@@ -216,14 +216,14 @@ def _http_error(status, message="x"):
     (404, "not found", "gemini_model_rejected", "Model Gemini"),
     (400, "API key not valid", "gemini_key_rejected", "Khóa Gemini"),
     (403, "denied", "gemini_key_rejected", "Khóa Gemini"),
-    (503, "overloaded", "gemini_server", "tạm thời"),
+    (503, "overloaded", "gemini_overloaded", "quá tải"),
 ])
 def test_gemini_http_errors_have_clear_vietnamese_messages(status, message, code, needle):
     def opener(request, timeout):
         raise _http_error(status, message)
 
     with pytest.raises(AIProviderError) as err:
-        GeminiProvider("k" * 12, "m", opener=opener).generate("s", "u")
+        GeminiProvider("k" * 12, "m", opener=opener, sleep=lambda s: None).generate("s", "u")
     assert err.value.code == code and needle in str(err.value)
 
 

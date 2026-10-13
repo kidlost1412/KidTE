@@ -22,6 +22,22 @@ export const PROVIDER_NOTE = {
   deepseek: 'Đọc bằng DeepSeek (chỉ chữ)',
 };
 
+/** Ghi chú nguồn đọc: có tên model đã trả lời thì hiện “Đã đọc bằng <model>”. */
+export function providerNoteOf(result) {
+  if (result && result.model) return `Đã đọc bằng ${result.model}`;
+  return PROVIDER_NOTE[(result && result.provider) || ''] || '';
+}
+
+/** Địa chỉ trang chủ (không đường dẫn con, không tham số): mặc định bật quét thêm trang sản phẩm. */
+export function isRootUrl(value) {
+  try {
+    const u = new URL(String(value || '').trim());
+    return (u.protocol === 'http:' || u.protocol === 'https:') && (u.pathname === '/' || u.pathname === '') && !u.search;
+  } catch (err) {
+    return false;
+  }
+}
+
 export function pairsToLines(pairs) {
   return Object.entries(pairs || {}).map(([name, amount]) => (amount ? `${name}: ${amount}` : name)).join('\n');
 }
@@ -72,7 +88,7 @@ export function buildReviewModel(result) {
   return {
     rows, sources,
     images: sources.filter(s => s.thumb),
-    provider: r.provider || '', providerNote: PROVIDER_NOTE[r.provider] || '',
+    provider: r.provider || '', providerNote: providerNoteOf(r),
     filteredPrice: !!r.filtered_price,
     sessionId: r.session_id || '',
   };

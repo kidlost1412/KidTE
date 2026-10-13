@@ -17,27 +17,40 @@ import urllib.request
 
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GEMINI_MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
-GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"   # chỉ dùng khi chưa dò được danh sách model
+GEMINI_FLASH_ALIAS = "gemini-flash-latest"   # Google luôn trỏ alias này tới một bản flash đang chạy
+GEMINI_FALLBACK_MODEL = GEMINI_FLASH_ALIAS   # khi chưa dò được danh sách model
+GEMINI_DEFAULT_CHAIN = (GEMINI_FLASH_ALIAS, "gemini-3.7-flash")   # dùng khi chưa dò được danh sách
 GEMINI_DETECT_TTL = 24 * 3600                # dò lại model mới sau ~1 ngày
 GEMINI_DETECT_RETRY = 600                    # dò lỗi (mạng/khóa) thì 10 phút sau mới thử lại
 GEMINI_KEY_LINK_TARGET = "gemini_keys"       # khóa trong OPEN_TARGETS của server
+GEMINI_TIMEOUT = 180                         # một lượt đọc tài liệu dài có thể mất gần 2 phút
+GEMINI_MAX_ATTEMPTS = 4                      # số model thử tối đa cho một lượt gọi
+GEMINI_RETRY_BACKOFF = 2                     # 503: chờ 2 giây rồi thử model kế tiếp
+GEMINI_SKIP_NOT_FOUND = 24 * 3600            # model trả 404: tạm bỏ qua 1 ngày
+GEMINI_SKIP_OVERLOADED = 600                 # model trả 503: tạm bỏ qua 10 phút
 
 _SPECIAL = ("image", "tts", "audio", "live", "embed", "robotics", "computer", "learnlm", "gemma", "aqa")
 _VERSION = re.compile(r"gemini-(\d+(?:\.\d+)*)-flash")
 
 
-def pick_flash_model(models):
-    """Chọn model "flash" mới nhất, ổn định, có generateContent từ phản hồi ``models.list``.
+def _flash_order(models):
+    """Model flash có generateContent, xếp theo ưu tiên: ổn định mới nhất > preview/exp > lite.
 
-    Ưu tiên: bản ổn định không lite > bản preview/exp không lite > bất kỳ flash (kể cả lite).
-    Trong cùng nhóm: số phiên bản lớn nhất, rồi tên ngắn nhất (bỏ hậu tố ngày). Trả về "" nếu không có.
+    Trong cùng nhóm: số phiên bản lớn nhất, rồi tên ngắn nhất (bỏ hậu tố ngày).
+    Trả về (danh sách tên, alias gemini-flash-latest có trong danh sách hay không).
     """
     tiers = ([], [], [])
+    alias_listed = False
     for item in models or []:
         name = str(item.get("name") or "").split("/")[-1].strip()
         low = name.lower()
         methods = item.get("supportedGenerationMethods") or []
-        if "flash" not in low or "generateContent" not in methods or any(s in low for s in _SPECIAL):
+        if "generateContent" not in methods or "flash" not in low:
+            continue
+        if low == GEMINI_FLASH_ALIAS:
+            alias_listed = True
+            continue
+        if any(s in low for s in _SPECIAL):
             continue
         found = _VERSION.search(low)
         version = tuple(int(x) for x in found.group(1).split(".")) if found else ()
@@ -48,10 +61,35 @@ def pick_flash_model(models):
         else:
             tier = 0
         tiers[tier].append(((version, -len(name)), name))
-    for tier in tiers:
-        if tier:
-            return max(tier)[1]
-    return ""
+    ordered = [name for tier in tiers for _, name in sorted(tier, reverse=True)]
+    return ordered, alias_listed
+
+
+def pick_flash_model(models):
+    """Model flash mới nhất (ổn định trước), từ phản hồi ``models.list``. Trả về "" nếu không có."""
+    ordered, _ = _flash_order(models)
+    return ordered[0] if ordered else ""
+
+
+def pick_default_model(models):
+    """Model mặc định tự chọn: alias gemini-flash-latest nếu Google liệt kê, không thì bản flash mới nhất."""
+    ordered, alias_listed = _flash_order(models)
+    if alias_listed:
+        return GEMINI_FLASH_ALIAS
+    return ordered[0] if ordered else ""
+
+
+def auto_chain(models):
+    """Chuỗi model tự chọn để thử theo thứ tự: alias trước nếu có, rồi các bản flash ổn định (mới nhất trước).
+
+    Alias luôn có mặt trong chuỗi (kể cả khi không được liệt kê) để làm lựa chọn dự phòng.
+    """
+    ordered, alias_listed = _flash_order(models)
+    if not ordered and not alias_listed:
+        return []
+    if alias_listed:
+        return [GEMINI_FLASH_ALIAS] + ordered
+    return ordered[:1] + [GEMINI_FLASH_ALIAS] + ordered[1:]
 
 
 class AIProviderError(Exception):
@@ -63,55 +101,91 @@ class AIProviderError(Exception):
 
 
 # ------------------------------------------------------------------ Gemini
+class _ModelRejected(Exception):
+    """Model cụ thể bị từ chối theo cách có thể thử model khác (404, 429, 503)."""
+
+    def __init__(self, status, model, error):
+        super().__init__(str(error))
+        self.status = status
+        self.model = model
+        self.error = error
+
+
 class GeminiProvider:
     name = "gemini"
     supports_files = True
 
-    def __init__(self, api_key="", model="", timeout=150, opener=None, clock=time.time):
+    def __init__(self, api_key="", model="", timeout=GEMINI_TIMEOUT, opener=None, clock=time.time,
+                 sleep=time.sleep):
         self.api_key = (api_key or "").strip()
-        self.explicit_model = (model or "").strip()   # chủ shop tự đặt: không bao giờ bị dò đè
+        self.explicit_model = (model or "").strip()   # chủ shop tự đặt: luôn thử đầu tiên
         self.timeout = timeout
         self._opener = opener            # test: hàm (request, timeout) -> response
         self._clock = clock
-        self._detected = ""              # model dò được từ danh sách của Google
+        self._sleep = sleep
+        self._candidates = []            # chuỗi model tự dò, đã xếp thứ tự thử
         self._detected_at = 0.0
         self._failed_at = 0.0
+        self._skipped = {}               # model -> thời điểm được thử lại (sau 404 / 503)
+        self.last_model = ""             # model đã trả lời lần gọi gần nhất
 
     @property
     def configured(self):
         return bool(self.api_key)
 
+    def _chain(self, loaded=True):
+        """Thứ tự thử: model chủ shop đặt, rồi chuỗi tự dò (hoặc chuỗi mặc định nếu chưa dò được)."""
+        names = [self.explicit_model] if self.explicit_model else []
+        if loaded:
+            for name in self._candidates or GEMINI_DEFAULT_CHAIN:
+                if name not in names:
+                    names.append(name)
+        return names
+
+    def _is_live(self, model):
+        return self._clock() >= self._skipped.get(model, 0.0)
+
     @property
     def model(self):
-        """Model đang dùng: chủ shop đặt > model dò được (còn hạn) > mặc định dự phòng."""
-        return self.explicit_model or self._detected or GEMINI_FALLBACK_MODEL
+        """Model sẽ thử đầu tiên: chủ shop đặt > chuỗi tự dò (bỏ model đang tạm nghỉ)."""
+        names = self._chain()
+        live = [name for name in names if self._is_live(name)]
+        return (live or names or [GEMINI_FALLBACK_MODEL])[0]
 
     @property
     def model_source(self):
-        return "owner" if self.explicit_model else ("auto" if self._detected else "fallback")
+        if self.explicit_model and self.model == self.explicit_model:
+            return "owner"
+        return "auto" if self._candidates else "fallback"
 
     def configure(self, api_key=None, model=None):
         if api_key is not None:
             new_key = str(api_key).strip()
             if new_key != self.api_key:
-                self._detected, self._detected_at, self._failed_at = "", 0.0, 0.0
+                self._candidates, self._detected_at, self._failed_at = [], 0.0, 0.0
+                self._skipped = {}
             self.api_key = new_key
         if model is not None:
             self.explicit_model = str(model).strip()
 
     def detect_model(self, force=False):
-        """Gọi GET /v1beta/models, chọn flash mới nhất. Không bao giờ ném lỗi; trả model hiện hành.
+        """Dò danh sách model (GET /v1beta/models). Không bao giờ ném lỗi; trả model đầu tiên sẽ thử.
 
-        Có khóa + chưa đặt tay: lần đầu hoặc quá ~1 ngày mới gọi; lỗi thì thử lại sau 10 phút.
+        Chủ shop đặt model tay thì không dò. Có khóa + chưa đặt tay: lần đầu hoặc quá ~1 ngày mới gọi;
+        lỗi thì thử lại sau 10 phút.
         """
         if self.explicit_model or not self.api_key:
             return self.model
+        self._refresh(force)
+        return self.model
+
+    def _refresh(self, force=False):
         now = self._clock()
         if not force:
-            if self._detected and now - self._detected_at < GEMINI_DETECT_TTL:
-                return self.model
+            if self._candidates and now - self._detected_at < GEMINI_DETECT_TTL:
+                return True
             if self._failed_at and now - self._failed_at < GEMINI_DETECT_RETRY:
-                return self.model
+                return False
         try:
             models, token = [], ""
             for _ in range(10):                      # tối đa 10 trang
@@ -123,14 +197,14 @@ class GeminiProvider:
                 token = str(page.get("nextPageToken") or "")
                 if not token:
                     break
-            picked = pick_flash_model(models)
+            chain = auto_chain(models)
         except Exception:
-            picked = ""
-        if picked:
-            self._detected, self._detected_at, self._failed_at = picked, now, 0.0
-        else:
-            self._failed_at = now
-        return self.model
+            chain = []
+        if chain:
+            self._candidates, self._detected_at, self._failed_at = chain, now, 0.0
+            return True
+        self._failed_at = now
+        return False
 
     def _open(self, request, timeout=None):
         timeout = timeout or self.timeout
@@ -150,20 +224,56 @@ class GeminiProvider:
                                      "maxOutputTokens": 32768}}
 
     def generate(self, system, user_text, files=()):
-        """Trả về chuỗi JSON thô của model."""
+        """Trả về chuỗi JSON thô của model. Model lỗi 404/429/503 thì thử model kế tiếp (tối đa 4 lần)."""
         if not self.api_key:
             raise AIProviderError("gemini_key_missing",
                                   "Chưa có khóa Gemini. Vào Cài đặt, dán khóa vào ô “Key Gemini (đọc ảnh/PDF)”.")
         body = json.dumps(self.build_body(system, user_text, files)).encode("utf-8")
-        self.detect_model()                      # lười: chỉ gọi khi chưa có/hết hạn
+        loaded = not self.explicit_model         # lười: chỉ dò khi chưa có/hết hạn; model tay thì dò khi cần
+        if loaded:
+            self._refresh()
+        tried, rejected = [], []
+        while len(tried) < GEMINI_MAX_ATTEMPTS:
+            pending = [n for n in self._chain(loaded) if n not in tried and self._is_live(n)]
+            if not pending and not loaded:       # model tay lỗi: bấy giờ mới dò danh sách để dự phòng
+                loaded = True
+                self._refresh()
+                continue
+            if not pending and not tried:        # mọi model đang tạm nghỉ: vẫn thử một lượt
+                pending = [n for n in self._chain(loaded) if n not in tried]
+            if not pending:
+                break
+            model = pending[0]
+            tried.append(model)
+            try:
+                text = self._post(model, body)
+            except _ModelRejected as exc:
+                rejected.append(exc)
+                now = self._clock()
+                if exc.status == 404:
+                    self._skipped[model] = now + GEMINI_SKIP_NOT_FOUND
+                elif exc.status == 503:
+                    self._skipped[model] = now + GEMINI_SKIP_OVERLOADED
+                    if len(tried) < GEMINI_MAX_ATTEMPTS:
+                        self._sleep(GEMINI_RETRY_BACKOFF)
+                continue
+            self.last_model = model
+            return text
+        raise self._exhausted(rejected)
+
+    def _post(self, model, body):
         request = urllib.request.Request(
-            GEMINI_ENDPOINT.format(model=self.model), data=body, method="POST",
+            GEMINI_ENDPOINT.format(model=model), data=body, method="POST",
             headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key})
         try:
             with self._open(request) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            raise self._http_error(exc) from None
+            error = self._http_error(exc, model)
+            status = int(getattr(exc, "code", 0) or 0)
+            if status in (404, 429, 503):
+                raise _ModelRejected(status, model, error) from None
+            raise error from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise AIProviderError("gemini_network",
                                   "Không kết nối được Gemini (kiểm tra mạng rồi thử lại).") from exc
@@ -171,13 +281,28 @@ class GeminiProvider:
             raise AIProviderError("gemini_bad_response", "Gemini trả về dữ liệu không đọc được.") from exc
         return self._text_of(payload)
 
-    def _http_error(self, exc):
+    @staticmethod
+    def _exhausted(rejected):
+        """Mọi model đều bị từ chối: báo nguyên nhân chung nhất để chủ shop biết phải làm gì."""
+        statuses = [item.status for item in rejected]
+        if 429 in statuses:
+            return AIProviderError("gemini_quota",
+                                   "Hết lượt miễn phí hôm nay (hoặc gọi quá nhanh). Đợi một lát rồi thử lại, "
+                                   "hoặc ngày mai dùng tiếp.")
+        if 503 in statuses:
+            return AIProviderError("gemini_overloaded", "Google đang quá tải, thử lại sau ít phút.")
+        if rejected:
+            return rejected[-1].error
+        return AIProviderError("gemini_model_rejected", "Gemini không nhận model nào. Thử lại sau.")
+
+    def _http_error(self, exc, model=""):
         try:
             detail = json.loads(exc.read().decode("utf-8", "replace")).get("error", {})
         except Exception:
             detail = {}
         status = int(getattr(exc, "code", 0) or 0)
         message = str(detail.get("message") or "")
+        model = model or self.model
         if status == 429:
             return AIProviderError("gemini_quota",
                                    "Hết lượt miễn phí hôm nay (hoặc gọi quá nhanh). Đợi một lát rồi thử lại, "
@@ -187,10 +312,12 @@ class GeminiProvider:
                                    "Khóa Gemini bị từ chối (sai, hết hạn hoặc chưa bật). Lấy khóa mới ở Cài đặt.")
         if status == 404:
             return AIProviderError("gemini_model_rejected",
-                                   f"Gemini không nhận model “{self.model}”. Google có thể đã đổi tên: "
+                                   f"Gemini không nhận model “{model}”. Google có thể đã đổi tên: "
                                    "nhập tên mới ở Cài đặt → Model Gemini (xem ai.google.dev/gemini-api/docs/models).")
         if status == 400:
             return AIProviderError("gemini_bad_request", "Gemini không đọc được tệp này: " + message[:200])
+        if status == 503:
+            return AIProviderError("gemini_overloaded", "Google đang quá tải, thử lại sau ít phút.")
         if status >= 500:
             return AIProviderError("gemini_server", "Gemini đang lỗi tạm thời, thử lại sau ít phút.")
         return AIProviderError("gemini_error", f"Gemini báo lỗi {status}.")

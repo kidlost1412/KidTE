@@ -11,6 +11,7 @@ hiện hành). Trường không đọc rõ phải là null và bị đánh dấu
 from __future__ import annotations
 
 import base64
+import html
 import io
 import ipaddress
 import json
@@ -47,6 +48,11 @@ URL_MAX_BYTES = 2 * 1024 * 1024
 URL_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 URL_TIMEOUT = 10
 URL_MAX_REDIRECTS = 3
+CRAWL_MAX_PAGES = 20                       # số trang sản phẩm quét thêm từ một trang chủ
+CRAWL_MAX_CHARS = 120_000                  # tổng chữ của các trang quét thêm
+PRODUCT_PATH_HINTS = ("/san-pham", "/product", "/danh-muc", "/shop")
+_NOT_PAGE_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".pdf", ".zip", ".rar", ".7z",
+                 ".mp4", ".mp3", ".css", ".js", ".xml", ".json", ".doc", ".docx", ".xls", ".xlsx")
 CONFIDENCE_LOW = 0.6
 SESSION_TTL = 3600
 MAX_SESSIONS = 8
@@ -194,8 +200,70 @@ def og_image_url(html_text, base_url):
     return ""
 
 
-def fetch_page(url):
-    """-> {url, text, og_image (bytes JPEG đã nén | None)}. Giới hạn 2 MB, 10 giây, <= 3 lần chuyển hướng."""
+def is_root_url(url):
+    """Địa chỉ trang chủ (không đường dẫn con, không tham số): mặc định bật quét thêm trang sản phẩm."""
+    parts = urllib.parse.urlsplit(str(url or "").strip())
+    return parts.path in ("", "/") and not parts.query
+
+
+def _host_key(host):
+    host = (host or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+_ANCHOR = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.I | re.S)
+_HREF = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.I)
+_CARD_CLASS = re.compile(r"""(?:class|id)\s*=\s*["'][^"']*(?:product|san-pham|sanpham)""", re.I)
+_TAG = re.compile(r"<[^>]+>")
+
+
+def find_product_links(page_html, base_url, limit=CRAWL_MAX_PAGES):
+    """Liên kết cùng tên miền trông như trang sản phẩm/danh mục.
+
+    Hạng 0: đường dẫn chứa /san-pham, /product, /danh-muc, /shop. Hạng 1: liên kết có chữ nằm trong
+    khối có class/id chứa product hoặc san-pham (thẻ sản phẩm). Hạng 0 đứng trước; trong cùng hạng
+    giữ thứ tự xuất hiện trên trang. Bỏ trang chủ, file ảnh/PDF/mã nguồn, mailto/tel/#.
+    """
+    text = str(page_html or "")
+    base = urllib.parse.urlsplit(base_url)
+    home = _host_key(base.hostname)
+    base_clean = base_url.split("#", 1)[0].rstrip("/")
+    ranked = {}
+    for match in _ANCHOR.finditer(text):
+        attrs, label = match.group(1), match.group(2)
+        found = _HREF.search(attrs)
+        if not found:
+            continue
+        href = html.unescape(found.group(1)).strip()
+        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            continue
+        parts = urllib.parse.urlsplit(urllib.parse.urljoin(base_url, href))
+        if parts.scheme not in ("http", "https") or _host_key(parts.hostname) != home:
+            continue
+        path = urllib.parse.unquote(parts.path or "/").lower()
+        if path in ("", "/") or path.endswith(_NOT_PAGE_EXT):
+            continue
+        url = urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+        if url.rstrip("/") == base_clean:
+            continue
+        if any(hint in path for hint in PRODUCT_PATH_HINTS):
+            rank = 0
+        else:
+            context = text[max(0, match.start() - 400):match.start()]
+            if not _CARD_CLASS.search(context + attrs) or not _TAG.sub("", label).strip():
+                continue
+            rank = 1
+        if url not in ranked or rank < ranked[url]:
+            ranked[url] = rank
+    ordered = sorted(ranked, key=lambda url: ranked[url])     # sorted giữ thứ tự xuất hiện trong cùng hạng
+    return ordered[:max(0, int(limit))]
+
+
+def fetch_page(url, with_image=True):
+    """-> {url, text, og_image (bytes JPEG đã nén | None), links (trang sản phẩm cùng web)}.
+
+    Giới hạn 2 MB, 10 giây, <= 3 lần chuyển hướng. ``with_image=False`` bỏ qua ảnh đại diện.
+    """
     data, _truncated, _ctype = _read_limited(url, URL_MAX_BYTES, ("text/html", "text/plain", "application/xhtml"))
     from documents import _decode
     raw_html = _decode(data)
@@ -204,7 +272,7 @@ def fetch_page(url):
     except ValueError as exc:
         raise IngestError("Trang web này gần như không có chữ để đọc") from exc
     image = None
-    image_url = og_image_url(raw_html, url)
+    image_url = og_image_url(raw_html, url) if with_image else ""
     if image_url:
         try:
             blob, truncated, _ = _read_limited(image_url, URL_IMAGE_MAX_BYTES, ("image/",))
@@ -212,23 +280,39 @@ def fetch_page(url):
                 image = normalize_image(blob)
         except (IngestError, ValueError):
             image = None
-    return {"url": url, "text": text, "og_image": image}
+    links = find_product_links(raw_html, url)
+    return {"url": url, "text": text, "og_image": image, "links": links}
 
 
 # ------------------------------------------------------------------ nguồn đầu vào
-def prepare_sources(payload, fetch=None, uploads=None):
-    """payload: {files:[{name,data}], images:[{name,data}], url, text} -> list nguồn.
+def _truthy(value, default):
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no", "off")
+    return bool(value)
+
+
+def prepare_sources(payload, fetch=None, uploads=None, crawl_fetch=None, stats=None):
+    """payload: {files:[{name,data}], images:[{name,data}], url, text, crawl} -> list nguồn.
 
     Nguồn: {id, kind: file|pdf_scan|image|url|text|og_image, label, text?, mime?, data?}
-    ``og_image`` chỉ là ảnh ứng viên (không gửi cho model đọc).
+    ``og_image`` chỉ là ảnh ứng viên (không gửi cho model đọc). ``crawl`` (mặc định bật với trang chủ)
+    quét thêm tối đa CRAWL_MAX_PAGES trang sản phẩm cùng web; ``stats`` (dict) nhận số liệu quét.
     """
-    fetch = fetch or fetch_page
+    if fetch is None:
+        fetch = fetch_page
+        crawl_fetch = crawl_fetch or (lambda link: fetch_page(link, with_image=False))
+    crawl_fetch = crawl_fetch or fetch
     uploads = uploads or (lambda upload_id: None)
     payload = payload if isinstance(payload, dict) else {}
     files = payload.get("files") or []
     images = payload.get("images") or []
     url = str(payload.get("url") or "").strip()
     pasted = str(payload.get("text") or "").strip()
+    crawl_on = bool(url) and _truthy(payload.get("crawl"), is_root_url(url))
+    if stats is not None:
+        stats.update({"enabled": crawl_on, "found": 0, "read": 0, "failed": 0})
     if not isinstance(files, list) or not isinstance(images, list):
         raise IngestError("Đầu vào không hợp lệ")
     if len(files) > MAX_FILES:
@@ -279,9 +363,38 @@ def prepare_sources(payload, fetch=None, uploads=None):
         add("url", page["url"], text=str(page["text"])[:MAX_SOURCE_CHARS])
         if page.get("og_image"):
             add("og_image", "Ảnh đại diện trên trang web", mime="image/jpeg", data=page["og_image"])
+        if crawl_on:
+            links = list(page.get("links") or [])
+            if stats is not None:
+                stats["found"] = len(links)
+            _crawl_product_pages(links[:CRAWL_MAX_PAGES], crawl_fetch, add, stats)
     if pasted:
         add("text", "Chữ dán vào", text=pasted[:MAX_PASTED_CHARS])
     return sources
+
+
+def _crawl_product_pages(links, fetcher, add, stats=None):
+    """Đọc từng trang sản phẩm; trang lỗi thì bỏ qua. Tổng chữ không quá CRAWL_MAX_CHARS."""
+    used = 0
+    for link in links:
+        if used >= CRAWL_MAX_CHARS:
+            break
+        try:
+            page = fetcher(link)
+        except (IngestError, OSError, ValueError):
+            if stats is not None:
+                stats["failed"] += 1
+            continue
+        room = min(MAX_SOURCE_CHARS, CRAWL_MAX_CHARS - used)
+        body = str(page.get("text") or "")[:room]
+        if not body.strip():
+            if stats is not None:
+                stats["failed"] += 1
+            continue
+        add("url", str(page.get("url") or link), text=body)
+        used += len(body)
+        if stats is not None:
+            stats["read"] += 1
 
 
 def needs_vision(sources):
@@ -565,11 +678,12 @@ def _webp_800(jpeg_bytes):
 
 
 class ProductIngest:
-    def __init__(self, engine, gemini, deepseek, fetch=None, clock=time.time):
+    def __init__(self, engine, gemini, deepseek, fetch=None, clock=time.time, crawl_fetch=None):
         self.engine = engine
         self.gemini = gemini
         self.deepseek = deepseek
         self._fetch = fetch
+        self._crawl_fetch = crawl_fetch
         self._clock = clock
         self._lock = threading.Lock()
         self._sessions = {}
@@ -638,7 +752,9 @@ class ProductIngest:
             raise IngestError(str(exc)) from exc
 
     def extract(self, payload):
-        sources = prepare_sources(payload, fetch=self._fetch, uploads=self._upload_bytes)
+        crawl = {}
+        sources = prepare_sources(payload, fetch=self._fetch, uploads=self._upload_bytes,
+                                  crawl_fetch=self._crawl_fetch, stats=crawl)
         wanted = payload.get("provider") if isinstance(payload, dict) else ""
         provider = self._pick_provider(wanted, sources)
         system, user = build_system(), build_user_text(sources)
@@ -654,7 +770,9 @@ class ProductIngest:
         first = result["products"][0]
         result.update({
             **first,                              # tương thích: trường của sản phẩm đầu tiên ở gốc
-            "provider": provider.name, "model": getattr(provider, "model", ""),
+            "provider": provider.name,
+            "model": getattr(provider, "last_model", "") or getattr(provider, "model", ""),   # model đã trả lời
+            "crawl": crawl,
             "session_id": self._remember(sources),
             "sources": [{"id": s["id"], "kind": s["kind"], "label": s["label"],
                          **({"thumb": thumbnail_data_url(s["data"])} if s["kind"] in ("image", "og_image") else {})}

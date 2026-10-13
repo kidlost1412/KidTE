@@ -269,3 +269,17 @@
 .upd-field { display: flex; align-items: center; gap: var(--s-3); }
 .upd-field .select { width: auto; min-width: 160px; }
 @media (max-width: 640px) { .upd-row { flex-wrap: wrap; } .upd-hero-ver strong { font-size: var(--fs-2xl); } }
+
+/* ============ Danh sách sản phẩm / hồ sơ: ảnh đầu dòng, chọn tất cả, hàng loạt ============ */
+.list-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--divider); background: var(--surface-2); cursor: pointer; font-size: var(--fs-sm); }
+.row-thumb { position: relative; width: var(--size); height: var(--size); flex: none; border-radius: 12px; border: 1px solid var(--border); background: #fff; overflow: hidden; display: grid; place-items: center; color: var(--text-3); }
+.row-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.row-thumb.none { background: var(--surface-2); }
+.prod-row { align-items: center; }
+.prod-row .prod-open, .list-row.prod-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; color: inherit; }
+.prod-row .prod-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.prod-row .prod-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; max-width: 240px; text-align: right; }
+.prod-row .prod-price { font-weight: 800; color: var(--warn-text); font-size: var(--fs-sm); }
+@media (max-width: 720px) {
+  .prod-row .prod-side { max-width: 130px; }
+}

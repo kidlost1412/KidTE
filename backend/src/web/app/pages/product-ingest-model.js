@@ -137,3 +137,61 @@ export function needsGeminiWarning(hasImages, status) {
   }
   return '';
 }
+
+/** Kết quả extract -> danh sách mô hình duyệt, mỗi sản phẩm một mô hình (dùng chung nguồn/phiên/nhà cung cấp). */
+export function buildProductsModels(result) {
+  const r = result || {};
+  const list = Array.isArray(r.products) && r.products.length ? r.products : [r];
+  return list.map((product, index) => ({
+    index,
+    model: buildReviewModel({...product, provider: r.provider, session_id: r.session_id, sources: r.sources,
+      filtered_price: product.filtered_price || (list.length === 1 && r.filtered_price)}),
+    picked: true,
+  }));
+}
+
+export function productName(entry) {
+  const row = entry.model.rows.find(x => x.key === 'ten_san_pham');
+  return (row && row.value.trim()) || 'Sản phẩm chưa có tên';
+}
+
+/** Sản phẩm được tích và đủ tên để lưu nháp. */
+export function pickedForSave(entries) {
+  return (entries || []).filter(e => e.picked && canSaveDraft(e.model));
+}
+
+export function saveLabel(entries) {
+  const n = pickedForSave(entries).length;
+  return n <= 1 ? 'Lưu nháp' : `Lưu nháp ${n} sản phẩm`;
+}
+
+/** Nhà cung cấp mặc định: Gemini khi đã có khoá, không thì DeepSeek, không có gì thì Gemini. */
+export function defaultProvider(status) {
+  const s = status || {};
+  if (s.gemini_configured) return 'gemini';
+  if (s.deepseek_configured) return 'deepseek';
+  return 'gemini';
+}
+
+export const PROVIDER_OPTIONS = [
+  ['gemini', 'Gemini (đọc ảnh và tài liệu)'],
+  ['deepseek', 'DeepSeek (chỉ tài liệu/chữ)'],
+];
+
+export function providerHint(provider, status) {
+  const s = status || {};
+  if (provider === 'deepseek') {
+    return s.deepseek_configured ? 'DeepSeek chỉ đọc chữ: ảnh nhãn và PDF scan bị tắt. Tệp PDF/Word có chữ vẫn đọc được.'
+      : 'Chưa có khoá DeepSeek ở Cài đặt → Hệ thống.';
+  }
+  return s.gemini_configured ? '' : 'Chưa có khoá Gemini. Vào Cài đặt → “Key Gemini (đọc ảnh/PDF)”.';
+}
+
+export const imagesAllowed = provider => provider !== 'deepseek';
+
+/** Cảnh báo trước khi gửi: tệp quá nặng so với giới hạn máy chủ. */
+export const MAX_FILE_MB = 100;
+export function oversizeMessage(files) {
+  const big = (files || []).find(f => f.size > MAX_FILE_MB * 1048576);
+  return big ? `Tệp “${big.name}” nặng hơn ${MAX_FILE_MB} MB nên không đọc được. Hãy nén PDF hoặc tách bớt trang.` : '';
+}

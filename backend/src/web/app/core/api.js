@@ -123,6 +123,8 @@ const MESSAGES = {
   maintenance_required: 'Còn phiên LIVE hoạt động. Dừng phiên và tác vụ ghi trước khi vào bảo trì để khôi phục.',
   timeout: 'Kid TE phản hồi chậm. Kiểm tra trạng thái thao tác trước khi thử lại.',
   network_error: 'Mất kết nối với Kid TE. Kiểm tra ứng dụng còn đang chạy rồi thử lại.',
+  invalid_body_size: 'Dữ liệu gửi lên quá lớn hoặc rỗng. Hãy chọn lại tệp nhỏ hơn.',
+  http_413: 'Dữ liệu gửi lên quá lớn. Hãy chọn tệp nhỏ hơn hoặc nén bớt.',
   revision_conflict: 'Dữ liệu vừa được thay đổi ở nơi khác. Hãy tải lại để xem bản mới nhất trước khi lưu.',
   local_only: 'Chỉ thao tác được từ ứng dụng trên máy này.',
   internal_error: 'Kid TE gặp lỗi nội bộ. Thử lại; nếu lặp lại hãy tạo báo cáo hỗ trợ ở mục Hệ thống.',
@@ -202,6 +204,7 @@ export function friendlyError(error) {
   if (MESSAGES[prefix]) return MESSAGES[prefix];
   if (error.detail) return error.detail;
   // Máy chủ đã trả sẵn một câu tiếng Việt (vd kiểm tra cài đặt) thì hiện nguyên câu đó.
-  if (/\s/.test(code) && /[^\x00-\x7f]/.test(code)) return code;
+  // Lỗi 4xx kèm câu có khoảng trắng: máy chủ đã viết sẵn lý do thật, hiện nguyên câu đó.
+  if (/\s/.test(code) && (/[^\x00-\x7f]/.test(code) || (error.status >= 400 && error.status < 500))) return code;
   return `Không thực hiện được (${code}).`;
 }

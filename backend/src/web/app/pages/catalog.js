@@ -163,6 +163,36 @@ function mountProducts(ctx, host, d) {
 // ======================================================================
 // HỒ SƠ KỸ THUẬT
 // ======================================================================
+/** Ngăn kéo "Hồ sơ đã xoá": khôi phục từng hồ sơ hoặc tất cả cùng lúc. Dùng cho cả tab Hồ sơ và tab Gắn hồ sơ. */
+export async function openDeletedProfiles(onChanged) {
+  let items;
+  try { items = await pd.loadDeletedProfiles(request); } catch (e) { toast(friendlyError(e), 'danger'); return null; }
+  const body = h('div', {class: 'card-body'});
+  const foot = h('div', {class: 'row', style: {width: '100%'}});
+  const drawer = openDrawer({title: 'Hồ sơ đã xoá', sub: 'Giữ 30 ngày trong Thùng rác, khôi phục bất cứ lúc nào trước hạn.', width: 560, body, footer: foot});
+  const restore = async ids => {
+    const out = await pd.restoreProfiles(request, ids);
+    if (out.failed.length) toast(`${out.failed.length} hồ sơ chưa khôi phục được: ${friendlyError(out.failed[0].error)}`, 'danger');
+    if (out.done.length) {
+      items = items.filter(t => !out.done.includes(t.record_id));
+      toast(out.done.length === 1 ? 'Đã khôi phục hồ sơ.' : `Đã khôi phục ${out.done.length} hồ sơ.`, 'ok');
+      if (onChanged) onChanged();
+    }
+    render();
+  };
+  function render() {
+    clear(body, items.length ? h('div', {class: 'list'}, items.map(t => h('div', {class: 'list-row'},
+      h('div', {class: 'grow'}, h('div', {class: 'title'}, t.label || t.record_id), h('div', {class: 'sub'}, `xoá ${relative(t.deleted_at)} · giữ tới ${dateTime(t.expires_at)}`)),
+      btn('Khôi phục', {size: 'sm', icon: 'undo', onClick: e => { e.currentTarget.disabled = true; restore([t.record_id]); }}))))
+      : empty('Không có hồ sơ nào đã xoá', '', {iconName: 'trash'}));
+    clear(foot, h('span', {class: 'grow'}),
+      items.length > 1 ? btn(`Khôi phục tất cả (${items.length})`, {kind: 'primary', icon: 'undo', onClick: e => { e.currentTarget.disabled = true; restore(items.map(t => t.record_id)); }}) : null,
+      btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}));
+  }
+  render();
+  return drawer;
+}
+
 function mountProfiles(ctx, host, d) {
   let profiles = null, error = null, query = '';
   const picked = new Set();
@@ -205,7 +235,7 @@ function mountProfiles(ctx, host, d) {
   async function removeProfiles(ids, drawer) {
     const chosen = (profiles || []).filter(p => ids.includes(p.id));
     if (!chosen.length) return;
-    const {title, text} = pd.confirmTextFor(chosen);
+    const {title, text} = pd.confirmTextFor(chosen, {total: (profiles || []).length});
     const ok = await confirmDialog({title, text, confirm: 'Xoá', tone: 'danger'});
     if (!ok) return;
     const {done, failed} = await pd.deleteProfiles(request, ids);
@@ -219,21 +249,7 @@ function mountProfiles(ctx, host, d) {
     load();
   }
 
-  async function openDeleted() {
-    let items;
-    try { items = await pd.loadDeletedProfiles(request); } catch (e) { toast(friendlyError(e), 'danger'); return; }
-    const drawer = openDrawer({
-      title: 'Hồ sơ đã xoá', sub: 'Giữ 30 ngày trong Thùng rác, khôi phục bất cứ lúc nào trước hạn.', width: 560,
-      body: h('div', {class: 'card-body'}, items.length ? h('div', {class: 'list'}, items.map(t => h('div', {class: 'list-row'},
-        h('div', {class: 'grow'}, h('div', {class: 'title'}, t.label || t.record_id), h('div', {class: 'sub'}, `xoá ${relative(t.deleted_at)} · giữ tới ${dateTime(t.expires_at)}`)),
-        btn('Khôi phục', {size: 'sm', icon: 'undo', onClick: async () => {
-          const out = await pd.restoreProfiles(request, [t.record_id]);
-          if (out.failed.length) { toast(friendlyError(out.failed[0].error), 'danger'); return; }
-          invalidateCatalog(); toast('Đã khôi phục hồ sơ.', 'ok'); drawer.close(); load();
-        }})))) : empty('Không có hồ sơ nào đã xoá', '', {iconName: 'trash'})),
-      footer: [h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()})],
-    });
-  }
+  function openDeleted() { return openDeletedProfiles(() => { invalidateCatalog(); load(); }); }
 
   async function openProfile(id) {
     let detail;
@@ -339,11 +355,13 @@ function mountMapping(ctx, host, d) {
   const search = h('input', {class: 'input', type: 'search', placeholder: 'Tìm sản phẩm…'});
   const filterSlot = h('span');
   const autoBar = h('div');
+  const trashSlot = h('div');
+  let trashTotal = 0;
   const list = h('div', {class: 'card'}, skeletonRows(6, 60));
   const bar = h('div');
   clear(host, h('div', {class: 'toolbar'}, h('div', {class: 'search-input'}, icon('search'), search), filterSlot),
     notice('info', 'Lưu ánh xạ = cho AI được dùng hồ sơ này', 'Sản phẩm nào đã gắn hồ sơ thì AI mới tư vấn thành phần, công dụng, liều dùng. Hồ sơ rỗng không thể gắn.'),
-    autoBar, list, bar);
+    trashSlot, autoBar, list, bar);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
 
   const profileName = id => ((state && state.profiles) || []).find(p => p.id === id)?.name || id;
@@ -422,9 +440,17 @@ function mountMapping(ctx, host, d) {
     render();
   }
 
+  function noProfilesNotice() {
+    const restore = btn(trashTotal ? `Xem và khôi phục (${trashTotal})` : 'Mở Hồ sơ đã xoá', {size: 'sm', icon: 'undo', onClick: () => openDeletedProfiles(() => { invalidateCatalog(); load(); })});
+    return trashTotal
+      ? notice('warn', 'Chưa có hồ sơ nào để gắn', `Có ${trashTotal} hồ sơ trong Thùng rác (đã xoá trên máy này). Khôi phục để gắn lại cho sản phẩm.`, restore)
+      : notice('info', 'Chưa có hồ sơ nào để gắn', 'Tạo hồ sơ ở tab “Hồ sơ kỹ thuật” hoặc dùng “Thêm sản phẩm bằng AI”.');
+  }
+
   function render() {
     if (error) { clear(list, h('div', {class: 'card-body'}, errorBox(friendlyError(error), load))); return; }
     if (!state) return;
+    clear(trashSlot, !(state.profiles || []).length ? noProfilesNotice() : null);
     const products = state.products || [];
     const current = p => pending.has(p.product_id) ? pending.get(p.product_id) : p.profile_id;
     const unmapped = products.filter(p => !current(p)).length;
@@ -481,6 +507,8 @@ function mountMapping(ctx, host, d) {
     try {
       const [m, cat] = await Promise.all([request('/api/mapping'), loadCatalog().catch(() => ({products: []}))]);
       state = m;
+      trashTotal = 0;
+      if (!(m.profiles || []).length) { try { trashTotal = Number((await request('/api/trash?resource=profiles&limit=1')).total) || 0; } catch (_) { trashTotal = 0; } }
       catalog = {};
       (cat.products || []).forEach(p => { catalog[p.product_id] = p; });
     } catch (e) { error = e; }

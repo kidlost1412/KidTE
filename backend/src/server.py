@@ -4129,6 +4129,17 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 remaining -= len(chunk)
 
+    def _drain_request_body(self, size, cap=512 * 1024 * 1024):
+        """Đọc bỏ thân yêu cầu quá lớn để phản hồi lỗi đến được trình duyệt."""
+        remaining = min(int(size), cap)
+        while remaining > 0:
+            chunk = self.rfile.read(min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+        if int(size) > cap:
+            self.close_connection = True
+
     def send_json(self, status, data):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         try:
@@ -4648,14 +4659,43 @@ class Handler(BaseHTTPRequestHandler):
                 report_problem("api_error", f"POST {route}", exc)
                 self.send_json(500, {"ok": False, "error": "internal_error"})
             return
+        if route == "/api/ingest/upload":
+            # Tệp thô (không base64) cho "Thêm sản phẩm bằng AI": danh mục PDF có thể nặng hàng chục MB.
+            if not self.local_tool_request():
+                self.reject(403, "local_only")
+                return
+            try:
+                from product_ingest import MAX_FILE_BYTES
+                size = int(self.headers.get("Content-Length", "0"))
+                if size <= 0:
+                    raise ValueError("Tệp rỗng, hãy chọn lại tệp.")
+                if size > MAX_FILE_BYTES:
+                    self._drain_request_body(size)
+                    self.send_json(413, {"ok": False, "error": f"Tệp quá lớn (tối đa {MAX_FILE_BYTES // 1048576} MB)."})
+                    return
+                query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+                meta = self.engine.ingest.add_upload(unquote(query.get("name", "")), self.rfile.read(size))
+                self.send_json(200, {"ok": True, **meta})
+            except ValueError as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:
+                report_problem("api_error", f"POST {route}", exc)
+                self.send_json(500, {"ok": False, "error": "internal_error"})
+            return
         if route in ("/api/ingest/extract", "/api/ingest/draft", "/api/ingest/link"):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
             try:
                 size = int(self.headers.get("Content-Length", "0"))
-                if size <= 0 or size > 40 * 1024 * 1024:
-                    raise ValueError("invalid_body_size")
+                if size <= 0:
+                    raise ValueError("Yêu cầu rỗng.")
+                if size > 40 * 1024 * 1024:
+                    # Phải đọc bỏ phần thân trước khi trả lời, nếu không trình duyệt thấy kết nối bị cắt
+                    # ("Mất kết nối") thay vì nhận được lý do thật.
+                    self._drain_request_body(size)
+                    self.send_json(413, {"ok": False, "error": "Dữ liệu gửi lên quá lớn. Hãy chọn lại tệp (tệp được tải lên riêng)."})
+                    return
                 payload = request_json_object(self.rfile.read(size))
                 ingest = self.engine.ingest
                 if route == "/api/ingest/extract":

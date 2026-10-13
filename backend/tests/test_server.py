@@ -1844,6 +1844,42 @@ class MappingToolTests(unittest.TestCase):
         self.assertEqual(by_id["p5"]["profile_id"], "")
         self.assertTrue(by_id["p5"]["in_pin_schedule"])
 
+    def test_state_exposes_only_cached_local_image_urls(self):
+        # Ảnh đi qua cache máy: không có file cache thì không trả URL, không hotlink.
+        self.engine.product_images.prefetch = lambda sources: 0
+        raw = Path(self.temp.name) / "no_raw.json"
+        with mock.patch.object(server_module, "LIVE_RAW_CATALOG_PATH", raw):
+            state = self.engine.mapping_state()
+            by_id = {item["product_id"]: item for item in state["products"]}
+            self.assertEqual(by_id["p1"]["image_url"], "")
+            cache = self.engine.product_images.root
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "p1.jpg").write_bytes(b"fake-jpeg")
+            state = self.engine.mapping_state()
+            by_id = {item["product_id"]: item for item in state["products"]}
+            self.assertRegex(by_id["p1"]["image_url"], r"^/api/product/thumb/p1\?v=\d+$")
+            self.assertEqual(by_id["p5"]["image_url"], "")
+
+    def test_profile_image_is_served_from_cache_and_only_when_featured(self):
+        # Hồ sơ có featured_image_url: URL local, file tải về nằm trong cache máy.
+        saved = json.loads(self.catalog_path.read_text(encoding="utf-8"))
+        saved["nhom_san_pham"][0]["san_pham"][0]["featured_image_url"] = "https://example.com/kich.jpg"
+        self.catalog_path.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+        self.engine.product_images.prefetch = lambda sources: 0
+        with mock.patch.object(server_module, "LIVE_RAW_CATALOG_PATH", Path(self.temp.name) / "no_raw.json"):
+            state = self.engine.mapping_state()
+            profiles = {p["id"]: p for p in state["profiles"]}
+            self.assertEqual(profiles["SP-03"]["image_url"].split("?")[0], "/api/profile/thumb/SP-03")
+            self.assertEqual(profiles["SP-09"]["image_url"], "")
+            with self.assertRaises(ValueError):
+                self.engine.profile_thumb_path("SP-03")
+            cache = self.engine.product_images.root
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "profile-SP-03.jpg").write_bytes(b"fake-jpeg")
+            self.assertEqual(self.engine.profile_thumb_path("SP-03"), cache / "profile-SP-03.jpg")
+            with self.assertRaises(ValueError):
+                self.engine.profile_thumb_path("SP-09")
+
     def test_saving_a_mapping_approves_the_profile_and_reloads_live(self):
         self.assertIsNone(self.knowledge.match("SẠCH SAU ĐẤT 1KG", product_id="p5"))
         result = self.engine.save_mapping({"assignments": {"p5": "SP-09"}})

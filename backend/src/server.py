@@ -1505,6 +1505,8 @@ class ReplyEngine:
     def mapping_state(self):
         live = self.catalog.snapshot or {}
         records = self.knowledge.all_records()
+        image_sources = self._product_image_sources()
+        self._prefetch_mapping_images(image_sources)
         hidden = self.knowledge.hidden_ids()
         # SKU còn nối tới hồ sơ đã xoá: coi như chưa gắn (khôi phục hồ sơ thì nối lại).
         assigned = {sid: code for sid, code in self.knowledge.mapping_assignments().items()
@@ -1527,6 +1529,7 @@ class ReplyEngine:
             "approvable": is_approvable(record),
             "completeness": profile_completeness(record),
             "draft_for": clean(record.get("draft_for_product_id"), 160),
+            "image_url": self._profile_image_url(record),
         } for record in self.knowledge.mappable_records()]
         by_id = {item["id"]: item for item in profiles}
         pinned_ids = self._pinned_product_ids()
@@ -1541,6 +1544,7 @@ class ReplyEngine:
                 "bag_index": item.get("bag_index") or 0,
                 "original_price": clean(item.get("original_price"), 80),
                 "in_pin_schedule": product_id in pinned_ids,
+                "image_url": self._listing_image_url(product_id, image_sources),
                 "profile_id": current,
                 "profile_name": by_id.get(current, {}).get("name", ""),
                 "suggestions": [] if current else self._suggest_profiles(title, records),
@@ -2019,6 +2023,55 @@ class ReplyEngine:
             if url:
                 sources.setdefault(str(pid), []).append(url)
         return sources
+
+    @staticmethod
+    def _profile_image_key(profile_id):
+        return "profile-" + clean(profile_id, 80)
+
+    def _profile_image_url(self, record):
+        """URL ảnh hồ sơ qua cache máy; không trỏ thẳng ra web (chỉ khi đã có ảnh cache)."""
+        pid = clean(record.get("san_pham_id"), 80)
+        if not pid or not str(record.get("featured_image_url") or "").startswith(("http://", "https://")):
+            return ""
+        key = self._profile_image_key(pid)
+        version = self.product_images.version(key)
+        return f"/api/profile/thumb/{pid}?v={version or 'remote'}"
+
+    def _listing_image_url(self, product_id, sources):
+        """Ảnh gian hàng (hoặc ảnh tải lên) qua cache; "" nếu chưa có nguồn nào."""
+        version = ""
+        try:
+            version = str(int(self.workspace.product_image_path(product_id).stat().st_mtime))
+        except ValueError:
+            version = self.product_images.version(product_id) or ("remote" if sources.get(product_id) else "")
+        if not version:
+            return ""
+        return f"/api/product/thumb/{product_id}?v={version}"
+
+    def _prefetch_mapping_images(self, sources):
+        """Tải nền ảnh còn thiếu (listing + hồ sơ); không chặn trang. Bỏ qua ảnh đã cache."""
+        for record in self.knowledge.all_records():
+            url = str(record.get("featured_image_url") or "")
+            pid = clean(record.get("san_pham_id"), 80)
+            if pid and url.startswith(("http://", "https://")):
+                sources[self._profile_image_key(pid)] = [url]
+        self.product_images.prefetch(sources)
+
+    def profile_thumb_path(self, profile_id):
+        profile_id = clean(profile_id, 80)
+        record = next((r for r in self.knowledge.all_records()
+                       if clean(r.get("san_pham_id"), 80) == profile_id), None)
+        url = str((record or {}).get("featured_image_url") or "")
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("profile_image_not_found")
+        key = self._profile_image_key(profile_id)
+        cached = self.product_images.cached(key)
+        if cached:
+            return cached
+        fetched = self.product_images.fetch(key, [url])
+        if not fetched:
+            raise ValueError("profile_image_not_found")
+        return fetched
 
     def product_thumb_path(self, product_id):
         product_id = clean(product_id, 160)
@@ -4224,6 +4277,15 @@ class Handler(BaseHTTPRequestHandler):
                 path = self.engine.video_assets.file(parts[0], parts[1])
                 mime = "application/json" if path.suffix == ".json" else "image/jpeg"
                 self.send_cacheable_file(path, mime)
+            except ValueError as exc:
+                self.send_json(404, {"ok": False, "error": str(exc)})
+        elif route.startswith("/api/profile/thumb/"):
+            if not self.local_tool_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
+            try:
+                path = self.engine.profile_thumb_path(unquote(route.rsplit("/", 1)[-1]))
+                self.send_cacheable_file(path, "image/jpeg")
             except ValueError as exc:
                 self.send_json(404, {"ok": False, "error": str(exc)})
         elif route.startswith("/api/product/thumb/"):

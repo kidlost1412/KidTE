@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {tierInfo, suggestionIndex, sureAssignments, countTiers, completenessChips, canApprove, missingForApproval, draftRows, approvalItems, approvalSummary, SAVE_NOTE} from '../../src/web/app/pages/mapping-model.js';
+import {tierInfo, suggestionIndex, sureAssignments, countTiers, completenessChips, canApprove, missingForApproval, draftRows, approvalItems, approvalSummary, SAVE_NOTE, rowThumbs} from '../../src/web/app/pages/mapping-model.js';
 
 const R = (id, tier, extra = {}) => ({product_id: id, title: 't' + id, profile_id: 'P' + id, profile_name: 'Hồ sơ ' + id, tier, size_match: true, is_combo: false, score: 0.9, reasons: [], ...extra});
 
@@ -77,4 +77,20 @@ test('approvalItems drops selected rows that are not ready and carries the sourc
 test('approvalSummary reports blocked rows', () => {
   assert.match(approvalSummary({results: [{ok: true}, {ok: true}]}), /Đã duyệt 2/);
   assert.match(approvalSummary({results: [{ok: true}, {ok: false}]}), /1 hồ sơ chưa đủ nội dung/);
+});
+
+test('rowThumbs shows the assigned profile image and marks a suggestion as not yet assigned', () => {
+  const profiles = [{id: 'SP-03', name: 'Kích Rễ', image_url: '/api/profile/thumb/SP-03?v=1'}, {id: 'SP-09', name: 'Sạch Sâu', image_url: ''}];
+  const assigned = rowThumbs({product_id: 'p1', profile_id: 'SP-03', image_url: '/api/product/thumb/p1?v=2', title: 'T1'}, 'SP-03', profiles);
+  assert.equal(assigned.listing.url, '/api/product/thumb/p1?v=2');
+  assert.equal(assigned.profile.url, '/api/profile/thumb/SP-03?v=1');
+  assert.equal(assigned.profile.label, 'Kích Rễ');
+  assert.equal(assigned.profileSuggested, false);
+  const suggested = rowThumbs({product_id: 'p5', profile_id: '', image_url: ''}, 'SP-09', profiles);
+  assert.equal(suggested.listing.url, '');
+  assert.equal(suggested.profile.url, '');
+  assert.equal(suggested.profileSuggested, true);
+  const none = rowThumbs({product_id: 'p7'}, '', profiles);
+  assert.equal(none.profile.label, '');
+  assert.equal(none.profileSuggested, false);
 });

@@ -3,7 +3,7 @@ import {icon} from '../core/icons.js';
 import {request, friendlyError} from '../core/api.js';
 import {relative, number, fold, dateTime, sizeMismatch} from '../core/format.js';
 import {btn, chip, bag, empty, errorBox, skeletonRows, pageHead, tabs, kv, productAvatar, field, input, textarea, notice, segmented} from '../ui/kit.js';
-import {toast, openDrawer, confirmDialog, promptDialog} from '../ui/overlays.js';
+import {toast, openDrawer, openModal, confirmDialog, promptDialog} from '../ui/overlays.js';
 import {loadCatalog, invalidateCatalog} from './video/data.js';
 import {doseRulesPanel} from './dose-rules-ui.js';
 import * as mm from './mapping-model.js';
@@ -306,6 +306,26 @@ function mountProfiles(ctx, host, d) {
 // ======================================================================
 // ÁNH XẠ SẢN PHẨM -> HỒ SƠ
 // ======================================================================
+/** Ô ảnh vuông 56px: có ảnh thì bấm để phóng to; thiếu ảnh thì hiện icon thay thế. */
+function thumb(url, label, {fallbackIcon, dashed = false} = {}) {
+  const box = h('span', {class: 'map-thumb' + (dashed ? ' sugg' : ''), title: label || ''});
+  const placeholder = () => { box.classList.add('none'); box.removeAttribute('role'); box.removeAttribute('tabindex'); return icon(fallbackIcon, {size: 22}); };
+  if (!url) { box.append(placeholder()); return box; }
+  const img = h('img', {src: url, alt: label || '', loading: 'lazy', decoding: 'async', draggable: 'false'});
+  img.addEventListener('error', () => { img.replaceWith(placeholder()); }, {once: true});
+  box.append(img);
+  const open = () => {
+    if (!box.querySelector('img')) return;
+    openModal({title: label || '', body: h('img', {src: url, alt: label || '', style: {display: 'block', maxWidth: '100%', maxHeight: '70vh', margin: '0 auto', borderRadius: '12px', objectFit: 'contain', background: '#fff'}})});
+  };
+  box.setAttribute('role', 'button');
+  box.setAttribute('tabindex', '0');
+  box.setAttribute('aria-label', 'Phóng to ảnh ' + (label || ''));
+  box.addEventListener('click', open);
+  box.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  return box;
+}
+
 function mountMapping(ctx, host, d) {
   let state = null, catalog = {}, error = null, query = '', filter = 'unmapped';
   let auto = new Map(), autoCounts = null, autoBusy = false;
@@ -415,13 +435,17 @@ function mountMapping(ctx, host, d) {
       const sel = h('select', {class: 'select', 'aria-label': 'Hồ sơ cho ' + c.name, onChange: e => { if (e.target.value === (p.profile_id || '')) pending.delete(p.product_id); else pending.set(p.product_id, e.target.value); render(); }},
         options.map(([id, label]) => h('option', {value: id, selected: id === (value || '')}, label)));
       const pick = !value ? h('input', {type: 'checkbox', 'aria-label': 'Chọn để tạo hồ sơ nháp: ' + (c.name || p.title), checked: picked.has(p.product_id), style: {marginRight: '4px'}, onChange: e => { e.target.checked ? picked.add(p.product_id) : picked.delete(p.product_id); renderAutoBar(); }}) : null;
-      return h('div', {class: 'map-row' + (pending.has(p.product_id) ? ' changed' : ''), id: 'map-' + p.product_id},
-        productAvatar(c, 48),
+      // Ảnh: listing bên trái, hồ sơ đang gắn (hoặc đang gợi ý, viền nét đứt) bên phải. Chỉ dùng ảnh đã cache máy.
+      const shownProfile = value || (!value && auto.has(p.product_id) && !skipped.has(p.product_id) ? auto.get(p.product_id).profile_id : '');
+      const thumbs = mm.rowThumbs({...p, image_url: p.image_url || c.image_url || '', name: c.name || p.title}, shownProfile, state.profiles);
+      return h('div', {class: 'map-row thumbs' + (pending.has(p.product_id) ? ' changed' : ''), id: 'map-' + p.product_id},
+        thumb(thumbs.listing.url, thumbs.listing.label, {fallbackIcon: 'box'}),
         h('div', {style: {minWidth: '0'}}, h('div', {class: 'row'}, pick, bag(p.bag_index), h('strong', {class: 'fs-sm truncate'}, c.name || p.title)),
           h('div', {class: 'fs-xs muted clamp-2', title: p.title}, p.title),
           value && sizeMismatch(p.title, profileName(value)) ? h('div', {class: 'fs-xs', style: {color: 'var(--danger-text)', marginTop: '4px', display: 'flex', gap: '5px', alignItems: 'center'}}, icon('alert', {size: 13}), `Listing ${sizeMismatch(p.title, profileName(value)).listing} ≠ hồ sơ ${sizeMismatch(p.title, profileName(value)).profile}`) : null,
           !value ? suggestionBlock(p) : null,
           !value && !auto.has(p.product_id) && (p.suggestions || []).length ? h('div', {class: 'sugg'}, h('span', {class: 'fs-xs muted'}, 'Gợi ý:'), p.suggestions.map(s => h('button', {type: 'button', title: s.reason, onClick: () => { pending.set(p.product_id, s.id); render(); }}, '+ ' + s.name))) : null),
+        thumb(thumbs.profile.url, thumbs.profile.label || 'Chưa có hồ sơ', {fallbackIcon: 'fileText', dashed: thumbs.profileSuggested}),
         sel);
     })) : empty(filter === 'unmapped' ? 'Mọi sản phẩm đều đã có hồ sơ' : 'Không có sản phẩm phù hợp', '', {iconName: 'checkCircle'}));
     clear(bar, pending.size ? h('div', {class: 'sticky-bar'}, icon('info'), h('span', {class: 'grow'}, `${pending.size} thay đổi chưa lưu · ${mm.SAVE_NOTE}`),

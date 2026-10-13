@@ -8,6 +8,7 @@ import {btn, chip, empty, errorBox, skeletonRows, pageHead, tabs, notice, field,
 import {toast, confirmDialog, promptDialog} from '../ui/overlays.js';
 import {loadCatalog} from './video/data.js';
 import {KIND, STATUS, itemRow, lessonCard, watchRun, setItemStatus, tryResult, tryAI} from './learning-ui.js';
+import {changeIds, keptCount, applyLabel, acceptedPayload, rowChecked} from './learning-proposal-model.js';
 import {LIMITS as PERSONA_LIMITS, PROFILE_HINTS, PROFILE_EXAMPLE, PROFILE_AGE_HINT, proposePersona, savePersona, styleCounter} from './persona-model.js';
 
 const TABS = [
@@ -312,25 +313,60 @@ export default {
       const p = run.output || {};
       if (!p.items && !p.retire_ids) { clear(slot); return; }
       const byId = new Map(state.items.map(i => [i.item_id, i]));
-      const section = (title, rows, tone) => rows.length ? h('div', {class: 'col gap-2'}, h('div', {class: 'section-title'}, `${title} · ${rows.length}`), rows.map(r => h('div', {class: 'k-diff ' + tone}, r))) : null;
+      const items = p.items || [];
+      const editable = run.status === 'done';
+      const ids = changeIds(p);
+      const applied = new Set(p.applied || ids);
+      const dropped = new Set();   // đề xuất chủ shop đã bỏ (chỉ có khi còn chờ áp dụng)
       const describe = entry => h('div', {}, h('div', {}, entry.statement), h('div', {class: 'fs-xs muted'}, (KIND[entry.kind] || KIND.fact).label, entry.product_id && productsById[entry.product_id] ? ` · #${productsById[entry.product_id].bag_index} ${productsById[entry.product_id].name}` : ' · chung',
         (entry.terms || []).length ? ` · từ khoá: ${entry.terms.join(', ')}` : '',
         entry.from_ids && entry.from_ids.length > 1 ? ` · gộp từ ${entry.from_ids.length} mục` : ''));
-      const items = p.items || [];
-      clear(slot, h('section', {class: 'card', style: {marginTop: '16px'}},
-        h('header', {class: 'card-head'}, h('div', {}, h('h3', {}, 'Đề xuất ' + dateTime(run.created_at)), h('div', {class: 'sub'}, p.summary || '')),
-          run.status === 'done' ? h('div', {class: 'row', style: {gap: '8px'}},
+      // Một dòng đề xuất có ô chọn (mặc định giữ lại) và nút "Bỏ đề xuất này".
+      const changeRow = (id, tone, content) => {
+        const off = editable && dropped.has(id);
+        const check = h('input', {type: 'checkbox', checked: rowChecked(id, {editable, dropped, applied}), disabled: !editable,
+          'aria-label': 'Giữ đề xuất này', onChange: e => { e.target.checked ? dropped.delete(id) : dropped.add(id); render(); }});
+        const toggleBtn = editable ? btn(off ? 'Giữ lại' : 'Bỏ đề xuất này', {kind: 'ghost', size: 'sm', icon: off ? 'check' : 'x',
+          onClick: () => { off ? dropped.delete(id) : dropped.add(id); render(); }}) : null;
+        return h('div', {class: 'k-diff ' + tone, style: {opacity: off ? '.45' : '1'}},
+          h('div', {class: 'row', style: {gap: '10px', alignItems: 'flex-start', justifyContent: 'space-between'}},
+            h('label', {class: 'row', style: {gap: '8px', alignItems: 'flex-start', flex: '1', cursor: editable ? 'pointer' : 'default'}}, check,
+              h('div', {class: 'grow', style: {textDecoration: off ? 'line-through' : 'none'}}, content)),
+            toggleBtn));
+      };
+      const section = (title, rows, tone) => rows.length ? h('div', {class: 'col gap-2'}, h('div', {class: 'section-title'}, `${title} · ${rows.length}`), rows) : null;
+      const itemRows = kind => items.map((e, idx) => ({e, idx})).filter(x => x.e.action === kind);
+      const withItem = (list, tone, show) => list.map(({e, idx}) => changeRow(`item:${idx}`, tone, show(e)));
+      const bodyNodes = () => [
+        section('Kiến thức mới', withItem(itemRows('new'), 'add', describe), 'add'),
+        section('Gộp mục trùng', withItem(itemRows('merge'), 'merge', describe), 'merge'),
+        section('Viết lại cho rõ', withItem(itemRows('revise'), 'merge', e => h('div', {}, h('div', {class: 'fs-xs muted', style: {textDecoration: 'line-through'}}, (byId.get(e.from_ids[0]) || {}).statement || ''), describe(e))), 'merge'),
+        section('Tắt vì sai / lỗi thời', (p.retire_ids || []).filter((id, i, arr) => arr.indexOf(id) === i)
+          .map(id => changeRow(`retire:${id}`, 'remove', h('div', {}, (byId.get(id) || {}).statement || id))), 'remove'),
+        section('Mâu thuẫn — bạn quyết', (p.conflicts || []).map(c => h('div', {}, h('div', {}, c.explain), c.ids.map(id => h('div', {class: 'fs-xs muted'}, '• ' + ((byId.get(id) || {}).statement || id))))), 'conflict'),
+        section('Giọng người trực', (p.personas || []).map(s => changeRow(`style:${s.persona_id}`, 'merge', h('div', {}, h('strong', {}, s.name), h('pre', {class: 'style-pre'}, s.after)))), 'merge'),
+      ];
+      const render = () => {
+        const kept = keptCount(ids, dropped);
+        const header = h('header', {class: 'card-head'}, h('div', {}, h('h3', {}, 'Đề xuất ' + dateTime(run.created_at)), h('div', {class: 'sub'}, p.summary || '')),
+          editable ? h('div', {class: 'row', style: {gap: '8px'}},
             btn('Bỏ đề xuất', {kind: 'ghost', size: 'sm', onClick: async () => { await request('/api/learning/discard', {method: 'POST', body: {run_id: run.run_id}}); load(); }}),
-            btn('Áp dụng', {kind: 'primary', size: 'sm', icon: 'check', onClick: async () => { try { const out = await request('/api/learning/apply', {method: 'POST', body: {run_id: run.run_id}}); toast(`Đã áp dụng: ${out.created} mục mới/gộp, ${out.retired} mục tắt.`, 'ok', {action: 'Hoàn tác', onAction: async () => { await request('/api/learning/undo', {method: 'POST', body: {run_id: run.run_id}}); load(); }}); load(); } catch (e) { toast(friendlyError(e), 'danger'); } }}))
-            : run.status === 'applied' ? btn('Hoàn tác lượt này', {size: 'sm', icon: 'undo', onClick: async () => { await request('/api/learning/undo', {method: 'POST', body: {run_id: run.run_id}}); toast('Đã trả trí nhớ về như trước lượt này.', 'ok'); load(); }}) : null),
-        h('div', {class: 'card-body col gap-4'},
-          section('Kiến thức mới', items.filter(i => i.action === 'new').map(describe), 'add'),
-          section('Gộp mục trùng', items.filter(i => i.action === 'merge').map(describe), 'merge'),
-          section('Viết lại cho rõ', items.filter(i => i.action === 'revise').map(e => h('div', {}, h('div', {class: 'fs-xs muted', style: {textDecoration: 'line-through'}}, (byId.get(e.from_ids[0]) || {}).statement || ''), describe(e))), 'merge'),
-          section('Tắt vì sai / lỗi thời', (p.retire_ids || []).map(id => h('div', {}, (byId.get(id) || {}).statement || id)), 'remove'),
-          section('Mâu thuẫn — bạn quyết', (p.conflicts || []).map(c => h('div', {}, h('div', {}, c.explain), c.ids.map(id => h('div', {class: 'fs-xs muted'}, '• ' + ((byId.get(id) || {}).statement || id))))), 'conflict'),
-          section('Giọng người trực', (p.personas || []).map(s => h('div', {}, h('strong', {}, s.name), h('pre', {class: 'style-pre'}, s.after))), 'merge'),
-          items.every(i => i.action === 'keep') && !(p.retire_ids || []).length && !(p.personas || []).length ? h('div', {class: 'fs-sm muted'}, 'Trí nhớ đã gọn gàng — không có gì cần đổi.') : null)));
+            btn(applyLabel(ids, dropped), {kind: 'primary', size: 'sm', icon: 'check', disabled: kept === 0, onClick: async () => {
+              try {
+                const out = await request('/api/learning/apply', {method: 'POST', body: {run_id: run.run_id, accepted: acceptedPayload(ids, dropped)}});
+                toast(`Đã áp dụng ${out.applied}/${out.total} đề xuất: ${out.created} mục mới/gộp, ${out.retired} mục tắt.`, 'ok', {action: 'Hoàn tác', onAction: async () => { await request('/api/learning/undo', {method: 'POST', body: {run_id: run.run_id}}); load(); }});
+                load();
+              } catch (e) { toast(friendlyError(e), 'danger'); }
+            }}))
+            : run.status === 'applied' ? btn('Hoàn tác lượt này', {size: 'sm', icon: 'undo', onClick: async () => { await request('/api/learning/undo', {method: 'POST', body: {run_id: run.run_id}}); toast('Đã trả trí nhớ về như trước lượt này.', 'ok'); load(); }}) : null);
+        const nothingToDo = items.every(i => i.action === 'keep') && !(p.retire_ids || []).length && !(p.personas || []).length;
+        clear(slot, h('section', {class: 'card', style: {marginTop: '16px'}}, header,
+          h('div', {class: 'card-body col gap-4'},
+            editable && ids.length ? h('div', {class: 'fs-xs muted'}, 'Bỏ chọn hoặc bấm “Bỏ đề xuất này” ở đề xuất nào chưa đúng, rồi áp dụng phần còn lại.') : null,
+            bodyNodes(),
+            nothingToDo ? h('div', {class: 'fs-sm muted'}, 'Trí nhớ đã gọn gàng — không có gì cần đổi.') : null)));
+      };
+      render();
     }
 
     load();

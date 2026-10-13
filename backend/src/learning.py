@@ -836,6 +836,22 @@ def _parse_json(text):
         raise
 
 
+def relearn_change_ids(proposal):
+    """Mã từng thay đổi trong một đề xuất học lại, theo đúng thứ tự hiển thị.
+
+    ``item:<chỉ số>`` (mục mới / gộp / viết lại, không tính mục giữ nguyên),
+    ``retire:<item_id>`` (tắt vì sai / lỗi thời), ``style:<persona_id>`` (giọng).
+    Mã này ổn định vì đề xuất đã lưu không đổi sau khi học xong.
+    """
+    ids = []
+    for idx, entry in enumerate((proposal or {}).get("items") or []):
+        if entry.get("action") != "keep":
+            ids.append(f"item:{idx}")
+    ids += [f"retire:{i}" for i in dict.fromkeys((proposal or {}).get("retire_ids") or [])]
+    ids += [f"style:{s.get('persona_id')}" for s in (proposal or {}).get("personas") or []]
+    return ids
+
+
 class Learner:
     """Chạy các lượt học trên một luồng nền (không chặn Hộp thư / trả lời)."""
 
@@ -1222,18 +1238,29 @@ class Learner:
                            "new": sum(1 for i in out_items if i["action"] == "new"),
                            "retire": len(retire)}}
 
-    def apply_relearn(self, run_id, *, include_styles=True):
+    def apply_relearn(self, run_id, *, include_styles=True, accepted=None):
+        """Áp dụng đề xuất. ``accepted`` = danh sách mã từ ``relearn_change_ids``;
+        None nghĩa là áp dụng tất cả (như trước). Thay đổi không được chọn giữ nguyên."""
         run = self.store.run(run_id)
         if not run or run["kind"] != "relearn":
             raise ValueError("learning_run_not_found")
         if run["status"] != "done":
             raise ValueError("learning_run_not_ready" if run["status"] != "applied" else "learning_run_already_applied")
         proposal = run["output"]
+        all_ids = relearn_change_ids(proposal)
+        if accepted is None:
+            chosen = set(all_ids)
+        else:
+            chosen = set(accepted)
+            if not chosen <= set(all_ids):
+                raise ValueError("learning_change_unknown")
+            if not chosen:
+                raise ValueError("learning_nothing_selected")
         before_items = {i["item_id"]: i["status"] for i in self.store.items()}
         before_styles = {p["persona_id"]: p["style_guide"] for p in self.store.personas()}
         created, retired = [], []
-        for entry in proposal.get("items") or []:
-            if entry["action"] == "keep":
+        for idx, entry in enumerate(proposal.get("items") or []):
+            if entry["action"] == "keep" or f"item:{idx}" not in chosen:
                 continue
             if entry["action"] == "revise" and entry["from_ids"]:
                 old = self.store.item(entry["from_ids"][0])
@@ -1248,19 +1275,25 @@ class Learner:
                                          supersedes=entry["from_ids"], run_id=run_id)
             created.append(new_id)
             retired += entry["from_ids"]
-        retired += proposal.get("retire_ids") or []
+        retired += [i for i in dict.fromkeys(proposal.get("retire_ids") or []) if f"retire:{i}" in chosen]
         self.store.set_status(sorted(set(retired)), "retired")
         if include_styles:
             for style in proposal.get("personas") or []:
+                if f"style:{style['persona_id']}" not in chosen:
+                    continue
                 try:
                     self.store.save_persona({"persona_id": style["persona_id"], "style_guide": style["after"]})
                 except ValueError:
                     pass
         undo = {"statuses": before_items, "styles": before_styles, "created": created}
+        applied = [i for i in all_ids if i in chosen]
+        skipped = [i for i in all_ids if i not in chosen]
         self.store.update_run(run_id, status="applied",
-                              output_json=json.dumps({**proposal, "undo": undo}, ensure_ascii=False))
+                              output_json=json.dumps({**proposal, "undo": undo, "applied": applied, "skipped": skipped},
+                                                     ensure_ascii=False))
         self.store.set_meta("last_relearn_at", _now())
-        return {"ok": True, "created": len(created), "retired": len(set(retired))}
+        return {"ok": True, "created": len(created), "retired": len(set(retired)),
+                "applied": len(applied), "total": len(all_ids)}
 
     def undo_relearn(self, run_id):
         run = self.store.run(run_id)

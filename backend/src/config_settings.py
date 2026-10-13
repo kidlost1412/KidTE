@@ -45,6 +45,22 @@ def save_api_key(api_key: str, env_path=None):
     return {"ok": True, "api_key_configured": True, "restart_required": False}
 
 
+def save_gemini_key(api_key: str, env_path=None):
+    api_key = str(api_key or "").strip()
+    if len(api_key) < 8 or any(ch in api_key for ch in "\r\n\0 "):
+        raise ValueError("Khóa Gemini không hợp lệ")
+    _save_values({"GEMINI_API_KEY": api_key}, env_path)
+    return {"ok": True, "gemini_key_configured": True, "restart_required": False}
+
+
+def save_gemini_model(model: str, env_path=None):
+    model = str(model or "").strip()
+    if not model or any(ch in model for ch in "\r\n=\0 /"):
+        raise ValueError("Tên model Gemini không hợp lệ")
+    _save_values({"GEMINI_MODEL": model}, env_path)
+    return {"ok": True, "gemini_model": model, "restart_required": False}
+
+
 def save_audio_device(device_id: str, env_path=None):
     device_id = str(device_id or "").strip()
     if not device_id or any(ch in device_id for ch in "\r\n\0"):

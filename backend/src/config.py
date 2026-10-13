@@ -77,6 +77,9 @@ load_dotenv(ROOT / ".env")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-flash").strip()   # = V4.1 Flash
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+# Tên model Gemini đổi theo thời gian: để chủ shop sửa trong .env nếu Google đổi tên.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
 KNOWLEDGE_PACKAGE_SOURCE = os.getenv("KNOWLEDGE_PACKAGE_SOURCE", "").strip()
 DEEPSEEK_DISABLE_THINKING = os.getenv("DEEPSEEK_DISABLE_THINKING", "1") == "1"
 DEEPSEEK_REASONING_EFFORT = os.getenv(

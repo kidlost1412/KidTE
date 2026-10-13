@@ -10,7 +10,9 @@ function applyProps(node, props) {
     if (value === null || value === undefined || value === false && !BOOL_PROPS.has(key)) continue;
     if (key === 'class' || key === 'className') node.setAttribute('class', Array.isArray(value) ? value.filter(Boolean).join(' ') : String(value));
     else if (key === 'text') node.textContent = String(value);
-    else if (key === 'style' && typeof value === 'object') Object.assign(node.style, value);
+    else if (key === 'style' && typeof value === 'object') {
+      for (const [k, v] of Object.entries(value)) { if (k.startsWith('--')) node.style.setProperty(k, String(v)); else node.style[k] = v; }
+    }
     else if (key === 'dataset') Object.entries(value).forEach(([k, v]) => { if (v !== undefined && v !== null) node.dataset[k] = String(v); });
     else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2).toLowerCase(), value);
     else if (key === 'ref' && typeof value === 'function') value(node);

@@ -10,6 +10,13 @@ export function newerPackages(state) {
 // dismissed: phiên bản người dùng đã ẩn banner trong phiên này (badge vẫn hiện).
 export function updateNotice(state, dismissed = '') {
   const newer = newerPackages(state);
+  if (state?.initial_setup && state.busy) {
+    return {visible: true, badge: true, text: 'Đang tự thiết lập máy mới — xem tiến độ tải', version: 'initial-setup'};
+  }
+  if (state?.restart_required && !newer.length) {
+    const version = Object.entries(state.pending || {}).map(([id, v]) => `${id}:${v}`).join('|') || 'pending-features';
+    return {visible: dismissed !== version, badge: true, text: 'Đã tải xong các gói · Khởi động lại để hoàn tất', version};
+  }
   if (!state || !state.update_available || !newer.length) return {visible: false, badge: false, text: '', version: ''};
   const core = newer.find(p => p.id === 'app' || p.id === 'core') || newer[0];
   const bytes = state.update_total_bytes || core.download_bytes || 0;

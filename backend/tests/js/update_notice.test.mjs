@@ -28,6 +28,14 @@ test('batch leaves unchanged or newer installed versions alone and updates insta
   assert.deepEqual(allUpdateComponents(state), {'gpu-cuda12': '1.0.1'});
 });
 
+test('fresh-machine setup shows progress and restart notice even when app is latest', () => {
+  assert.match(updateNotice({initial_setup:true, busy:true, update_available:false}).text, /thiết lập máy mới/);
+  const n = updateNotice({restart_required:true, update_available:false, pending:{'media-tools':'1.0.0'}});
+  assert.equal(n.visible, true);
+  assert.match(n.text, /Khởi động lại/);
+  assert.equal(updateNotice({restart_required:true, pending:{'media-tools':'1.0.0'}}, n.version).visible, false);
+});
+
 const newer = {update_available: true, update_total_bytes: 48_200_000, restart_required: false,
   available: [
     {id: 'core', version: '1.14.7', download_bytes: 48_200_000, newer: true, installed_version: '1.14.6'},

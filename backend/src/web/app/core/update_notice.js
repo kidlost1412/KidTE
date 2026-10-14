@@ -65,8 +65,8 @@ export function updateComponents(state) {
 }
 
 // Một lượt: cập nhật gói đã cài và bổ sung các tính năng còn thiếu.
-// NVIDIA chỉ bổ sung khi người dùng chọn; gói NVIDIA đã cài vẫn được cập nhật.
-export function allUpdateComponents(state, {includeGpu = false} = {}) {
+// Tự thêm NVIDIA theo phần cứng; gói NVIDIA đã cài vẫn được cập nhật.
+export function allUpdateComponents(state, {includeGpu = Boolean(state?.setup_hardware?.eligible)} = {}) {
   const out = {};
   for (const p of state?.available || []) {
     if (!CORE_IDS.includes(p.id) && !OPTIONAL_IDS.includes(p.id)) continue;

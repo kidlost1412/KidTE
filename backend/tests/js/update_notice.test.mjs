@@ -15,6 +15,7 @@ test('fresh machine batch installs missing features with app updates in one sele
   const expected = {app: '1.15.8', 'media-tools': '1.0.0', 'captcha-solver': '1.0.0', 'video-sync': '1.0.0', 'video-analysis-cpu': '1.0.0'};
   assert.deepEqual(allUpdateComponents(state), expected);
   assert.deepEqual(allUpdateComponents(state, {includeGpu: true}), {...expected, 'gpu-cuda12': '1.0.0'});
+  assert.deepEqual(allUpdateComponents({...state, setup_hardware: {eligible: true}}), {...expected, 'gpu-cuda12': '1.0.0'});
   assert.deepEqual(allUpdateComponents(null), {});
 });
 

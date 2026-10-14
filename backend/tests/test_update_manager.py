@@ -173,6 +173,48 @@ def test_batch_update_prepares_one_generation_without_intermediate_restart(tmp_p
     assert {k: v["package"]["version"] for k, v in activated["components"].items()} == components
 
 
+def test_first_install_auto_detects_gpu_and_does_not_reinstall_after_activation(tmp_path, monkeypatch):
+    import initial_components
+    core_archive, core = package(tmp_path)
+    gpu_archive, gpu = package(tmp_path, "gpu-cuda12")
+    store = ComponentStore(tmp_path / "App")
+    store.stage_package(core, core_archive)
+    initial = store.prepare({"core": core}, 1)
+    store.activate_pending()
+    store.confirm_active(initial["generation"])
+    raw, keys = signed([core, gpu])
+    transport = Transport(raw, {gpu["url"]: gpu_archive})
+    marker = store.app_root / initial_components.MARKER
+    marker.write_text('{"schema_version":1,"status":"requested"}')
+    monkeypatch.setattr(initial_components, "detect_gpu", lambda: {"eligible": True, "name": "Test GPU"})
+    manager = UpdateManager(store.app_root, transport=transport, trusted_keys=keys, store=store)
+    assert manager.initial_setup()
+    state = done(manager)
+    assert state["error"] == ""
+    assert state["setup_hardware"]["eligible"]
+    assert state["pending"] == {"core": "1.0.0", "gpu-cuda12": "1.0.0"}
+    assert json.loads(marker.read_text())["status"] == "prepared"
+    assert not manager.initial_setup()
+    active = store.activate_pending()
+    store.confirm_active(active["generation"])
+    reopened = UpdateManager(store.app_root, transport=transport, trusted_keys=keys, store=store)
+    assert not reopened.initial_setup()
+    assert json.loads(marker.read_text())["status"] == "complete"
+    assert transport.calls == ["check", gpu["url"]]
+
+
+def test_first_install_network_failure_keeps_request_for_next_start(tmp_path, monkeypatch):
+    import initial_components
+    marker = tmp_path / initial_components.MARKER
+    marker.write_text('{"schema_version":1,"status":"requested"}')
+    monkeypatch.setattr(initial_components, "detect_gpu", lambda: {"eligible": False})
+    manager = UpdateManager(tmp_path, transport=SimpleNamespace(fetch_catalog=lambda **kw: (_ for _ in ()).throw(OSError("network down"))))
+    assert manager.initial_setup()
+    assert done(manager)["error"] == "network down"
+    assert json.loads(marker.read_text())["status"] == "requested"
+    assert manager._get_store().load_pending() is None
+
+
 def test_expired_catalog_and_unsigned_payload_never_prepare(tmp_path):
     archive, core = package(tmp_path)
     raw, keys = signed([core], expired=True)

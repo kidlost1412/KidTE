@@ -118,6 +118,9 @@ Type: filesandordirs; Name: "{app}\App"
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8CF58DC0-2347-4A62-BE48-5C1104E6740F}_is1';
 
+var
+  FreshInstall: Boolean;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ScriptPath, ResultFile, PowerShellPath, Parameters: String;
@@ -127,6 +130,8 @@ var
 begin
   Result := '';
   NeedsRestart := False;
+  FreshInstall := not FileExists(ExpandConstant('{app}\App\KidTELauncher.exe')) and
+                  not DirExists(ExpandConstant('{app}\DuLieu'));
   Log('Checking for the Microsoft WebView2 Runtime prerequisite.');
 
   ExtractTemporaryFile('ensure-webview2.ps1');
@@ -259,6 +264,13 @@ begin
     MsgBox('Không ghi được vào thư mục này. Hãy chọn thư mục khác.', mbError, MB_OK);
     Result := False;
   end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and FreshInstall then
+    SaveStringToFile(ExpandConstant('{app}\App\initial-components.json'),
+      '{"schema_version":1,"status":"requested"}', False);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

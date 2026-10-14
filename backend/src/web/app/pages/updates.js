@@ -1,7 +1,7 @@
 import {h, clear} from '../core/dom.js';
 import {request, friendlyError} from '../core/api.js';
 import {bytes} from '../core/format.js';
-import {btn, chip, notice, progress, select, toggle} from '../ui/kit.js';
+import {btn, chip, notice, progress, select} from '../ui/kit.js';
 import {icon} from '../core/icons.js';
 import {confirmDialog, toast} from '../ui/overlays.js';
 import {headerLines, updateComponents, allUpdateComponents, progressView, formatCheckedAt, OPTIONAL_INFO, OPTIONAL_IDS, LIVE_RESTART_TEXT} from '../core/update_notice.js';
@@ -25,7 +25,6 @@ export async function updates(ctx, host, owner) {
   let channel = null;
   let autoChecked = false;
   let restarting = false;
-  let includeGpu = false;
   let planning = false;
   const opened = {};
   owner.add(() => { disposed = true; });
@@ -51,7 +50,7 @@ export async function updates(ctx, host, owner) {
   const install = components => act('install', {components});
   const installAll = async state => {
     if (planning) return;
-    const components = allUpdateComponents(state, {includeGpu});
+    const components = allUpdateComponents(state);
     if (!Object.keys(components).length) return;
     planning = true;
     try {
@@ -126,9 +125,8 @@ export async function updates(ctx, host, owner) {
       selectChannel.addEventListener('change', () => { channel = selectChannel.value; act('check', {channel}); });
       const rows = state.channel === channel ? state.available || [] : [];
       const optional = rows.filter(p => OPTIONAL_IDS.includes(p.id));
-      const allComps = state.channel === channel ? allUpdateComponents(state, {includeGpu}) : {};
+      const allComps = state.channel === channel ? allUpdateComponents(state) : {};
       const showAll = !restarting && !state.restart_required && Object.keys(allComps).length > 0;
-      const missingGpu = optional.some(p => p.id === 'gpu-cuda12' && !p.installed_version && !state.installed?.[p.id]);
       const display = state.installed_display || {};
 
       const current = state.current_version || '';
@@ -144,20 +142,20 @@ export async function updates(ctx, host, owner) {
           head.newest && h('span', {class: 'muted fs-sm'}, head.newest)),
         h('div', {class: 'upd-hero-act'},
           head.upToDate && chip('Đã là bản mới nhất', 'ok', {iconName: 'check'}),
-          showAll && btn(planning ? 'Đang tính tổng tải…' : 'Cập nhật toàn bộ', {kind: 'primary', icon: 'download', disabled: planning || state.busy || !state.enabled || !state.trusted, onClick: () => installAll(state)}),
+          showAll && btn(planning ? 'Đang tính tổng tải…' : 'Cập nhật toàn bộ', {kind: 'primary', icon: 'download', disabled: planning || state.hardware_probing || state.busy || !state.enabled || !state.trusted, onClick: () => installAll(state)}),
           showUpdate && btn(`Chỉ cập nhật gói đã cài (~${mb} MB)`, {kind: 'ghost', disabled: planning || !state.enabled, onClick: () => install(comps)}))),
         h('div', {class: 'upd-hero-meta muted fs-sm'},
           checking ? 'Đang kiểm tra bản mới nhất trên GitHub…' : (checkedAt ? `Kiểm tra lần cuối: ${checkedAt}` : 'Chưa kiểm tra'), recheck),
         !state.enabled && h('div', {class: 'muted fs-sm'}, 'Bản mã nguồn không tự cập nhật; hãy dùng bản cài đã đóng gói.'),
         showAll && h('div', {class: 'muted fs-sm'}, 'Cài các tính năng còn thiếu và cập nhật gói đã cài trong một lượt. Chỉ khởi động lại một lần sau khi tải xong.'),
-        missingGpu && !state.restart_required && toggle('Kèm tăng tốc NVIDIA (dành cho máy có card NVIDIA)', includeGpu, value => { includeGpu = value; render(); }, {disabled: planning || state.busy})];
+        h('div', {class: 'muted fs-sm'}, state.hardware_probing ? 'Đang nhận diện card đồ họa…' : state.setup_hardware?.eligible ? `Đã nhận diện ${state.setup_hardware.name || 'card NVIDIA'} — tự chọn gói tăng tốc NVIDIA.` : 'Dùng CPU; gói tăng tốc NVIDIA không được tự tải.')];
       const main = [];
       if (state.error) {
         main.push(notice('danger', 'Chưa cập nhật được', friendlyError({code: state.error}),
           btn('Thử lại', {kind: 'primary', size: 'sm', disabled: state.busy, onClick: () => act('check', {channel})})));
       }
       if (state.busy && state.operation === 'install' && view) main.push(progressBar(view));
-      else if (state.busy) main.push(notice('info', phases[state.operation] || 'Đang xử lý…', ''));
+      else if (state.busy) main.push(notice('info', state.operation === 'initial_setup' ? 'Đang tự thiết lập máy mới…' : phases[state.operation] || 'Đang xử lý…', state.initial_setup ? 'Tự nhận diện phần cứng và tải các tính năng cần thiết. Chỉ khởi động lại một lần khi hoàn tất.' : ''));
       if (restarting) {
         main.push(notice('info', 'Đang khởi động lại…', 'Kid TE sẽ tự mở lại sau khoảng 20–30 giây. Có thể đóng trang này.'));
       } else if (state.restart_required && !state.busy) {
@@ -169,7 +167,7 @@ export async function updates(ctx, host, owner) {
       }
 
       const optionalSection = det('optional', 'Tính năng tuỳ chọn', {iconName: 'layers', sub: 'Chỉ cài khi cần', count: optional.length}, h('div', {class: 'col gap-2'},
-        h('p', {class: 'muted fs-sm'}, 'Dùng "Cập nhật toàn bộ" ở trên để cài các tính năng cùng lúc, hoặc cài riêng từng gói bên dưới. Gói NVIDIA chưa cài cần chọn thêm ở trên.'),
+        h('p', {class: 'muted fs-sm'}, 'Dùng "Cập nhật toàn bộ" ở trên để cài các tính năng cùng lúc, hoặc cài riêng từng gói bên dưới. Gói NVIDIA được tự chọn theo card và driver trên máy.'),
         optional.length ? optional.map(p => optionalRow(state, p)) : h('p', {class: 'muted'}, 'Bấm "Kiểm tra lại" ở phần trên để xem danh sách.')));
       const techSection = det('tech', 'Chi tiết kỹ thuật', {iconName: 'terminal'}, h('div', {class: 'col gap-2'},
         h('p', {class: 'muted fs-sm'}, `Kênh: ${state.channel}. Kiểm tra lúc: ${checkedAt || 'chưa'}.`),

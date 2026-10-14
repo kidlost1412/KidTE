@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from component_store import ComponentStore, ComponentStoreError, PackageRepairError
+from component_store import ComponentStore, ComponentStoreError, PackageRepairError, _atomic_json
 from update_catalog import CatalogError, _version_key, COMPONENT_POLICIES, SPLIT_COMPONENTS, resolve_components, verify_catalog
 from update_transport import GitHubTransport
 from update_trust import TRUSTED_KEYS
@@ -55,6 +55,53 @@ class UpdateManager:
         self._last_checked_at = None
         self._catalog = None
         self._state = {"operation": "idle", "busy": False, "error": "", "progress": None}
+        self._initial_attempted = False
+
+    def probe_setup_hardware(self):
+        from initial_components import detect_gpu
+        self._set(hardware_probing=True)
+        def probe():
+            try:
+                self._set(setup_hardware=detect_gpu())
+            finally:
+                self._set(hardware_probing=False)
+        threading.Thread(target=probe, daemon=True, name="kid-te-update-hardware").start()
+
+    def initial_setup(self):
+        """Installer-only first run. Regular background checks never install."""
+        if self.app_root is None or not self.trusted_keys:
+            return False
+        from initial_components import MARKER, read_request
+        request = read_request(self.app_root)
+        if not request or request.get("status") not in {"requested", "prepared"}:
+            return False
+        store = self._get_store()
+        with self._lock:
+            if self._initial_attempted or self._state["busy"] or store.load_pending() is not None:
+                return False
+            self._initial_attempted = True
+            installed = self._versions(store.load_active())
+            targets = request.get("components") or {}
+            if request.get("status") == "prepared" and targets and all(installed.get(k) == v for k, v in targets.items()):
+                _atomic_json(self.app_root / MARKER, {**request, "status": "complete"})
+                return False
+            self._state.update(operation="initial_setup", busy=True, error="", initial_setup=True)
+            self._thread = threading.Thread(target=self._run, args=(lambda: self._initial_setup_worker(store),),
+                                            daemon=True, name="kid-te-initial-components")
+            self._thread.start()
+        return True
+
+    def _initial_setup_worker(self, store):
+        from initial_components import MARKER, detect_gpu, selection
+        gpu = detect_gpu()
+        self._set(setup_hardware=gpu)
+        self._check(store, self._channel)
+        requested = selection(self._catalog, self._versions(store.load_active()), gpu)
+        if requested:
+            self._set(operation="install")
+            self._install(store, requested)
+        _atomic_json(self.app_root / MARKER, {"schema_version": 1, "status": "prepared" if store.load_pending() else "complete",
+                                            "components": requested, "hardware": gpu})
 
     def _get_store(self):
         if self.app_root is None:
@@ -382,6 +429,15 @@ class UpdateScheduler:
 
     def start(self):
         if self._thread is None:
+            setup = getattr(self.manager, "initial_setup", None)
+            if callable(setup):
+                try:
+                    if not setup():
+                        probe = getattr(self.manager, "probe_setup_hardware", None)
+                        if callable(probe):
+                            probe()
+                except Exception as exc:
+                    logger.warning("initial component setup could not start: %s", type(exc).__name__)
             self._thread = threading.Thread(target=self._run, daemon=True, name="kid-te-update-scheduler")
             self._thread.start()
         return self

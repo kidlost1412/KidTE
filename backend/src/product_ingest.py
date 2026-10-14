@@ -23,13 +23,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import unicodedata
+from collections import deque
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ai_context import system_with_brief, task_block
-from ai_providers import AIProviderError, choose_provider
+from ai_providers import AIProviderError, GeminiProvider, choose_provider
 from documents import extract_text
+from product_web import canonical_url, listing_url, parse_product_page
 
 # ------------------------------------------------------------------ giới hạn
 MAX_IMAGES = 8
@@ -48,11 +51,11 @@ URL_MAX_BYTES = 2 * 1024 * 1024
 URL_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 URL_TIMEOUT = 10
 URL_MAX_REDIRECTS = 3
-CRAWL_MAX_PAGES = 20                       # số trang sản phẩm quét thêm từ một trang chủ
-CRAWL_MAX_CHARS = 120_000                  # tổng chữ của các trang quét thêm
-PRODUCT_PATH_HINTS = ("/san-pham", "/product", "/danh-muc", "/shop")
-_NOT_PAGE_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".pdf", ".zip", ".rar", ".7z",
-                 ".mp4", ".mp3", ".css", ".js", ".xml", ".json", ".doc", ".docx", ".xls", ".xlsx")
+CRAWL_MAX_PAGES = 100                      # gồm danh mục, phân trang và trang chi tiết
+CRAWL_MAX_CHARS = 1_000_000
+CRAWL_MAX_SECONDS = 300
+EXTRACT_BATCH_PAGES = 4
+EXTRACT_BATCH_CHARS = 40_000
 CONFIDENCE_LOW = 0.6
 SESSION_TTL = 3600
 MAX_SESSIONS = 8
@@ -194,7 +197,7 @@ def og_image_url(html_text, base_url):
         if re.search(r"""(?:property|name)\s*=\s*["']og:image(?::url)?["']""", tag, re.I):
             match = re.search(r"""content\s*=\s*["']([^"']+)["']""", tag, re.I)
             if match:
-                url = urllib.parse.urljoin(base_url, match.group(1).strip())
+                url = urllib.parse.urljoin(base_url, html.unescape(match.group(1)).strip())
                 if urllib.parse.urlsplit(url).scheme in ("http", "https"):
                     return url
     return ""
@@ -211,52 +214,9 @@ def _host_key(host):
     return host[4:] if host.startswith("www.") else host
 
 
-_ANCHOR = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.I | re.S)
-_HREF = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.I)
-_CARD_CLASS = re.compile(r"""(?:class|id)\s*=\s*["'][^"']*(?:product|san-pham|sanpham)""", re.I)
-_TAG = re.compile(r"<[^>]+>")
-
-
 def find_product_links(page_html, base_url, limit=CRAWL_MAX_PAGES):
-    """Liên kết cùng tên miền trông như trang sản phẩm/danh mục.
-
-    Hạng 0: đường dẫn chứa /san-pham, /product, /danh-muc, /shop. Hạng 1: liên kết có chữ nằm trong
-    khối có class/id chứa product hoặc san-pham (thẻ sản phẩm). Hạng 0 đứng trước; trong cùng hạng
-    giữ thứ tự xuất hiện trên trang. Bỏ trang chủ, file ảnh/PDF/mã nguồn, mailto/tel/#.
-    """
-    text = str(page_html or "")
-    base = urllib.parse.urlsplit(base_url)
-    home = _host_key(base.hostname)
-    base_clean = base_url.split("#", 1)[0].rstrip("/")
-    ranked = {}
-    for match in _ANCHOR.finditer(text):
-        attrs, label = match.group(1), match.group(2)
-        found = _HREF.search(attrs)
-        if not found:
-            continue
-        href = html.unescape(found.group(1)).strip()
-        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
-            continue
-        parts = urllib.parse.urlsplit(urllib.parse.urljoin(base_url, href))
-        if parts.scheme not in ("http", "https") or _host_key(parts.hostname) != home:
-            continue
-        path = urllib.parse.unquote(parts.path or "/").lower()
-        if path in ("", "/") or path.endswith(_NOT_PAGE_EXT):
-            continue
-        url = urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
-        if url.rstrip("/") == base_clean:
-            continue
-        if any(hint in path for hint in PRODUCT_PATH_HINTS):
-            rank = 0
-        else:
-            context = text[max(0, match.start() - 400):match.start()]
-            if not _CARD_CLASS.search(context + attrs) or not _TAG.sub("", label).strip():
-                continue
-            rank = 1
-        if url not in ranked or rank < ranked[url]:
-            ranked[url] = rank
-    ordered = sorted(ranked, key=lambda url: ranked[url])     # sorted giữ thứ tự xuất hiện trong cùng hạng
-    return ordered[:max(0, int(limit))]
+    """Same-site catalog, pagination and product-card links, without cart actions."""
+    return parse_product_page(str(page_html or ""), base_url, limit)["links"]
 
 
 def fetch_page(url, with_image=True):
@@ -267,21 +227,28 @@ def fetch_page(url, with_image=True):
     data, _truncated, _ctype = _read_limited(url, URL_MAX_BYTES, ("text/html", "text/plain", "application/xhtml"))
     from documents import _decode
     raw_html = _decode(data)
+    details = parse_product_page(raw_html, url)
     try:
-        text = extract_text("page.html", data)
+        text = details["product_text"] or extract_text("page.html", data)
     except ValueError as exc:
         raise IngestError("Trang web này gần như không có chữ để đọc") from exc
     image = None
-    image_url = og_image_url(raw_html, url) if with_image else ""
-    if image_url:
-        try:
-            blob, truncated, _ = _read_limited(image_url, URL_IMAGE_MAX_BYTES, ("image/",))
-            if not truncated:
-                image = normalize_image(blob)
-        except (IngestError, ValueError):
-            image = None
-    links = find_product_links(raw_html, url)
-    return {"url": url, "text": text, "og_image": image, "links": links}
+    image_url = ""
+    # Product galleries/lazy images take precedence over site-wide Open Graph logos.
+    candidates = details["image_urls"] if details["product_page"] else []
+    if with_image:
+        for candidate in candidates:
+            try:
+                blob, truncated, _ = _read_limited(candidate, URL_IMAGE_MAX_BYTES, ("image/",))
+                if not truncated:
+                    image = normalize_image(blob)
+                    image_url = candidate
+                    break
+            except (IngestError, ValueError):
+                continue
+    links = details["links"]
+    return {"url": url, "text": text, "og_image": image, "image_url": image_url, **details, "links": links,
+            "truncated": _truncated}
 
 
 # ------------------------------------------------------------------ nguồn đầu vào
@@ -302,7 +269,7 @@ def prepare_sources(payload, fetch=None, uploads=None, crawl_fetch=None, stats=N
     """
     if fetch is None:
         fetch = fetch_page
-        crawl_fetch = crawl_fetch or (lambda link: fetch_page(link, with_image=False))
+        crawl_fetch = crawl_fetch or fetch_page
     crawl_fetch = crawl_fetch or fetch
     uploads = uploads or (lambda upload_id: None)
     payload = payload if isinstance(payload, dict) else {}
@@ -310,9 +277,10 @@ def prepare_sources(payload, fetch=None, uploads=None, crawl_fetch=None, stats=N
     images = payload.get("images") or []
     url = str(payload.get("url") or "").strip()
     pasted = str(payload.get("text") or "").strip()
-    crawl_on = bool(url) and _truthy(payload.get("crawl"), is_root_url(url))
+    crawl_on = bool(url) and _truthy(payload.get("crawl"), is_root_url(url) or listing_url(url))
     if stats is not None:
-        stats.update({"enabled": crawl_on, "found": 0, "read": 0, "failed": 0})
+        stats.update({"enabled": crawl_on, "found": 0, "read": 0, "failed": 0,
+                      "products": 0, "images": 0, "limited": False})
     if not isinstance(files, list) or not isinstance(images, list):
         raise IngestError("Đầu vào không hợp lệ")
     if len(files) > MAX_FILES:
@@ -325,6 +293,18 @@ def prepare_sources(payload, fetch=None, uploads=None, crawl_fetch=None, stats=N
 
     def add(kind, label, **extra):
         sources.append({"id": f"n{len(sources) + 1}", "kind": kind, "label": label, **extra})
+        return sources[-1]["id"]
+
+    def add_page(page):
+        source_id = add("url", page["url"], text=str(page["text"])[:MAX_SOURCE_CHARS],
+                        product_page=bool(page.get("product_page")), product_name=page.get("product_name", ""))
+        if page.get("og_image"):
+            add("og_image", page.get("product_name") or "Ảnh đại diện trên trang web",
+                mime="image/jpeg", data=page["og_image"], page_source_id=source_id,
+                page_url=page["url"], image_url=page.get("image_url", ""))
+            if stats is not None:
+                stats["images"] += 1
+        return source_id
 
     def blob_of(item, default):
         if not isinstance(item, dict):
@@ -360,25 +340,47 @@ def prepare_sources(payload, fetch=None, uploads=None, crawl_fetch=None, stats=N
         raise IngestError(f"Tổng dung lượng quá lớn (tối đa {MAX_TOTAL_BYTES // 1048576} MB)")
     if url:
         page = fetch(url)
-        add("url", page["url"], text=str(page["text"])[:MAX_SOURCE_CHARS])
-        if page.get("og_image"):
-            add("og_image", "Ảnh đại diện trên trang web", mime="image/jpeg", data=page["og_image"])
+        add_page(page)
         if crawl_on:
             links = list(page.get("links") or [])
             if stats is not None:
                 stats["found"] = len(links)
-            _crawl_product_pages(links[:CRAWL_MAX_PAGES], crawl_fetch, add, stats)
+            _crawl_product_pages(links, crawl_fetch, add_page, stats, page["url"])
     if pasted:
         add("text", "Chữ dán vào", text=pasted[:MAX_PASTED_CHARS])
+    if stats is not None:
+        stats["products"] = sum(bool(s.get("product_page")) for s in sources)
     return sources
 
 
-def _crawl_product_pages(links, fetcher, add, stats=None):
-    """Đọc từng trang sản phẩm; trang lỗi thì bỏ qua. Tổng chữ không quá CRAWL_MAX_CHARS."""
-    used = 0
-    for link in links:
-        if used >= CRAWL_MAX_CHARS:
+def _crawl_product_pages(links, fetcher, add_page, stats=None, base_url=""):
+    """Follow catalog/pagination first, then detail pages, deduplicating every URL."""
+    catalogs, products = deque(), deque()
+    seen = {canonical_url(base_url, base_url).rstrip("/")}
+    home = _host_key(urllib.parse.urlsplit(base_url).hostname)
+    found = set()
+    def enqueue(items):
+        for item in items:
+            url = canonical_url(item, base_url)
+            if not url or _host_key(urllib.parse.urlsplit(url).hostname) != home:
+                continue
+            key = url.rstrip("/")
+            if key in seen:
+                continue
+            seen.add(key)
+            found.add(url)
+            (catalogs if listing_url(url) else products).append(url)
+    enqueue(links)
+    used, read, product_count = 0, 0, 0
+    started = time.monotonic()
+    while catalogs or products:
+        if read >= CRAWL_MAX_PAGES or used >= CRAWL_MAX_CHARS or product_count >= MAX_PRODUCTS \
+                or time.monotonic() - started >= CRAWL_MAX_SECONDS:
+            if stats is not None:
+                stats["limited"] = True
             break
+        link = (catalogs if catalogs else products).popleft()
+        read += 1
         try:
             page = fetcher(link)
         except (IngestError, OSError, ValueError):
@@ -391,10 +393,17 @@ def _crawl_product_pages(links, fetcher, add, stats=None):
             if stats is not None:
                 stats["failed"] += 1
             continue
-        add("url", str(page.get("url") or link), text=body)
+        page = {**page, "url": str(page.get("url") or link), "text": body}
+        add_page(page)
         used += len(body)
+        product_count += bool(page.get("product_page"))
+        enqueue(page.get("links") or [])
         if stats is not None:
             stats["read"] += 1
+            stats["products"] = product_count
+            stats["limited"] = stats["limited"] or bool(page.get("truncated"))
+    if stats is not None:
+        stats["found"] = len(found)
 
 
 def needs_vision(sources):
@@ -441,6 +450,7 @@ Quy tắc bắt buộc (RIÊNG nhiệm vụ này, thay cho phần "hiểu biết
 - Bỏ qua phần giới thiệu công ty, mục lục, liên hệ: đó không phải sản phẩm.
 - KHÔNG ghi giá, khuyến mãi, quà tặng, mã giảm giá, miễn phí vận chuyển, số lượng tồn: chúng chỉ lấy từ giỏ hàng của shop.
 - Chỉ chép những gì có trong nguồn, không bịa, không dùng hiểu biết chung để điền khoảng trống.
+- Cùng hoạt chất xuất hiện ở phần đăng ký và bổ sung: giữ TẤT CẢ dòng, đặt tên rõ vai trò (vd Zn đăng ký, Zn bổ sung), không ghi đè hoặc cộng hàm lượng. Thiếu đơn vị thì để nguyên số và đánh can_xem, không tự thêm %.
 - Chữ mờ/không đọc chắc chắn, hoặc nguồn không nói: đặt trường là null.
 - Mọi trường đều phải có mặt trong mỗi sản phẩm (null nếu không có). Viết tiếng Việt như nguồn."""
     return system_with_brief(task, rules)
@@ -453,7 +463,10 @@ def build_user_text(sources):
             body = s["text"][:max(0, min(MAX_SOURCE_CHARS, MAX_PROMPT_CHARS - used))]
             used += len(body)
             kind = {"file": "tệp", "url": "trang web", "text": "chữ dán"}[s["kind"]]
-            parts.append(f"=== NGUỒN {s['id']} ({kind}: {s['label']}) ===\n{body}")
+            detail_hint = (f"\nTrang chi tiết của MỘT sản phẩm: {s.get('product_name')}. "
+                           "Tạo một hồ sơ cho đúng sản phẩm này, dùng tên đầy đủ trên trang.\n"
+                           if s.get("product_page") else "")
+            parts.append(f"=== NGUỒN {s['id']} ({kind}: {s['label']}) ===\n{detail_hint}{body}")
         elif s["kind"] in ("image", "pdf_scan"):
             parts.append(f"=== NGUỒN {s['id']} ({'ảnh' if s['kind'] == 'image' else 'PDF scan'}: {s['label']}) "
                          "— đính kèm theo đúng thứ tự ===")
@@ -510,7 +523,15 @@ def _as_pairs(value):
             raise ExtractionInvalid("thành phần sai kiểu")
         name = _clean_str(item.get("ten") or item.get("name"), 160)
         if name:
-            pairs[name] = _clean_str(item.get("ham_luong") or item.get("amount"), 500)
+            amount = _clean_str(item.get("ham_luong") or item.get("amount"), 500)
+            if name in pairs and pairs[name] != amount:
+                base, index = name, 2
+                while name in pairs:
+                    name = f"{base[:145]} (dòng {index})"
+                    if pairs.get(name) == amount:
+                        break
+                    index += 1
+            pairs[name] = amount
     return dict(list(pairs.items())[:50])
 
 
@@ -677,6 +698,52 @@ def _webp_800(jpeg_bytes):
     return out.getvalue()
 
 
+def _name_key(value):
+    text = unicodedata.normalize("NFKD", str(value or "").lower().replace("đ", "d"))
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", text).split())
+
+
+def extraction_batches(sources):
+    """Use detail pages as authoritative sources, instead of re-extracting catalog cards."""
+    details = [s for s in sources if s.get("product_page") and s["kind"] == "url"]
+    if not details:
+        return [[s for s in sources if s["kind"] != "og_image"]]
+    extra = [s for s in sources if s["kind"] in ("file", "text", "image", "pdf_scan")]
+    batches = [extra] if extra else []
+    batch, used = [], 0
+    for source in details:
+        length = len(source.get("text") or "")
+        if batch and (len(batch) >= EXTRACT_BATCH_PAGES or used + length > EXTRACT_BATCH_CHARS):
+            batches.append(batch)
+            batch, used = [], 0
+        batch.append(source)
+        used += length
+    if batch:
+        batches.append(batch)
+    return batches
+
+
+def attach_product_sources(products, sources):
+    """Bind an image to its own detail page; never auto-share a home/catalog image."""
+    pages = {s["id"]: s for s in sources if s["kind"] == "url"}
+    detail_pages = [s for s in pages.values() if s.get("product_page")]
+    for product in products:
+        name = _name_key(product["fields"].get("ten_san_pham"))
+        exact = [s for s in detail_pages if _name_key(s.get("product_name")) == name]
+        source = exact[0] if len(exact) == 1 else pages.get(product["nguon"].get("ten_san_pham"))
+        if not source and len(detail_pages) == 1 and len(products) == 1:
+            source = detail_pages[0]
+        product["source_url"] = source["label"] if source else ""
+        # Website candidates are scoped to this page. Uploads remain selectable manually.
+        product["image_source_ids"] = [s["id"] for s in sources if s["kind"] == "image" or (
+            s["kind"] == "og_image" and source and source.get("product_page")
+            and s.get("page_source_id") == source["id"])]
+        web_images = [s["id"] for s in sources if s["kind"] == "og_image" and
+                      s["id"] in product["image_source_ids"]]
+        product["default_image_source_id"] = web_images[0] if web_images else ""
+
+
 class ProductIngest:
     def __init__(self, engine, gemini, deepseek, fetch=None, clock=time.time, crawl_fetch=None):
         self.engine = engine
@@ -757,16 +824,49 @@ class ProductIngest:
                                   crawl_fetch=self._crawl_fetch, stats=crawl)
         wanted = payload.get("provider") if isinstance(payload, dict) else ""
         provider = self._pick_provider(wanted, sources)
-        system, user = build_system(), build_user_text(sources)
+        if provider.name == "gemini" and isinstance(payload, dict) and "gemini_model" in payload:
+            model = str(payload.get("gemini_model") or "").strip()
+            if model and not re.fullmatch(r"gemini-[A-Za-z0-9._-]{1,100}", model):
+                raise IngestError("Tên model Gemini không hợp lệ. Chọn một model trong danh sách.")
+            # Per-read choice does not overwrite the owner's global setting/provider.
+            provider = GeminiProvider(self.gemini.api_key, model)
+        system = build_system()
         files = vision_files(sources) if provider.supports_files else []
         if sum(len(f["data"]) for f in files) > MAX_VISION_BYTES:
             raise IngestError("Ảnh/PDF scan gửi cho Gemini quá nặng (tối đa 15 MB cộng lại). "
                               "Bỏ bớt tệp, hoặc dùng bản PDF có chữ.")
-        ids = [s["id"] for s in sources]
-        try:
-            result = self._ask(provider, system, user, files, ids)
-        except AIProviderError as exc:
-            raise IngestError(str(exc)) from exc
+        batches = extraction_batches(sources)
+        result = {"products": [], "truncated": False}
+        seen = set()
+        for index, batch in enumerate(batches):
+            try:
+                part = self._ask(provider, system, build_user_text(batch),
+                                 vision_files(batch) if provider.supports_files else [], [s["id"] for s in batch])
+            except (AIProviderError, IngestError) as exc:
+                if not result["products"]:
+                    raise IngestError(str(exc)) from exc
+                result["truncated"] = True
+                result["extraction_warning"] = str(exc)
+                result["batches_remaining"] = len(batches) - index
+                break
+            attach_product_sources(part["products"], sources)
+            result["truncated"] = result["truncated"] or part["truncated"]
+            for product in part["products"]:
+                key = _name_key(product["fields"].get("ten_san_pham"))
+                if key not in seen:
+                    seen.add(key)
+                    result["products"].append(product)
+                elif product.get("default_image_source_id"):
+                    # Detail-page evidence wins over a duplicate from an uploaded catalog.
+                    at = next(i for i, row in enumerate(result["products"])
+                              if _name_key(row["fields"].get("ten_san_pham")) == key)
+                    result["products"][at] = product
+            if len(result["products"]) > MAX_PRODUCTS:
+                result["products"] = result["products"][:MAX_PRODUCTS]
+                result["truncated"] = True
+                break
+        crawl["batches"] = len(batches)
+        result["truncated"] = result["truncated"] or bool(crawl.get("limited"))
         first = result["products"][0]
         result.update({
             **first,                              # tương thích: trường của sản phẩm đầu tiên ở gốc
@@ -775,6 +875,7 @@ class ProductIngest:
             "crawl": crawl,
             "session_id": self._remember(sources),
             "sources": [{"id": s["id"], "kind": s["kind"], "label": s["label"],
+                         **{k: s[k] for k in ("page_source_id", "page_url", "image_url") if k in s},
                          **({"thumb": thumbnail_data_url(s["data"])} if s["kind"] in ("image", "og_image") else {})}
                         for s in sources]})
         return result
@@ -801,6 +902,13 @@ class ProductIngest:
         name = _clean_str(fields.get("ten_san_pham"), 300)
         if len(name) < 2:
             raise IngestError("Cần có tên sản phẩm trước khi lưu nháp")
+        image_ref = payload.get("image") or {}
+        staged_image = None
+        if image_ref.get("source_id"):
+            blob = self._session_image(payload.get("session_id"), image_ref["source_id"])
+            if not blob:
+                raise IngestError("Ảnh đã hết hạn trong phiên đọc. Hãy đọc lại nguồn rồi lưu nháp.")
+            staged_image = _webp_800(blob)
         changes = {}
         for key in FIELD_ORDER:
             if key == "ten_san_pham":
@@ -826,20 +934,20 @@ class ProductIngest:
         if changes:
             workspace.patch("profiles", record_id, {"changes": changes, "reason": "Đọc bằng AI (hồ sơ nháp)"})
         image_saved = False
-        image_ref = payload.get("image") or {}
-        if image_ref.get("source_id"):
-            blob = self._session_image(payload.get("session_id"), image_ref["source_id"])
-            if blob:
-                path = self.staged_image_path(record_id, create=True)
-                path.write_bytes(_webp_800(blob))
-                image_saved = True
+        if staged_image:
+            path = self.staged_image_path(record_id, create=True)
+            path.write_bytes(staged_image)
+            image_saved = True
+            workspace._touch("profiles", "products", "dashboard")
         return {"ok": True, "id": record_id, "status": "draft", "approved_for_live": False,
                 "image_saved": image_saved, "suggestions": self.suggest_skus(record_id)}
 
     def _session_image(self, session_id, source_id):
         with self._lock:
             session = self._sessions.get(str(session_id or ""))
-            return session["images"].get(str(source_id)) if session else None
+            if not session or self._clock() - session["at"] > SESSION_TTL:
+                return None
+            return session["images"].get(str(source_id))
 
     # -- ảnh nháp
     def _image_dir(self):

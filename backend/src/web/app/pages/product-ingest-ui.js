@@ -3,6 +3,7 @@ import {request, friendlyError} from '../core/api.js';
 import {btn, chip, field, input, select, textarea, notice} from '../ui/kit.js';
 import {toast, openDrawer} from '../ui/overlays.js';
 import * as pm from './product-ingest-model.js';
+import {CUSTOM_MODEL, geminiModelOptions} from './gemini-models.js';
 
 const MAX_IMAGES = 8;
 const MAX_FILES = 5;
@@ -26,7 +27,9 @@ function startElapsed(button, label) {
 function crawlNotice(crawl) {
   if (!crawl || !crawl.enabled) return null;
   const failed = crawl.failed ? `, ${crawl.failed} trang lỗi được bỏ qua` : '';
-  return notice('info', 'Đã quét website', `Tìm thấy ${crawl.found || 0} liên kết sản phẩm, đọc được ${crawl.read || 0} trang${failed}.`);
+  return notice(crawl.limited ? 'warn' : 'info', 'Đã quét website',
+    `Tìm thấy ${crawl.found || 0} liên kết, đọc được ${crawl.read || 0} trang, ${crawl.products || 0} trang chi tiết, ${crawl.images || 0} ảnh${failed}.` +
+    (crawl.limited ? ' Đã chạm giới hạn quét; danh sách có thể chưa đủ.' : ''));
 }
 
 /** Tải tệp thô lên máy chủ (không base64: danh mục PDF có thể nặng hàng chục MB). */
@@ -44,10 +47,15 @@ export function openProductIngest(ctx, {onDone} = {}) {
   let status = {};
   let provider = 'gemini';
   let providerTouched = false;
+  let geminiModels = [], readModel = '__settings__';
   let refreshInputs = () => {};
   request('/api/ingest/status').then(s => {
     status = s;
     if (!providerTouched) provider = pm.defaultProvider(s);
+    refreshInputs();
+  }).catch(() => {});
+  request('/api/settings/gemini-models').then(out => {
+    geminiModels = out.models || [];
     refreshInputs();
   }).catch(() => {});
 
@@ -58,15 +66,19 @@ export function openProductIngest(ctx, {onDone} = {}) {
     const url = input({placeholder: 'https://… (trang giới thiệu sản phẩm)'});
     const crawlBox = h('input', {type: 'checkbox', checked: true, 'aria-label': 'Quét thêm các trang sản phẩm cùng website'});
     const crawlRow = h('label', {class: 'row fs-sm', hidden: true}, crawlBox,
-      'Quét thêm các trang sản phẩm cùng website (tối đa 20 trang)');
+      'Quét danh mục, các trang tiếp theo và trang chi tiết (tối đa 60 sản phẩm / 100 trang)');
     url.addEventListener('input', () => {
-      crawlBox.checked = pm.isRootUrl(url.value);                  // trang chủ: mặc định bật; trang con: tắt
+      crawlBox.checked = pm.isRootUrl(url.value) || pm.isCatalogUrl(url.value);
       crawlRow.hidden = !url.value.trim();
     });
     const text = textarea({rows: 5, placeholder: 'Hoặc dán chữ: thành phần, công dụng, cách dùng…'});
     const fileList = h('div', {class: 'col', style: {gap: '4px'}});
     const warn = h('div');
     const providerSelect = select(pm.PROVIDER_OPTIONS, provider, {'aria-label': 'AI đọc tài liệu'});
+    const readModelSelect = select([], readModel, {'aria-label': 'Model Gemini cho lần đọc này'});
+    const readModelField = field('Model Gemini cho lần đọc này', readModelSelect,
+      {hint: 'Có thể chọn một phiên bản cũ hơn để thử khi quá tải. Lựa chọn này chỉ áp dụng cho lần đọc này.'});
+    readModelSelect.addEventListener('change', () => { readModel = readModelSelect.value; });
     const imgButton = btn('Tải ảnh nhãn (mặt trước, mặt sau…)', {icon: 'image', onClick: () => imgInput.click()});
     const providerHint = h('div', {class: 'field-hint'});
     const providerField = field('AI đọc tài liệu', providerSelect);
@@ -84,19 +96,27 @@ export function openProductIngest(ctx, {onDone} = {}) {
       imgButton.disabled = !pm.imagesAllowed(provider);
       imgButton.title = imgButton.disabled ? 'DeepSeek chỉ đọc chữ — chọn Gemini để đọc ảnh nhãn' : '';
     };
-    refreshInputs = () => { providerSelect.value = provider; renderFiles(); };
-    providerSelect.addEventListener('change', () => { provider = providerSelect.value; providerTouched = true; renderFiles(); });
+    refreshInputs = () => {
+      providerSelect.value = provider;
+      readModelField.hidden = provider !== 'gemini';
+      const choices = [['__settings__', `Theo Cài đặt${status.gemini_model ? ': ' + status.gemini_model : ''}`],
+        ...geminiModelOptions(geminiModels, readModel === '__settings__' ? '' : readModel).filter(([v]) => v !== CUSTOM_MODEL)];
+      clear(readModelSelect, choices.map(([value, label]) => h('option', {value, selected: value === readModel}, label)));
+      renderFiles();
+    };
+    providerSelect.addEventListener('change', () => { provider = providerSelect.value; providerTouched = true; refreshInputs(); });
     docInput.addEventListener('change', () => { for (const f of docInput.files) if (files.length < MAX_FILES) files.push(f); docInput.value = ''; renderFiles(); });
     imgInput.addEventListener('change', () => { for (const f of imgInput.files) if (images.length < MAX_IMAGES) images.push(f); imgInput.value = ''; renderFiles(); });
     clear(body,
       providerField,
+      readModelField,
       h('div', {class: 'row wrap'}, btn('Tải tài liệu (PDF, Word, TXT, HTML)…', {icon: 'fileText', onClick: () => docInput.click()}),
         imgButton, docInput, imgInput),
-      fileList, field('Địa chỉ web của sản phẩm', url, {hint: 'Chỉ nhận http/https. Ảnh đại diện (og:image) của trang được giữ làm ảnh sản phẩm ứng viên.'}),
+      fileList, field('Địa chỉ web của sản phẩm', url, {hint: 'Chỉ nhận http/https. Ảnh được lấy từ trang chi tiết và gắn riêng cho từng sản phẩm để bạn kiểm tra.'}),
       crawlRow,
       field('Chữ dán', text), warn,
       notice('info', 'Một sản phẩm hoặc cả danh mục', 'Tài liệu có nhiều sản phẩm (danh mục, bảng giá…): AI liệt kê từng sản phẩm để bạn chọn cái nào tạo hồ sơ nháp. Giá và khuyến mãi không bao giờ được đọc: chúng lấy từ giỏ hàng.'));
-    renderFiles();
+    refreshInputs();
     clear(foot, h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}),
       btn('AI đọc ngay', {kind: 'primary', icon: 'sparkles', onClick: async e => {
         const button = e.currentTarget;
@@ -110,6 +130,7 @@ export function openProductIngest(ctx, {onDone} = {}) {
             images: await Promise.all(images.map(uploadFile)),
             url: url.value.trim(), text: text.value.trim(), provider,
             crawl: !!url.value.trim() && crawlBox.checked,
+            ...(provider === 'gemini' && readModel !== '__settings__' ? {gemini_model: readModel} : {}),
           };
           // Tiến trình: một yêu cầu duy nhất, nên nhãn nút đổi theo giai đoạn đang chạy.
           const label = payload.crawl
@@ -128,7 +149,6 @@ export function openProductIngest(ctx, {onDone} = {}) {
     const entries = pm.buildProductsModels(result);
     const multi = entries.length > 1;
     let active = entries[0];
-    let imageId = multi ? '' : pm.defaultImageSource(active.model);
     const counter = h('span', {class: 'fs-sm'});
     const formHost = h('div', {});
     const listHost = h('div', {class: 'col', style: {gap: '2px', maxHeight: '260px', overflowY: 'auto'}});
@@ -163,20 +183,22 @@ export function openProductIngest(ctx, {onDone} = {}) {
         return holder;
       }));
       updateCounter();
-      const thumbs = !multi && model.images.length ? h('div', {class: 'col gap-3'}, h('div', {class: 'section-title'}, 'Ảnh sản phẩm (chọn một)'),
+      const thumbs = model.images.length ? h('div', {class: 'col gap-3'}, h('div', {class: 'section-title'}, 'Ảnh sản phẩm (chọn một)'),
         h('div', {class: 'row wrap'}, model.images.map(s => {
-          const radio = h('input', {type: 'radio', name: 'ingest-img', checked: s.id === imageId, 'aria-label': 'Chọn ' + s.label, onChange: () => { imageId = s.id; }});
+          const radio = h('input', {type: 'radio', name: 'ingest-img', checked: s.id === active.imageSourceId, 'aria-label': 'Chọn ' + s.label, onChange: () => { active.imageSourceId = s.id; }});
           return h('label', {style: {display: 'grid', gap: '4px', justifyItems: 'center', cursor: 'pointer'}},
             h('img', {src: s.thumb, alt: s.label, style: {width: '110px', height: '110px', objectFit: 'contain', background: '#fff', border: '1px solid var(--border)', borderRadius: '10px'}}), radio,
             h('span', {class: 'fs-xs muted'}, s.kind === 'og_image' ? 'Từ trang web' : s.label.slice(0, 18)));
-        })), h('label', {class: 'row fs-sm'}, h('input', {type: 'radio', name: 'ingest-img', onChange: () => { imageId = ''; }}), 'Không dùng ảnh')) : null;
+        })), h('label', {class: 'row fs-sm'}, h('input', {type: 'radio', name: 'ingest-img', checked: !active.imageSourceId, onChange: () => { active.imageSourceId = ''; }}), 'Không dùng ảnh'))
+        : notice('info', 'Chưa lấy được ảnh', 'Trang nguồn chưa có ảnh sản phẩm đọc được. Bạn có thể tải ảnh nhãn ở bước đầu vào.');
       clear(formHost, thumbs, form);
     }
     const first = active.model;
     const setAll = value => { entries.forEach(e => { e.picked = value; }); renderList(); updateSave(); };
     clear(body,
       h('div', {class: 'row wrap'}, chip(first.providerNote || 'AI', 'info'), multi ? chip(`Tìm thấy ${entries.length} sản phẩm`, 'ok') : null, counter),
-      result.truncated ? notice('warn', 'Danh sách có thể chưa đủ', 'Tài liệu dài nên AI chỉ liệt kê được một phần. Lưu các sản phẩm này rồi đọc lại phần còn lại.') : null,
+      result.truncated ? notice('warn', 'Danh sách có thể chưa đủ', 'Một phần nguồn chưa được đọc hết hoặc đã chạm giới hạn. Kiểm tra số trang đã đọc; bạn có thể lưu các sản phẩm này rồi đọc phần còn lại.') : null,
+      result.extraction_warning ? notice('warn', 'AI chưa đọc xong toàn bộ', result.extraction_warning + ` Còn ${result.batches_remaining || 0} nhóm chưa đọc xong.`) : null,
       notice('warn', 'Đây mới là bản NHÁP', 'Ô viền cam là chỗ AI không chắc hoặc không đọc được — hãy đối chiếu với nhãn thật. Chỉ chép đúng liều lượng trên nhãn.'),
       entries.some(e => e.model.filteredPrice) ? notice('info', 'Đã bỏ các câu có giá/khuyến mãi', 'Giá và khuyến mãi không đi vào hồ sơ.') : null,
       crawlNotice(result.crawl),
@@ -194,7 +216,7 @@ export function openProductIngest(ctx, {onDone} = {}) {
       const outs = [], failed = [];
       for (const entry of chosen) {
         try {
-          const out = await request('/api/ingest/draft', {method: 'POST', body: pm.draftBody(entry.model, {imageSourceId: multi ? '' : imageId, sourceUrl})});
+          const out = await request('/api/ingest/draft', {method: 'POST', body: pm.draftBody(entry.model, {imageSourceId: entry.imageSourceId, sourceUrl})});
           outs.push({...out, name: pm.productName(entry)});
         } catch (err) { failed.push({name: pm.productName(entry), err}); }
       }

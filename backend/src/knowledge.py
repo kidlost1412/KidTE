@@ -297,7 +297,9 @@ class KnowledgeBase:
     def mappable_records(self):
         """Hồ sơ có mã bền; không cho UI gán SKU mới vào dữ liệu lịch sử."""
         return [record for record in self.all_records()
-                if not clean(record.get("san_pham_id"), 80).startswith("LEGACY-")]
+                if not clean(record.get("san_pham_id"), 80).startswith("LEGACY-")
+                and (record.get("reference_only") is not True
+                     or record.get("approved_for_live") is True)]
 
     def mapping_assignments(self):
         """Trả shop_product_id -> product code từ đúng lớp dữ liệu đang dùng."""

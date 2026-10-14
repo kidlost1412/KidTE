@@ -124,6 +124,8 @@ class GeminiProvider:
         self._clock = clock
         self._sleep = sleep
         self._candidates = []            # chuỗi model tự dò, đã xếp thứ tự thử
+        self._model_options = []
+        self._model_list_error = ""
         self._detected_at = 0.0
         self._failed_at = 0.0
         self._skipped = {}               # model -> thời điểm được thử lại (sau 404 / 503)
@@ -138,6 +140,12 @@ class GeminiProvider:
         names = [self.explicit_model] if self.explicit_model else []
         if loaded:
             for name in self._candidates or GEMINI_DEFAULT_CHAIN:
+                chosen = _VERSION.search(self.explicit_model)
+                version = _VERSION.search(name)
+                # A fixed older Flash must not silently fall back to a newer model/alias.
+                if chosen and (not version or tuple(map(int, version.group(1).split("."))) >
+                               tuple(map(int, chosen.group(1).split(".")))):
+                    continue
                 if name not in names:
                     names.append(name)
         return names
@@ -163,10 +171,22 @@ class GeminiProvider:
             new_key = str(api_key).strip()
             if new_key != self.api_key:
                 self._candidates, self._detected_at, self._failed_at = [], 0.0, 0.0
+                self._model_options, self._model_list_error = [], ""
                 self._skipped = {}
             self.api_key = new_key
         if model is not None:
             self.explicit_model = str(model).strip()
+            self._skipped.pop(self.explicit_model, None)
+
+    def available_models(self, force=False):
+        """Public model metadata only; listing does not call generateContent."""
+        if self.configured:
+            self._refresh(force=force)
+        return {"ok": True, "models": list(self._model_options),
+                "selected_model": self.explicit_model, "effective_model": self.model,
+                "model_source": self.model_source,
+                "error": self._model_list_error if self.configured else "Lưu khóa Gemini để tải danh sách model.",
+                "stale": bool(self._failed_at and self._model_options)}
 
     def detect_model(self, force=False):
         """Dò danh sách model (GET /v1beta/models). Không bao giờ ném lỗi; trả model đầu tiên sẽ thử.
@@ -198,11 +218,22 @@ class GeminiProvider:
                 if not token:
                     break
             chain = auto_chain(models)
+            ordered, alias_listed = _flash_order(models)
+            names = ([GEMINI_FLASH_ALIAS] if alias_listed else []) + ordered
+            by_name = {str(m.get("name") or "").split("/")[-1]: m for m in models}
+            options = [{"id": name, "label": str(by_name[name].get("displayName") or name)} for name in names]
+        except urllib.error.HTTPError as exc:
+            self._model_list_error = str(self._http_error(exc))
+            chain = []
         except Exception:
+            self._model_list_error = "Không tải được danh sách model từ Google. Kiểm tra mạng rồi bấm tải lại."
             chain = []
         if chain:
             self._candidates, self._detected_at, self._failed_at = chain, now, 0.0
+            self._model_options, self._model_list_error = options, ""
             return True
+        if not self._model_list_error:
+            self._model_list_error = "Google chưa trả về model Flash dùng được cho khóa này. Thử tải lại danh sách."
         self._failed_at = now
         return False
 

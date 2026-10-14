@@ -37,7 +37,7 @@ let browser;
     window.chrome = {
       storage: {
         local: {
-          get() { return Promise.resolve(window.__store || {}); },
+          get(keys, callback) { const value = window.__store || {}; if (callback) callback(value); return Promise.resolve(value); },
           async set(value) { Object.assign(window.__store ||= {}, value); }
         },
         onChanged: { addListener(listener) { listeners.push(listener); } }
@@ -132,6 +132,35 @@ let browser;
   await page.locator('#qa-live-widget #expand').click();
   assert.equal(await page.locator('#qa-live-widget #expand').getAttribute('aria-expanded'),'true');
   await screenshot({path:path.join(__dirname,'../backend/runtime/ui-proof/shopee-widget.png')});
+  for (const platform of ['shopee', 'tiktok']) {
+    const id = 'qa-movable-' + platform;
+    await page.evaluate(({platform,id}) => KidTELiveWidget.create(platform,id),{platform,id});
+    const box = page.locator('#' + id + ' #box');
+    const bar = page.locator('#' + id + ' #bar');
+    const original = await box.boundingBox(), handle = await bar.boundingBox();
+    await page.mouse.move(handle.x + 22, handle.y + 18);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + 100, handle.y - 100, {steps: 5});
+    await page.mouse.up();
+    const moved = await box.boundingBox();
+    assert.ok(moved.x !== original.x || moved.y !== original.y);
+    assert.ok(moved.x >= 0 && moved.y >= 0 && moved.x + moved.width <= 440);
+    await page.locator('#' + id + ' #minimize').click();
+    assert.equal(await box.evaluate(el=>el.classList.contains('compact')),true);
+    assert.equal(await page.locator('#' + id + ' #product').isVisible(),false);
+    await page.locator('#' + id + ' #hide').click();
+    assert.equal(await box.isVisible(),false);
+    await page.evaluate(({platform,id})=>{
+      document.getElementById(id).remove();
+      KidTELiveWidget.create(platform,id);
+    },{platform,id});
+    assert.equal(await box.isVisible(),false);
+    await page.locator('#' + id + ' #restore').click();
+    assert.equal(await box.isVisible(),true);
+    assert.equal(await box.evaluate(el=>el.classList.contains('compact')),true);
+    await page.evaluate(id=>document.getElementById(id).remove(),id);
+  }
+
   await browser.close();
   browser = null;
   console.log("LIVE_RE_POPUP_TEST_OK");

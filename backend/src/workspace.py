@@ -673,6 +673,9 @@ class WorkspaceStore:
             item["title"] = str(item.get("ten_san_pham") or item["id"])
             item["mapped_skus"] = counts.get(item["id"], 0)
             item["revision"] = _json_hash(item)
+            # Display-only URL must not change the profile's editable revision.
+            image_url = getattr(self.engine, "_profile_image_url", None)
+            item["image_url"] = image_url(record) if callable(image_url) else ""
             rows.append(item)
         return rows
 
@@ -2091,6 +2094,35 @@ class WorkspaceStore:
         self.engine.knowledge.reload()
         self._touch("profiles", "products", "dashboard")
         return {"ok": True, "id": record_id, "product_id": product_id}
+
+    @_serialized_write
+    def create_composed_profile(self, fields, product_id, components, is_combo):
+        """Create a complete composition draft atomically; approval/linking remains explicit."""
+        allowed = {k: v for k, v in fields.items() if k in self.PROFILE_FIELDS and k not in {"gia_goc_duyet", "live_promotion"}}
+        name = _safe_text(allowed.get("ten_san_pham"), 300)
+        if len(name) < 2:
+            raise ValueError("profile_name_required")
+        if not components:
+            raise ValueError("Cần chọn ít nhất một hồ sơ sản phẩm lẻ.")
+        raw = self._read_overrides()
+        before = copy.deepcopy(raw)
+        record_id = "LOCAL-" + uuid.uuid4().hex[:10].upper()
+        raw["overrides"][record_id] = {**allowed, "ten_san_pham": name, "created_local": True,
+            "approved_for_live": False, "draft_for_product_id": product_id, "is_combo": bool(is_combo),
+            "combo_components": components, "source_kind": "ai-composition-draft",
+            "updated_at": _now(), "updated_by": "local_operator"}
+        if not is_combo and len(components) == 1:
+            raw["overrides"][record_id].update({"formula_source_id": components[0]["profile_id"],
+                "combo_components": [], "source_kind": "ai-variant-draft"})
+        raw.update({"schema_version": 1, "updated_at": _now()})
+        _atomic_json(self.override_path, raw)
+        try:
+            self.engine.knowledge.reload()
+        except Exception:
+            _atomic_json(self.override_path, before)
+            raise
+        self._touch("profiles", "products", "dashboard")
+        return {"ok": True, "id": record_id, "status": "draft", "approved_for_live": False}
 
     BULK_DRAFT_MAX = 200
 

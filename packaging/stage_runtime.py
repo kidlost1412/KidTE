@@ -83,7 +83,7 @@ def copy_file(source: Path, target: Path):
 RUNTIME_VERSION = "1.0.0"
 # Version of the ``extensions`` package; bump it whenever extension/ or extension-shopee/ change
 # (build_catalog.py refuses a re-published package with unchanged files).
-EXTENSIONS_VERSION = "1.0.0"
+EXTENSIONS_VERSION = "1.0.1"
 
 
 def runtime_version():
@@ -137,6 +137,8 @@ def copy_tree(source: Path, target: Path):
         raise FileNotFoundError(source)
     for path in sorted(source.rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
+            if path.name.startswith(("test-", "test_")) and path.suffix in {".cjs", ".mjs", ".py"}:
+                continue
             copy_file(path, target / path.relative_to(source))
 
 
@@ -145,6 +147,9 @@ def copy_app_code(destination: Path):
     source = PROJECT / "backend" / "src"
     for path in sorted(source.glob("*.py")):
         copy_file(path, destination / "backend" / "src" / path.name)
+    license_path = source / "product_html_parser.LICENSE.txt"
+    if license_path.is_file():
+        copy_file(license_path, destination / "backend" / "src" / license_path.name)
     copy_tree(source / "web", destination / "backend" / "src" / "web")
     copy_tree(PROJECT / "backend" / "prompts", destination / "backend" / "prompts")
 

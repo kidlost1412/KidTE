@@ -38,6 +38,19 @@ export function isRootUrl(value) {
   }
 }
 
+/** Catalog URLs default to following pagination as well. */
+export function isCatalogUrl(value) {
+  try {
+    const u = new URL(String(value || '').trim());
+    const path = decodeURIComponent(u.pathname).toLowerCase().replace(/^\/+|\/+$/g, '');
+    return ['http:', 'https:'].includes(u.protocol) && (
+      /(^|\/)(danh-muc|product-category|category|collections)(\/|$)/.test(path) ||
+      /^(san-pham|products?|shop)(\/page\/\d+)?$/.test(path) || /\/page\/\d+$/.test(path));
+  } catch (err) {
+    return false;
+  }
+}
+
 export function pairsToLines(pairs) {
   return Object.entries(pairs || {}).map(([name, amount]) => (amount ? `${name}: ${amount}` : name)).join('\n');
 }
@@ -87,7 +100,10 @@ export function buildReviewModel(result) {
   const sources = r.sources || [];
   return {
     rows, sources,
-    images: sources.filter(s => s.thumb),
+    images: sources.filter(s => s.thumb && (!Array.isArray(r.image_source_ids) || r.image_source_ids.includes(s.id))),
+    sourceUrl: r.source_url || '',
+    preferredImageId: r.default_image_source_id || '',
+    multi: !!r.multi,
     provider: r.provider || '', providerNote: providerNoteOf(r),
     filteredPrice: !!r.filtered_price,
     sessionId: r.session_id || '',
@@ -124,6 +140,7 @@ export function fieldsPayload(model) {
 }
 
 export function draftBody(model, {imageSourceId = '', sourceUrl = ''} = {}) {
+  sourceUrl = model.sourceUrl || sourceUrl;
   return {
     fields: fieldsPayload(model), session_id: model.sessionId,
     ...(imageSourceId ? {image: {source_id: imageSourceId}} : {}),
@@ -134,6 +151,8 @@ export function draftBody(model, {imageSourceId = '', sourceUrl = ''} = {}) {
 /** Ảnh mặc định: ảnh tải lên đầu tiên, nếu không có thì ảnh og:image. */
 export function defaultImageSource(model) {
   const imgs = model.images || [];
+  if (model.preferredImageId && imgs.some(s => s.id === model.preferredImageId)) return model.preferredImageId;
+  if (model.multi) return '';
   return (imgs.find(s => s.kind === 'image') || imgs[0] || {}).id || '';
 }
 
@@ -158,12 +177,17 @@ export function needsGeminiWarning(hasImages, status) {
 export function buildProductsModels(result) {
   const r = result || {};
   const list = Array.isArray(r.products) && r.products.length ? r.products : [r];
-  return list.map((product, index) => ({
-    index,
-    model: buildReviewModel({...product, provider: r.provider, session_id: r.session_id, sources: r.sources,
-      filtered_price: product.filtered_price || (list.length === 1 && r.filtered_price)}),
-    picked: true,
-  }));
+  return list.map((product, index) => {
+    const model = buildReviewModel({...product, provider: r.provider, model: r.model,
+      session_id: r.session_id, sources: r.sources, multi: list.length > 1,
+      filtered_price: product.filtered_price || (list.length === 1 && r.filtered_price)});
+    return {
+      index,
+      model,
+      imageSourceId: defaultImageSource(model),
+      picked: true,
+    };
+  });
 }
 
 export function productName(entry) {

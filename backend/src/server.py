@@ -30,6 +30,8 @@ from captcha_bridge import CaptchaBridge
 from documents import DocumentLibrary
 from ai_providers import DeepSeekTextProvider, GeminiProvider
 from product_ingest import ProductIngest
+from combo_profiles import ComboProfiles
+from product_defaults import DefaultProfiles
 from customer_memory import CustomerMemory
 from delivery_store import DeliveryStore, echo_matches, utf16_length
 from privacy import PrivacyService
@@ -299,6 +301,19 @@ def _is_room_host(live_context, user_id, sec_uid, unique_id):
 
 
 class LiveCatalogStore:
+    @property
+    def snapshot(self):
+        raw = dict(getattr(self, "_snapshot", {}) or {})
+        products = product_blocklist.filter_products(raw.get("products") or [])
+        raw.update({"products": products, "product_count": len(products)})
+        if raw.get("pin_id") and not any(str(p.get("product_id")) == str(raw["pin_id"]) for p in products):
+            raw["pin_id"] = ""
+        return raw
+
+    @snapshot.setter
+    def snapshot(self, value):
+        self._snapshot = value
+
     def __init__(self):
         self._lock = threading.RLock()
         self.snapshot = {}
@@ -315,7 +330,9 @@ class LiveCatalogStore:
         """
         snapshot = snapshot if isinstance(snapshot, dict) else {}
         # Sản phẩm chủ shop loại khỏi AI: bỏ ngay từ cửa, mọi đường trả lời đều không thấy.
-        products = product_blocklist.filter_products(snapshot.get("products") or [])
+        # Retain raw listing metadata so local removal can be undone after a sync.
+        # Every reader receives the filtered snapshot property above.
+        products = snapshot.get("products") or []
         incoming_room = clean(snapshot.get("room_id"), 160)
         if not products:
             with self._lock:
@@ -342,13 +359,13 @@ class LiveCatalogStore:
         with self._lock:
             # Chỉ chạm đĩa khi nội dung thật sự đổi: trước đây mỗi bình luận
             # ghi lại ~22KB, cộng 125KB raw mỗi lần extension thử cài lại.
-            changed = self._fingerprint(compact) != self._fingerprint(self.snapshot)
+            changed = self._fingerprint(compact) != self._fingerprint(self._snapshot)
             self.snapshot = compact
             if changed:
                 atomic_json(LIVE_CATALOG_PATH, compact)
             if raw["raw_api_data"]:
                 atomic_json(LIVE_RAW_CATALOG_PATH, raw)
-        return compact
+        return self.snapshot
 
     @staticmethod
     def _fingerprint(snapshot):
@@ -516,6 +533,8 @@ class ReplyEngine:
         # Thêm sản phẩm bằng AI: Gemini đọc ảnh/PDF, DeepSeek đọc chữ.
         self.gemini = GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL)
         self.ingest = ProductIngest(self, self.gemini, DeepSeekTextProvider(lambda: self.responder))
+        self.combo_profiles = ComboProfiles(self, self.ingest)
+        self.product_defaults = DefaultProfiles(self, self.ingest)
         cache_root = Path(workspace_root) / "data" / "cache"
         self.video_assets = VideoAssetManager(cache_root)
         self.product_images = ProductImageCache(cache_root)
@@ -1337,6 +1356,23 @@ class ReplyEngine:
                 "knowledge_seed": self.knowledge_seed_status(),
                 "version": _app_version(), "data_root": str(ROOT)}
 
+    def remove_listing(self, payload, restore=False):
+        pid = clean(payload.get("product_id"), 160)
+        product = next((p for p in self.catalog.snapshot.get("products", []) if str(p.get("product_id")) == pid), None)
+        if restore:
+            product = product_blocklist.removed_products().get(pid)
+        if not product:
+            raise ValueError("Không tìm thấy sản phẩm này trong danh sách.")
+        product_blocklist.set_removed(product, not restore)
+        self.workspace._touch("profiles", "products", "dashboard")
+        return {"ok": True, "product_id": pid, "restored": restore}
+
+    def gemini_models(self, payload=None):
+        payload = payload or {}
+        typed = str(payload.get("api_key") or "").strip()
+        provider = GeminiProvider(typed, self.gemini.explicit_model) if typed else self.gemini
+        return provider.available_models(force=bool(payload.get("refresh")))
+
     def save_settings(self, payload):
         model = clean(payload.get("model"), 120)
         api_key = str(payload.get("api_key") or "").strip()
@@ -1516,12 +1552,13 @@ class ReplyEngine:
                     "error": str(exc)}
 
     def ensure_seed_knowledge(self):
-        """Máy trắng (chưa có shared/product_knowledge.json): cài gói chính thức đi kèm.
+        """Máy mới chọn bộ mặc định hoặc tự thêm; không tự nạp dữ liệu trước lựa chọn.
 
-        Không ghi đè tệp đã có, không chạy giữa phiên LIVE. Gói đi kèm mới hơn
-        gói đang cài chỉ hiện thông báo ở Cài đặt, không tự áp dụng.
+        Máy đã có catalog giữ nguyên. Việc nạp bộ hồ sơ do DefaultProfiles xử lý.
         """
         import knowledge_package as goi_kt
+        if not APPROVED_CATALOG_PATH.exists():
+            return {"ok": True, "status": "choice_required"}
         result = goi_kt.seed_first_run(KNOWLEDGE_SEED_PATH, APPROVED_CATALOG_PATH,
                                        live_running=self._is_live_running())
         if result.get("status") == "applied":
@@ -2100,7 +2137,14 @@ class ReplyEngine:
     def _profile_image_url(self, record):
         """URL ảnh hồ sơ qua cache máy; không trỏ thẳng ra web (chỉ khi đã có ảnh cache)."""
         pid = clean(record.get("san_pham_id"), 80)
-        if not pid or not str(record.get("featured_image_url") or "").startswith(("http://", "https://")):
+        if not pid:
+            return ""
+        try:
+            local = self.ingest.staged_image_path(pid)
+            return f"/api/profile/thumb/{pid}?v={local.stat().st_mtime_ns}"
+        except (ValueError, OSError):
+            pass
+        if not str(record.get("featured_image_url") or "").startswith(("http://", "https://")):
             return ""
         key = self._profile_image_key(pid)
         version = self.product_images.version(key)
@@ -2130,6 +2174,12 @@ class ReplyEngine:
         profile_id = clean(profile_id, 80)
         record = next((r for r in self.knowledge.all_records()
                        if clean(r.get("san_pham_id"), 80) == profile_id), None)
+        if not record:
+            raise ValueError("profile_image_not_found")
+        try:
+            return self.ingest.staged_image_path(profile_id)
+        except ValueError:
+            pass
         url = str((record or {}).get("featured_image_url") or "")
         if not url.startswith(("http://", "https://")):
             raise ValueError("profile_image_not_found")
@@ -4370,6 +4420,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(403, {"ok": False, "error": "local_only"})
                 return
             self.send_json(200, self.engine.support_report_preview())
+        elif route == "/api/settings/gemini-models":
+            if not self.local_tool_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
+            self.send_json(200, self.engine.gemini_models())
         elif self.path == "/api/settings":
             if not self.local_tool_request():
                 self.send_json(403, {"ok": False, "error": "local_only"})
@@ -4393,6 +4448,10 @@ class Handler(BaseHTTPRequestHandler):
                 tail = [unquote(p) for p in route[len("/api/ingest/"):].split("/") if p]
                 if tail == ["status"]:
                     self.send_json(200, {"ok": True, **self.engine.ingest.status()})
+                elif tail == ["defaults-status"]:
+                    self.send_json(200, self.engine.product_defaults.status())
+                elif tail == ["removed-products"]:
+                    self.send_json(200, {"ok": True, "products": list(product_blocklist.removed_products().values())})
                 elif len(tail) == 2 and tail[0] == "suggest":
                     self.send_json(200, {"ok": True, "suggestions": self.engine.ingest.suggest_skus(tail[1])})
                 elif len(tail) == 2 and tail[0] == "image":
@@ -4532,7 +4591,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if size <= 0 or size > 200_000:
-                raise ValueError("invalid_body_size")
+                self.reject(400, "invalid_body_size")
+                return
             payload = request_json_object(self.rfile.read(size))
             self.send_json(200, self.engine.sales_playbook_save(payload))
         except (ValueError, json.JSONDecodeError) as exc:
@@ -4719,7 +4779,10 @@ class Handler(BaseHTTPRequestHandler):
                 report_problem("api_error", f"POST {route}", exc)
                 self.send_json(500, {"ok": False, "error": "internal_error"})
             return
-        if route in ("/api/ingest/extract", "/api/ingest/draft", "/api/ingest/link"):
+        if route in ("/api/ingest/extract", "/api/ingest/draft", "/api/ingest/link",
+                     "/api/ingest/combo/propose", "/api/ingest/combo/propose-batch", "/api/ingest/combo/draft",
+                     "/api/ingest/product/remove", "/api/ingest/product/restore",
+                     "/api/ingest/defaults/save", "/api/ingest/defaults/choose"):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
@@ -4739,6 +4802,20 @@ class Handler(BaseHTTPRequestHandler):
                     result = {"ok": True, **ingest.extract(payload)}
                 elif route == "/api/ingest/draft":
                     result = ingest.create_draft(payload)
+                elif route == "/api/ingest/combo/propose":
+                    result = self.engine.combo_profiles.propose(payload)
+                elif route == "/api/ingest/combo/propose-batch":
+                    result = self.engine.combo_profiles.propose_batch(payload)
+                elif route == "/api/ingest/combo/draft":
+                    result = self.engine.combo_profiles.create_draft(payload)
+                elif route == "/api/ingest/defaults/save":
+                    result = self.engine.product_defaults.save(payload)
+                elif route == "/api/ingest/defaults/choose":
+                    result = self.engine.product_defaults.choose(payload)
+                elif route == "/api/ingest/product/remove":
+                    result = self.engine.remove_listing(payload)
+                elif route == "/api/ingest/product/restore":
+                    result = self.engine.remove_listing(payload, restore=True)
                 else:
                     result = ingest.link_draft(clean(payload.get("id"), 80), clean(payload.get("product_id"), 160),
                                                use_image=payload.get("use_image") is not False)
@@ -4827,7 +4904,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
-        elif route in ("/api/settings", "/api/settings/check-key"):
+        elif route in ("/api/settings", "/api/settings/check-key", "/api/settings/gemini-models"):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
@@ -4856,7 +4933,7 @@ class Handler(BaseHTTPRequestHandler):
                          "/api/audio/test", "/api/backup/restore", "/api/privacy/forget", "/api/privacy/purge-ack",
                          "/api/backup/v2", "/api/backup/v2/delete/preview", "/api/backup/v2/delete", "/api/backup/restore/reenable-ai", "/api/backup/indexeddb",
                          *local_video_routes} and not workspace_route and not trash_route and not video_draft_route and not dose_test_route and not duplicate_route and not conversation_example_route and not video_job_draft_route and not video_job_publish_route and not product_image_route:
-            if route not in ("/api/settings", "/api/settings/check-key"):
+            if route not in ("/api/settings", "/api/settings/check-key", "/api/settings/gemini-models"):
                 self.reject(404, "not_found")
                 return
         try:
@@ -5019,6 +5096,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.engine.save_settings(payload)
             elif route == "/api/settings/check-key":
                 result = self.engine.check_key(payload)
+            elif route == "/api/settings/gemini-models":
+                result = self.engine.gemini_models(payload)
             elif route == "/api/audio/test":
                 result = self.engine.test_audio_device(payload)
             elif route == "/api/extension/setup":

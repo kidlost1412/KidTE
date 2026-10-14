@@ -10,6 +10,9 @@ import * as mm from './mapping-model.js';
 import * as pd from './profile-delete-model.js';
 import * as pl from './product-list-model.js';
 import {openProductIngest} from './product-ingest-ui.js';
+import {profilePicker} from '../ui/profile-picker.js';
+import {openComboProfiles} from './combo-profile-ui.js';
+import {defaultProfilesPanel} from './product-defaults-ui.js';
 
 const TABS = [
   {id: 'products', label: 'Sản phẩm đang bán', icon: 'cart'},
@@ -272,12 +275,13 @@ function mountProfiles(ctx, host, d) {
   const bulkBar = h('span', {});
   const search = h('input', {class: 'input', type: 'search', placeholder: 'Tìm hồ sơ theo tên, công dụng, cây trồng…'});
   const list = h('div', {class: 'card'}, skeletonRows(6, 50));
+  const defaults = defaultProfilesPanel(ctx, {onDone: () => load()});
   clear(host, h('div', {class: 'toolbar'}, h('div', {class: 'search-input'}, icon('search'), search), h('span', {class: 'grow'}),
     h('span', {class: 'fs-xs muted'}, 'Sửa, tạo và xoá ở đây chỉ áp dụng trên máy này.'),
     bulkBar,
     btn('Hồ sơ đã xoá', {kind: 'ghost', icon: 'trash', onClick: () => openDeleted()}),
     btn('Thêm sản phẩm bằng AI', {icon: 'sparkles', onClick: () => openProductIngest(ctx, {onDone: id => { invalidateCatalog(); ctx.navigate('catalog', 'profiles', id); }})}),
-    btn('Tạo hồ sơ mới', {kind: 'primary', icon: 'plus', onClick: () => createProfile(ctx, null)})), list);
+    btn('Tạo hồ sơ mới', {kind: 'primary', icon: 'plus', onClick: () => createProfile(ctx, null)})), defaults, list);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
 
   function render() {
@@ -295,7 +299,7 @@ function mountProfiles(ctx, host, d) {
       items.map(p => h('div', {class: 'list-row'},
         h('input', {type: 'checkbox', 'aria-label': 'Chọn ' + p.title, checked: picked.has(p.id), onChange: e => { e.target.checked ? picked.add(p.id) : picked.delete(p.id); renderBulk(); render(); }}),
         h('button', {class: 'list-row prod-open', type: 'button', title: p.title, onClick: () => openProfile(p.id)},
-          rowThumb(p.featured_image_url ? profileThumbUrl(p.id) : '', 'fileText', 52),
+          rowThumb(p.image_url || (p.featured_image_url ? profileThumbUrl(p.id) : ''), 'fileText', 52),
           h('div', {class: 'grow', style: {minWidth: '0'}}, h('div', {class: 'title truncate'}, pl.shortProductName(p.title, 60)),
             h('div', {class: 'sub clamp-2'}, listOf(p.cong_dung).slice(0, 2).join(' · ') || p.mo_ta_ngan || '')),
           h('div', {class: 'col', style: {alignItems: 'flex-end', gap: '4px'}},
@@ -352,7 +356,7 @@ function mountProfiles(ctx, host, d) {
     const drawer = openDrawer({
       title: data.ten_san_pham || id, sub: `${id} · ${data.mapped_skus || 0} sản phẩm đang dùng hồ sơ này`, width: 720,
       body: h('div', {class: 'card-body col gap-4'},
-        data.featured_image_url ? h('img', {src: profileThumbUrl(id), alt: '', style: {maxHeight: '180px', objectFit: 'contain', background: '#fff', borderRadius: '12px', border: '1px solid var(--border)'}}) : null,
+        data.image_url || data.featured_image_url ? h('img', {src: data.image_url || profileThumbUrl(id), alt: '', style: {maxHeight: '180px', objectFit: 'contain', background: '#fff', borderRadius: '12px', border: '1px solid var(--border)'}}) : null,
         composition.length ? h('div', {class: 'col'}, h('div', {class: 'section-title'}, 'Thành phần đăng ký (chỉ đọc)'), h('ul', {class: 'list-lines'}, composition.map(line => h('li', {}, line)))) : null,
         h('section', {class: 'card flat'}, h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h3', {}, 'Thử AI tính liều'), h('div', {class: 'sub'}, 'Nhập dung tích bình để xem AI sẽ trả lời liều bao nhiêu theo nhãn.'))),
           h('div', {class: 'card-body col gap-3'}, h('div', {class: 'row'}, liters, h('span', {class: 'fs-sm'}, 'lít nước'), doseBtn), doseOut)),
@@ -425,6 +429,9 @@ function thumb(url, label, {fallbackIcon, dashed = false} = {}) {
 }
 
 function mountMapping(ctx, host, d) {
+  let profilePickers = [];
+  const disposePickers = () => { profilePickers.forEach(p => p.dispose()); profilePickers = []; };
+  d.add(disposePickers);
   let state = null, catalog = {}, error = null, query = '', filter = 'unmapped';
   let auto = new Map(), autoCounts = null, autoBusy = false;
   const pending = new Map(), skipped = new Set(), picked = new Set(), draftPicked = new Set();
@@ -452,7 +459,40 @@ function mountMapping(ctx, host, d) {
       autoCounts ? [chip(`Chắc chắn ${counts.chac_chan}`, 'ok'), chip(`Cần xem ${counts.can_xem}`, 'warn'), chip(`Không có ${counts.khong_co}`)] : null,
       h('span', {class: 'grow'}),
       sure.length ? btn(`Chấp nhận tất cả cặp chắc chắn (${sure.length})`, {kind: 'primary', icon: 'checkCircle', onClick: acceptAllSure}) : null,
-      picked.size ? btn(`Tạo hồ sơ nháp (${picked.size})`, {icon: 'plus', onClick: makeDrafts}) : null));
+      picked.size ? btn(`AI đề xuất hàng loạt (${picked.size})`, {kind: 'primary', icon: 'sparkles', onClick: () => {
+        const products = state.products.filter(p => picked.has(p.product_id)).map(p => ({...p, image_url: p.image_url || catalog[p.product_id]?.image_url || ''}));
+        if (products.length > 60) { toast('Chọn tối đa 60 sản phẩm mỗi đợt.', 'warn'); return; }
+        openComboProfiles(ctx, products, {onDone: () => { invalidateCatalog(); load(); }});
+      }}) : null,
+      picked.size ? btn(`Tạo hồ sơ nháp (${picked.size})`, {icon: 'plus', onClick: makeDrafts}) : null,
+      btn('Sản phẩm đã xóa', {kind: 'ghost', icon: 'trash', onClick: showRemoved})));
+  }
+
+  async function removeProduct(p) {
+    if (!await confirmDialog({title: 'Xóa sản phẩm khỏi KidTE?',
+      text: `${p.title}\nSản phẩm sẽ bị bỏ khỏi danh sách và AI, kể cả khi giỏ hàng đồng bộ lại. Hồ sơ vẫn được giữ; có thể khôi phục ở “Sản phẩm đã xóa”. Thao tác này không xóa trên sàn.`, confirm: 'Xóa khỏi KidTE'})) return;
+    try {
+      await request('/api/ingest/product/remove', {method: 'POST', body: {product_id: p.product_id}});
+      pending.delete(p.product_id); picked.delete(p.product_id); auto.delete(p.product_id);
+      autoCounts = null;
+      invalidateCatalog(); await load(); toast('Đã xóa khỏi danh sách KidTE. Có thể khôi phục.', 'ok');
+    } catch (e) { toast(friendlyError(e), 'danger'); }
+  }
+  async function showRemoved() {
+    const body = h('div', {class: 'card-body col gap-3'});
+    const drawer = openDrawer({title: 'Sản phẩm đã xóa khỏi KidTE', body, width: 650});
+    async function refresh() {
+      try {
+        const out = await request('/api/ingest/removed-products');
+        clear(body, out.products.length ? out.products.map(p => h('div', {class: 'row'}, h('span', {class: 'grow'}, p.title),
+          btn('Khôi phục', {size: 'sm', onClick: async () => {
+            try { await request('/api/ingest/product/restore', {method: 'POST', body: {product_id: p.product_id}});
+              invalidateCatalog(); await load(); await refresh(); toast('Đã bỏ trạng thái xóa. Sản phẩm xuất hiện nếu còn trong giỏ được đồng bộ.', 'ok');
+            } catch (e) { toast(friendlyError(e), 'danger'); }
+          }}))) : empty('Chưa xóa sản phẩm nào', '', {iconName: 'trash'}));
+      } catch (e) { clear(body, errorBox(friendlyError(e), refresh)); }
+    }
+    refresh(); return drawer;
   }
 
   function suggestionBlock(p) {
@@ -538,6 +578,7 @@ function mountMapping(ctx, host, d) {
   }
 
   function render() {
+    disposePickers();
     if (error) { clear(list, h('div', {class: 'card-body'}, errorBox(friendlyError(error), load))); return; }
     if (!state) return;
     clear(trashSlot, !(state.profiles || []).length ? noProfilesNotice() : null);
@@ -553,14 +594,17 @@ function mountMapping(ctx, host, d) {
     // Chọn tất cả chỉ áp cho sản phẩm CHƯA có hồ sơ đang hiện (để tạo hồ sơ nháp hàng loạt).
     const pickable = items.filter(p => !current(p)).map(p => p.product_id);
     clear(pickHead, pickable.length ? selectAllRow(pl.selectionState(pickable, picked), on => { pl.setAllVisible(picked, pickable, on); renderAutoBar(); render(); }) : null);
-    const options = [['', '— Chưa gắn hồ sơ —'], ...(state.profiles || []).filter(p => p.status !== 'draft' || p.approvable).slice().sort((a, b) => a.name.localeCompare(b.name, 'vi')).map(p => [p.id, p.name + (p.package ? ` (${p.package})` : '')])];
+    const options = (state.profiles || []).filter(p => p.status !== 'draft' || p.approvable).slice().sort((a, b) => a.name.localeCompare(b.name, 'vi'));
     clear(list, items.length ? h('div', {}, items.map(p => {
       const c = catalog[p.product_id] || p;
       const value = current(p);
-      const sel = h('select', {class: 'select', 'aria-label': 'Hồ sơ cho ' + c.name, onChange: e => { if (e.target.value === (p.profile_id || '')) pending.delete(p.product_id); else pending.set(p.product_id, e.target.value); render(); }},
-        options.map(([id, label]) => h('option', {value: id, selected: id === (value || '')}, label)));
+      const picker = profilePicker(options, value || '', {label: 'Hồ sơ cho ' + (c.name || p.title), onChange: id => {
+        if (id === (p.profile_id || '')) pending.delete(p.product_id); else pending.set(p.product_id, id); render();
+      }});
+      profilePickers.push(picker);
+      const sel = picker.node;
       const pick = !value ? h('input', {type: 'checkbox', 'aria-label': 'Chọn để tạo hồ sơ nháp: ' + (c.name || p.title), checked: picked.has(p.product_id), style: {marginRight: '4px'}, onChange: e => { e.target.checked ? picked.add(p.product_id) : picked.delete(p.product_id); renderAutoBar(); render(); }}) : null;
-      // Ảnh: listing bên trái, hồ sơ đang gắn (hoặc đang gợi ý, viền nét đứt) bên phải. Chỉ dùng ảnh đã cache máy.
+      // Listing stays at the left; profile images are shown inside the picker options.
       const shownProfile = value || (!value && auto.has(p.product_id) && !skipped.has(p.product_id) ? auto.get(p.product_id).profile_id : '');
       const thumbs = mm.rowThumbs({...p, image_url: p.image_url || c.image_url || '', name: c.name || p.title}, shownProfile, state.profiles);
       return h('div', {class: 'map-row thumbs' + (pending.has(p.product_id) ? ' changed' : ''), id: 'map-' + p.product_id},
@@ -570,8 +614,8 @@ function mountMapping(ctx, host, d) {
           value && sizeMismatch(p.title, profileName(value)) ? h('div', {class: 'fs-xs', style: {color: 'var(--danger-text)', marginTop: '4px', display: 'flex', gap: '5px', alignItems: 'center'}}, icon('alert', {size: 13}), `Listing ${sizeMismatch(p.title, profileName(value)).listing} ≠ hồ sơ ${sizeMismatch(p.title, profileName(value)).profile}`) : null,
           !value ? suggestionBlock(p) : null,
           !value && !auto.has(p.product_id) && (p.suggestions || []).length ? h('div', {class: 'sugg'}, h('span', {class: 'fs-xs muted'}, 'Gợi ý:'), p.suggestions.map(s => h('button', {type: 'button', title: s.reason, onClick: () => { pending.set(p.product_id, s.id); render(); }}, '+ ' + s.name))) : null),
-        thumb(thumbs.profile.url, thumbs.profile.label || 'Chưa có hồ sơ', {fallbackIcon: 'fileText', dashed: thumbs.profileSuggested}),
-        sel);
+        h('div', {class: 'map-actions col gap-3'}, sel,
+          h('div', {class: 'row wrap'}, btn('Xóa sản phẩm', {size: 'sm', kind: 'ghost', icon: 'trash', onClick: () => removeProduct(p)}))));
     })) : empty(filter === 'unmapped' ? 'Mọi sản phẩm đều đã có hồ sơ' : 'Không có sản phẩm phù hợp', '', {iconName: 'checkCircle'}));
     clear(bar, pending.size ? h('div', {class: 'sticky-bar'}, icon('info'), h('span', {class: 'grow'}, `${pending.size} thay đổi chưa lưu · ${mm.SAVE_NOTE}`),
       btn('Bỏ thay đổi', {kind: 'ghost', onClick: () => { pending.clear(); render(); }}),

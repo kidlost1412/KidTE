@@ -222,21 +222,21 @@ def test_find_links_same_site_product_paths_card_blocks_and_order():
     <div class="sp-item"><a href="/khac">   </a></div>
     """
     assert pi.find_product_links(page, "https://shop.example/") == [
-        "https://shop.example/san-pham/dam-ca.html",
         "https://www.shop.example/danh-muc/phan-bon",
+        "https://shop.example/san-pham/dam-ca.html",
         "https://shop.example/chi-tiet/kali-1kg",
     ]
 
 
-def test_find_links_limit_is_twenty():
+def test_find_links_keep_html_products_up_to_discovery_limit():
     page = "".join(f'<a href="/san-pham/p{i}.html">P{i}</a>' for i in range(30))
     links = pi.find_product_links(page, "https://shop.example/")
-    assert len(links) == pi.CRAWL_MAX_PAGES == 20 and links[0] == "https://shop.example/san-pham/p0.html"
+    assert len(links) == 30 and links[0] == "https://shop.example/san-pham/p0.html"
 
 
-def test_crawl_on_for_root_reads_at_most_twenty_pages():
+def test_crawl_on_for_root_obeys_the_new_page_bound():
     home = {"url": "https://shop.example/", "text": "Trang chủ có đủ chữ để đọc.", "og_image": None,
-            "links": [f"https://shop.example/san-pham/p{i}" for i in range(25)]}
+            "links": [f"https://shop.example/san-pham/p{i}" for i in range(pi.CRAWL_MAX_PAGES + 5)]}
     seen = []
 
     def crawl(link):
@@ -245,9 +245,9 @@ def test_crawl_on_for_root_reads_at_most_twenty_pages():
 
     stats = {}
     sources = pi.prepare_sources({"url": "https://shop.example/"}, fetch=lambda url: home, crawl_fetch=crawl, stats=stats)
-    assert len(seen) == 20
-    assert sum(1 for s in sources if s["kind"] == "url") == 21
-    assert stats == {"enabled": True, "found": 25, "read": 20, "failed": 0}
+    assert len(seen) == pi.CRAWL_MAX_PAGES
+    assert sum(1 for s in sources if s["kind"] == "url") == pi.CRAWL_MAX_PAGES + 1
+    assert stats == {"enabled": True, "found": pi.CRAWL_MAX_PAGES + 5, "read": pi.CRAWL_MAX_PAGES, "failed": 0, "products": 0, "images": 0, "limited": True}
 
 
 def test_crawl_off_for_deep_link_or_when_unchecked():
@@ -266,7 +266,8 @@ def test_crawl_off_for_deep_link_or_when_unchecked():
     assert stats["enabled"] is False and stats["read"] == 0
 
 
-def test_crawl_skips_failed_pages_and_caps_total_characters():
+def test_crawl_skips_failed_pages_and_caps_total_characters(monkeypatch):
+    monkeypatch.setattr(pi, "CRAWL_MAX_CHARS", 120_000)
     links = [f"https://shop.example/san-pham/p{i}" for i in range(6)]
     home = {"url": "https://shop.example/", "text": "chữ đủ dài để đọc", "og_image": None, "links": links}
     big = "a" * 50_000
@@ -315,6 +316,6 @@ def test_extract_with_crawl_reports_stats_and_sources():
     ingest = pi.ProductIngest(None, gem, None, fetch=lambda url: home,
                               crawl_fetch=lambda link: {"url": link, "text": "Đạm cá Amino 5L", "og_image": None})
     out = ingest.extract({"url": "https://shop.example/"})
-    assert out["crawl"] == {"enabled": True, "found": 2, "read": 2, "failed": 0}
+    assert out["crawl"] == {"enabled": True, "found": 2, "read": 2, "failed": 0, "products": 0, "images": 0, "limited": False, "batches": 1}
     assert [s["label"] for s in out["sources"]] == ["https://shop.example/", "https://shop.example/san-pham/a",
                                                     "https://shop.example/san-pham/b"]

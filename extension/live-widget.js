@@ -126,12 +126,77 @@
       #bar{padding:14px 16px;background:linear-gradient(135deg,var(--stage-start),var(--stage-end))}#head{display:flex;align-items:center;gap:7px}#head .wordmark{display:flex;align-items:baseline;gap:2px;line-height:1}#head .wordmark small{font-size:6px;font-weight:600}#head .wordmark b{font-size:24px;letter-spacing:-.04em;font-weight:750}#api{font-size:10px;color:var(--muted);margin-left:3px}#clock{margin-left:auto;font-size:17px;font-weight:650;font-variant-numeric:tabular-nums}#dot{width:6px;height:6px;border-radius:50%;background:#9aa6b6}#dot.running{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
       #product{font-size:13px;font-weight:600;margin:10px 0 6px;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}#vsync{font-size:11px;color:var(--muted)}#ai,#collect,#status{font-size:11px;overflow-wrap:anywhere;margin-top:7px}#status{color:var(--muted)}.bad{color:var(--danger-text)!important}.off{color:var(--muted)}.on{color:var(--brand-text)}
       #detail{display:none;padding:0 16px 14px}#detail.open{display:block}#footer{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--divider);padding:7px 12px;background:var(--surface-2)}button,a{transition:background 160ms ease,color 160ms ease,transform 120ms ease;font:600 11px "Segoe UI",sans-serif;color:var(--brand-text);border:0;background:none;text-decoration:none;padding:5px;cursor:pointer;border-radius:5px}button:hover,a:hover{background:var(--brand-soft)}button:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:2px}#detail.open{animation:reveal 160ms ease-out}@keyframes reveal{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
-      </style><div id="box"><div id="bar"><div id="head"><span id="dot"></span><strong class="wordmark" aria-label="Kid TE"><small>K</small><b>T</b><small>i</small><b>E</b><small>d</small></strong><span id="api">${platform === 'shopee' ? 'Shopee' : 'TikTok'} LIVE</span><span id="clock">—</span></div><div id="product">Chờ xác nhận sản phẩm</div><div id="vsync">Chờ nguồn phát</div></div><div id="detail"><div id="ai">AI · chờ cập nhật</div><div id="collect"></div><div id="status" role="status">Đang kết nối…</div></div><div id="footer"><button id="expand" aria-expanded="false" aria-controls="detail">Chi tiết phiên</button><a href="http://127.0.0.1:8793/#overview" target="_blank" rel="noopener">Mở Kid TE ↗</a></div></div>`;
+      #bar{cursor:move;touch-action:none;user-select:none}#controls{display:flex;justify-content:flex-end;gap:5px;padding:2px 8px;background:var(--surface-2)}#controls button{font-size:15px;min-width:28px}#box.compact{width:230px}#box.compact #product,#box.compact #vsync,#box.compact #detail,#box.compact #footer{display:none}#box.compact #bar{padding:8px 10px}#restore{position:fixed;left:16px;bottom:16px;z-index:2147483647;background:var(--surface);color:var(--text);border:1px solid var(--border);box-shadow:0 3px 12px #18253620;padding:7px 12px;font:600 12px "Segoe UI",sans-serif}#box[hidden],#restore[hidden]{display:none!important}
+      </style><button id="restore" hidden title="Mở lại bảng Kid TE">Kid TE · Mở bảng</button><div id="box"><div id="controls"><button id="minimize" aria-label="Thu nhỏ bảng" title="Thu nhỏ / mở rộng">−</button><button id="hide" aria-label="Đóng bảng" title="Đóng bảng">×</button></div><div id="bar"><div id="head"><span id="dot"></span><strong class="wordmark" aria-label="Kid TE"><small>K</small><b>T</b><small>i</small><b>E</b><small>d</small></strong><span id="api">${platform === 'shopee' ? 'Shopee' : 'TikTok'} LIVE</span><span id="clock">—</span></div><div id="product">Chờ xác nhận sản phẩm</div><div id="vsync">Chờ nguồn phát</div></div><div id="detail"><div id="ai">AI · chờ cập nhật</div><div id="collect"></div><div id="status" role="status">Đang kết nối…</div></div><div id="footer"><button id="expand" aria-expanded="false" aria-controls="detail">Chi tiết phiên</button><a href="http://127.0.0.1:8793/#overview" target="_blank" rel="noopener">Mở Kid TE ↗</a></div></div>`;
       root.querySelector('#expand').addEventListener('click', () => {
         const open = root.querySelector('#detail').classList.toggle('open');
         root.querySelector('#expand').setAttribute('aria-expanded', String(open));
+        position(); persist();
       });
+      const box = root.querySelector('#box'), restore = root.querySelector('#restore');
+      const key = 'kidte-widget-' + platform;
+      let state = {x: null, y: null, compact: false, closed: false}, touched = false, drag = null;
+      const persist = () => { try { chrome.storage.local.set({[key]: state}); } catch (_) {} };
+      function position() {
+        const target = state.closed ? restore : box;
+        if (Number.isFinite(state.x) && Number.isFinite(state.y)) {
+          const width = target.getBoundingClientRect().width || (state.compact ? 230 : 304);
+          const height = target.getBoundingClientRect().height || 40;
+          state.x = Math.max(0, Math.min(state.x, Math.max(0, innerWidth - width)));
+          state.y = Math.max(0, Math.min(state.y, Math.max(0, innerHeight - height)));
+          for (const node of [box, restore]) { node.style.left = state.x + 'px'; node.style.top = state.y + 'px'; node.style.bottom = 'auto'; }
+        }
+      }
+      function paint() {
+        box.hidden = state.closed; restore.hidden = !state.closed;
+        box.classList.toggle('compact', state.compact);
+        root.querySelector('#minimize').textContent = state.compact ? '□' : '−';
+        root.querySelector('#minimize').setAttribute('aria-label', state.compact ? 'Mở rộng bảng' : 'Thu nhỏ bảng');
+        position();
+      }
+      root.querySelector('#minimize').addEventListener('click', () => { touched = true; state.compact = !state.compact; paint(); persist(); });
+      root.querySelector('#hide').addEventListener('click', () => { touched = true; state.closed = true; paint(); persist(); });
+      restore.addEventListener('click', () => { if (drag?.moved) return; touched = true; state.closed = false; paint(); persist(); });
+      function move(event) {
+        if (!drag || event.pointerId !== drag.id) return;
+        const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+        if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+        state.x = drag.x + dx; state.y = drag.y + dy; position();
+      }
+      function end(event) {
+        if (!drag || event.pointerId !== drag.id) return;
+        if (event.type !== 'pointercancel') move(event); persist();
+        try { drag.target.releasePointerCapture?.(event.pointerId); } catch (_) {}
+        document.removeEventListener('pointermove', move, true);
+        document.removeEventListener('pointerup', end, true);
+        document.removeEventListener('pointercancel', end, true);
+        const finished = drag;
+        setTimeout(() => { if (drag === finished) drag = null; }, 0);
+      }
+      function start(event) {
+        if (event.button !== 0 || event.target.closest('a') || drag) return;
+        touched = true;
+        const rect = (state.closed ? restore : box).getBoundingClientRect();
+        drag = {id: event.pointerId, startX: event.clientX, startY: event.clientY, x: rect.left, y: rect.top, moved: false, target: event.currentTarget};
+        try { event.currentTarget.setPointerCapture?.(event.pointerId); } catch (_) {}
+        document.addEventListener('pointermove', move, true);
+        document.addEventListener('pointerup', end, true);
+        document.addEventListener('pointercancel', end, true);
+        event.preventDefault();
+      }
+      root.querySelector('#bar').addEventListener('pointerdown', start);
+      restore.addEventListener('pointerdown', start);
+      const resize = () => { if (host.isConnected) position(); else window.removeEventListener('resize', resize); };
+      window.addEventListener('resize', resize);
+      try { chrome.storage.local.get(key, out => {
+        if (touched) return;
+        const saved = out?.[key];
+        if (saved && typeof saved === 'object') state = {x: Number.isFinite(saved.x) ? saved.x : null,
+          y: Number.isFinite(saved.y) ? saved.y : null, compact: saved.compact === true, closed: saved.closed === true};
+        paint();
+      }); } catch (_) {}
       document.documentElement.appendChild(host);
+      paint();
       return host;
     },
     update(host, value) {

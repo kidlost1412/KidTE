@@ -288,7 +288,7 @@ def test_url_only_http_https_and_public_hosts(monkeypatch, web):
 
 
 def test_url_extracts_text_og_image_and_limits_size(web):
-    page = ("<html><head><meta property='og:image' content='/img/p.png'><title>Đạm cá</title></head>"
+    page = ("<html><head><meta property='og:type' content='product'><meta property='og:image' content='/img/p.png'><title>Đạm cá</title></head>"
             "<body><script>x()</script><p>Đạm cá Amino hữu cơ kích rễ cho lúa và rau màu.</p></body></html>")
     web.routes["https://shop.example/sp"] = ("text/html; charset=utf-8", page.encode())
     web.routes["https://shop.example/img/p.png"] = ("image/png", png_bytes())
@@ -380,12 +380,14 @@ def test_create_draft_is_unapproved_stores_image_and_ignores_price_fields(tmp_pa
     assert out["id"] not in engine.knowledge.mapping_assignments().values()      # chưa gắn, chưa duyệt
 
 
-def test_create_draft_requires_name_and_unknown_image_session_is_ignored(tmp_path):
+def test_create_draft_requires_name_and_rejects_expired_selected_image(tmp_path):
     engine = _engine(tmp_path)
     ingest, _ = _service(engine)
     with pytest.raises(pi.IngestError):
         ingest.create_draft({"fields": {"cong_dung": ["x"]}})
-    out = ingest.create_draft({"fields": {"ten_san_pham": "Kali Bo 1L"}, "session_id": "nope", "image": {"source_id": "n1"}})
+    with pytest.raises(pi.IngestError, match="hết hạn"):
+        ingest.create_draft({"fields": {"ten_san_pham": "Kali Bo 1L"}, "session_id": "nope", "image": {"source_id": "n1"}})
+    out = ingest.create_draft({"fields": {"ten_san_pham": "Kali Bo 1L"}})
     assert out["image_saved"] is False
 
 

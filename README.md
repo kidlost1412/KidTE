@@ -2,7 +2,7 @@
 
 Ứng dụng Windows hỗ trợ vận hành TikTok LIVE và Shopee LIVE: trả lời bình luận bằng DeepSeek, quản lý sản phẩm và khách hàng trên máy, ghim theo lịch video, đồng bộ âm thanh và chép lời. Backend cục bộ mặc định ở `http://127.0.0.1:8793/app`.
 
-Kho công khai chứa mã nguồn, tài nguyên chương trình và fixture kiểm thử. Dữ liệu shop, DB, video, model đã tải, log và khóa truy cập nằm ngoài kho này. Bộ hồ sơ mặc định trong `backend/prompts/knowledge_seed.json` là kiến thức sản phẩm chính thức đi kèm ứng dụng.
+Kho công khai chứa mã nguồn, tài nguyên chương trình và fixture kiểm thử. Dữ liệu shop, DB, video, model đã tải, log và khóa truy cập nằm ngoài kho này. Bộ hồ sơ đã chốt trong `backend/prompts/product_defaults.json` gồm 38 hồ sơ, 3 hồ sơ nguồn tham chiếu và 41 ảnh. Máy mới chọn dùng bộ này hoặc tự thêm; gói kiến thức website `knowledge_seed.json` vẫn có thể nạp thủ công.
 
 ## Cài và cập nhật
 
@@ -12,7 +12,7 @@ Mở bằng biểu tượng Kid TE để launcher chọn đúng phiên bản. **
 
 Từ P3, bộ cài chỉ mang lõi và các processor nhỏ. Công cụ video, CAPTCHA/monitor, đồng bộ video, worker chép lời và GPU là các gói tải theo nhu cầu. Model và dữ liệu giữ riêng. Processor nghiệp vụ vẫn cập nhật cùng lõi cho tới đợt hợp đồng plugin tiếp theo. [Cơ chế cập nhật và phát hành](docs/CAP-NHAT-GITHUB.md).
 
-Với 1.14.257, dùng [bộ cài P3 r1](https://github.com/kidlost1412/KidTE/releases/tag/v1.14.257-p3-r1). [Nghiệm thu Windows sạch ngày 11/10/2026](docs/NGHIEM-THU-WINDOWS-SACH-20261011.md) ghi kết quả 9/9 bước cài đặt, các lỗi đã sửa và phạm vi chưa nghiệm thu.
+Bản 1.15.7 P4 cập nhật app và tiện ích qua kênh Thử nghiệm, dùng lại runtime 1.0.0. Máy mới cài bộ P4 rồi kiểm tra cập nhật trước khi nhập dữ liệu. [Thay đổi 1.15.7](docs/THAY-DOI-1.15.7.md).
 
 ## Phát triển
 

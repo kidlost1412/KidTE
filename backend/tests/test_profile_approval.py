@@ -308,12 +308,17 @@ def _blank_engine(tmp_path, monkeypatch):
     return engine, shared
 
 
-def test_engine_seeds_a_blank_machine_once_and_reloads_knowledge(tmp_path, monkeypatch):
+def test_blank_machine_waits_for_choice_then_loads_defaults(tmp_path, monkeypatch):
     engine, shared = _blank_engine(tmp_path, monkeypatch)
     assert engine.knowledge_seed_status()["state"] == "missing"
     assert engine.knowledge.mappable_records() == []
-    assert engine.ensure_seed_knowledge()["status"] == "applied"
-    assert shared.is_file() and len(engine.knowledge.mappable_records()) >= 40
+    assert engine.ensure_seed_knowledge()["status"] == "choice_required"
+    assert not shared.exists()
+    selected = engine.product_defaults.choose({"mode": "default"})
+    assert selected["products"] == 38
+    assert selected["images"] == 41
+    assert shared.is_file() and len(engine.knowledge.mappable_records()) == 38
+    assert len(engine.knowledge.all_records()) == 41  # three source references are not sellable profiles
     assert engine.knowledge.records == []                  # chưa gắn SKU nào: AI chưa dùng hồ sơ nào
     assert engine.knowledge_seed_status()["state"] == "current"
     before = shared.read_bytes()
@@ -325,7 +330,9 @@ def test_engine_defers_seeding_during_live(tmp_path, monkeypatch):
     import time
     engine, shared = _blank_engine(tmp_path, monkeypatch)
     engine.extension_heartbeat = {"live_running": True, "received_at": time.time()}
-    assert engine.ensure_seed_knowledge()["status"] == "deferred_live"
+    assert engine.ensure_seed_knowledge()["status"] == "choice_required"
+    with pytest.raises(ValueError, match="LIVE"):
+        engine.product_defaults.choose({"mode": "default"})
     assert not shared.exists()
     assert engine.knowledge_seed_status()["state"] == "missing"
 

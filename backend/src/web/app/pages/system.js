@@ -10,6 +10,8 @@ import {RESOURCE_NAME} from '../labels.js';
 import {liveSettings} from './live-settings.js';
 import {kindLabel, kindNote, normalizeV2, passwordProblem, exportIndexedDb, startV2, selectionIds, deleteV2, restoreV2Visible, confirmProblem, restoreErrorText, restoreV2, reenableAi} from './backup-v2.js';
 import {updates} from './updates.js';
+import {defaultProfilesPanel} from './product-defaults-ui.js';
+import {CUSTOM_MODEL, geminiModelOptions, chosenGeminiModel} from './gemini-models.js';
 
 const TABS = [
   {id: 'setup', label: 'Cài đặt', icon: 'key'},
@@ -73,19 +75,50 @@ async function setup(ctx, host) {
     } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   const gemKey = input({type: 'password', placeholder: s.gemini_key_configured ? '•••••••• (đã cấu hình — để trống nếu không đổi)' : 'Dán khoá Gemini (AIza…)', autocomplete: 'off'});
-  const gemModel = input({value: s.gemini_model || '', placeholder: 'Để trống = tự chọn model flash mới nhất'});
+  let gemCatalog = [];
+  const gemModel = select(geminiModelOptions([], s.gemini_model || ''), s.gemini_model || '', {'aria-label': 'Model Gemini'});
+  const gemCustom = input({value: s.gemini_model || '', placeholder: 'Tên model do Google cung cấp', hidden: true, 'aria-label': 'Tên model Gemini khác'});
+  const gemListStatus = h('div', {class: 'field-hint', role: 'status'}, 'Đang tải danh sách model từ Google…');
+  const gemEffective = h('p', {class: 'fs-sm soft', 'data-gemini-model': ''});
+  const paintEffective = out => {
+    gemEffective.textContent = `Model sẽ thử: ${out.effective_model || s.gemini_model_effective || '—'}` +
+      (out.model_source === 'owner' ? ' (bạn chọn)' : ' (tự động / dự phòng)');
+  };
+  paintEffective({effective_model: s.gemini_model_effective, model_source: s.gemini_model_source});
+  gemModel.addEventListener('change', () => { gemCustom.hidden = gemModel.value !== CUSTOM_MODEL; });
+  const loadGeminiModels = async refresh => {
+    gemRefresh.disabled = true;
+    gemListStatus.textContent = 'Đang tải danh sách model từ Google…';
+    try {
+      const out = await request('/api/settings/gemini-models', {method: 'POST',
+        body: {api_key: gemKey.value.trim(), refresh: !!refresh}, timeoutMs: 90000});
+      const selected = gemModel.value;
+      gemCatalog = out.models || [];
+      clear(gemModel, geminiModelOptions(gemCatalog, selected === CUSTOM_MODEL ? '' : selected)
+        .map(([value, label]) => h('option', {value, selected: value === selected}, label)));
+      gemModel.value = selected;
+      gemListStatus.textContent = out.error || `Có ${gemCatalog.length} model Flash để chọn. Chọn bản cố định để tránh tự chuyển lên bản mới hơn.`;
+      paintEffective(out);
+    } catch (e) { gemListStatus.textContent = friendlyError(e); }
+    finally { gemRefresh.disabled = false; }
+  };
+  const gemRefresh = btn('Tải lại danh sách model', {kind: 'ghost', size: 'sm', icon: 'refresh', onClick: () => loadGeminiModels(true)});
+  const gemModelField = field('Model Gemini', gemModel, {hint: 'Bạn có thể chọn phiên bản cũ hơn ngay trong danh sách. Với bản Flash cố định, dự phòng chỉ thử các bản cùng phiên bản hoặc cũ hơn; Google vẫn có thể báo quá tải.'});
+  gemModelField.append(gemCustom, gemListStatus, gemRefresh);
   const gemStatus = keyStatus('gemini');
   const checkGem = btn('Kiểm tra key', {kind: 'ghost', icon: 'shield', onClick: () => runKeyCheck('gemini', gemStatus, gemKey.value.trim())});
-  const saveGemini = btn('Lưu khoá Gemini', {kind: 'primary', icon: 'save', onClick: async () => {
+  const saveGemini = btn('Lưu cài đặt Gemini', {kind: 'primary', icon: 'save', onClick: async () => {
     const body = {};
     const typed = gemKey.value.trim();
     if (typed) body.gemini_api_key = typed;
-    if (gemModel.value.trim() !== (s.gemini_model || '')) body.gemini_model = gemModel.value.trim();
+    const chosen = chosenGeminiModel(gemModel.value, gemCustom.value);
+    if (gemModel.value === CUSTOM_MODEL && !chosen) { toast('Nhập tên model hoặc chọn một model trong danh sách.', 'warn'); return; }
+    if (chosen !== (s.gemini_model || '')) body.gemini_model = chosen;
     if (!Object.keys(body).length) { toast('Chưa có gì để lưu.', 'info'); return; }
     try {
       await request('/api/settings', {method: 'POST', body});
       gemKey.value = ''; toast('Đã lưu cài đặt Gemini.', 'ok');
-      if (typed) { await runKeyCheck('gemini', gemStatus, ''); return; }
+      if (typed) { await runKeyCheck('gemini', gemStatus, ''); }
       setup(ctx, host);
     } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
@@ -132,8 +165,7 @@ async function setup(ctx, host) {
       field('Key Gemini (đọc ảnh/PDF)', gemKey, {hint: 'Khoá lưu trong file .env trên máy này, không hiển thị lại.'}),
       gemStatus,
       h('div', {}, btn('Lấy key miễn phí', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => openTarget('gemini_keys')})),
-      h('p', {class: 'fs-sm soft', 'data-gemini-model': ''}, `Model đang dùng: ${s.gemini_model_effective || '—'}${s.gemini_model_source === 'auto' ? ' (tự chọn)' : s.gemini_model_source === 'owner' ? ' (bạn đặt)' : ' (dự phòng, đang dò model mới nhất)'}`),
-      field('Model Gemini (không bắt buộc)', gemModel, {hint: 'Để trống: Kid TE tự dò model flash ổn định mới nhất từ Google (dò lại mỗi ngày). Chỉ nhập khi muốn cố định một model (xem ai.google.dev/gemini-api/docs/models).'})),
+      gemEffective, gemModelField),
     {sub: 'Google AI Studio', footer: [checkGem, saveGemini]}),
     card('Thông tin shop & sổ tay bán hàng', h('div', {class: 'card-body col gap-3'},
       h('p', {class: 'fs-sm soft'}, 'Thông tin shop (địa chỉ, hotline, giao hàng) và sổ tay tình huống bán hàng nằm ở hai trang riêng trong thanh bên.'),
@@ -159,7 +191,7 @@ async function setup(ctx, host) {
       }})}),
     card('Gói kiến thức sản phẩm dùng chung', h('div', {class: 'card-body form-grid'},
       h('p', {class: 'fs-sm soft'}, 'Cập nhật hồ sơ sản phẩm từ gói do công ty phát hành. Thông tin bạn đã sửa trên máy được giữ nguyên nếu có xung đột.'),
-      seedBanner, seedOut,
+      defaultProfilesPanel(ctx), seedBanner, seedOut,
       kv([['Đang dùng', s.knowledge_active_file]]),
       field('Nguồn gói', source), pkgOut),
     {footer: [
@@ -179,6 +211,7 @@ async function setup(ctx, host) {
         } catch (e) { clear(pkgOut, notice('danger', 'Không đọc được gói', friendlyError(e))); }
       }}),
     ]})));
+  loadGeminiModels(false);
 }
 
 // ---------------------------------------------------------------- Âm thanh

@@ -34,7 +34,7 @@ const pause = () => new Promise(r => setTimeout(r, 10));
   const document = {documentElement:element(),createElement:element,
     querySelectorAll:()=>[{remove(){removedWidgets++;}},{remove(){removedWidgets++;}}]};
   class TestDate extends Date { static now(){return clock;} }
-  const context={chrome,location,document,KidTEShopeeCore:core,Date:TestDate,setTimeout(fn){fn();},setInterval(fn){tick=fn;},clearInterval(){}};
+  const context={chrome,location,document,window:{addEventListener(){},removeEventListener(){}},KidTEShopeeCore:core,Date:TestDate,setTimeout(fn){fn();},setInterval(fn){tick=fn;},clearInterval(){}};
   vm.runInNewContext(fs.readFileSync(__dirname+'/live-widget.js','utf8'),context);
   vm.runInNewContext(fs.readFileSync(__dirname+'/controller.js','utf8'),context);
   await pause();

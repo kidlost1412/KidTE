@@ -1,3 +1,4 @@
+import {offerDefaultProfiles} from './pages/product-defaults-ui.js';
 import {createStore, startDashboardPoll} from './core/store.js';
 import {createRouter} from './core/router.js';
 import {createShell} from './shell.js';
@@ -126,4 +127,5 @@ const poll = startDashboardPoll(store, 5000);
 window.__kidTe = {store, poll, navigate};
 window.__liveRe = window.__kidTe; // Legacy integration alias.
 router.start();
+offerDefaultProfiles({navigate});
 try { guardStylesheets(); window.addEventListener('load', () => guardStylesheets()); } catch (error) { console.error(error); }

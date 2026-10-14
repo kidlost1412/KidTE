@@ -61,3 +61,10 @@ test-artifacts/soak/
 ab_report*
 
 test-artifacts/backup-ui/
+
+# Local installed copies, temporary hotfixes and browser test dependencies
+/App/
+/DuLieu/
+/.codex-fixes/
+/local-customizations/
+node_modules/

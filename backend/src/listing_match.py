@@ -164,10 +164,12 @@ class ProfileIndex:
         if record.get("is_combo") is True:
             # Tên combo là mã kỹ thuật ("Combo WEB-828 + WEB-830"): dùng tên
             # các thành phần để nhận diện.
-            components = [str(c.get("ten_san_pham") or "")
+            components = [str(c.get("ten_san_pham") or c.get("name") or by_id.get(str(c.get("profile_id") or ""), {}).get("ten_san_pham") or "")
                           for c in record.get("combo_components") or []
                           if isinstance(c, dict)]
-            return [n for n in components if n] + [str(a) for a in aliases if a]
+            own_name = str(record.get("ten_san_pham") or "")
+            names = [own_name] if own_name and not re.search(r"WEB-\d", own_name) else []
+            return names + [n for n in components if n] + [str(a) for a in aliases if a]
         return [str(record.get("ten_san_pham") or "")] + [str(a) for a in aliases if a]
 
 

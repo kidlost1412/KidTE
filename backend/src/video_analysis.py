@@ -31,7 +31,7 @@ from video_fingerprint import (
 )
 from video_library import VIDEO_DIR, validate_timeline
 
-MAX_VIDEO_BYTES = 20 * 1024**3
+MAX_VIDEO_BYTES = 100 * 1024**3
 MAX_CHUNK_BYTES = 16 * 1024**2
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 _CUDA_DLL_HANDLES = gpu_runtime._CUDA_DLL_HANDLES

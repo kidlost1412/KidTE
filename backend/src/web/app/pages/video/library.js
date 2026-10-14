@@ -148,7 +148,7 @@ export function mountLibrary(ctx, host, {autoUpload = false} = {}) {
   const dropzone = h('div', {class: 'dropzone'},
     h('span', {class: 'dz-icon'}, icon('upload')),
     h('div', {class: 'grow'}, h('strong', {}, 'Thêm video phát lại mới'),
-      h('p', {class: 'fs-sm muted'}, 'Kéo thả file vào đây hoặc bấm chọn. AI sẽ nghe lời nói, tìm lúc host nhắc tới từng sản phẩm và đề xuất mốc ghim để bạn duyệt.')),
+      h('p', {class: 'fs-sm muted'}, 'Kéo thả file vào đây hoặc bấm chọn (tối đa 100 GB/file). AI sẽ nghe lời nói, tìm lúc host nhắc tới từng sản phẩm và đề xuất mốc ghim để bạn duyệt.')),
     btn('Chọn video…', {kind: 'primary', icon: 'upload', onClick: choose}), fileInput);
   ['dragenter', 'dragover'].forEach(t => dropzone.addEventListener(t, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
   ['dragleave', 'drop'].forEach(t => dropzone.addEventListener(t, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));

@@ -5,6 +5,7 @@ import {request, ApiError} from '../../core/api.js';
 const CHUNK = 8 * 1024 * 1024;
 const PROBE = 1024 * 1024;
 export const ACCEPT = '.mp4,.mov,.mkv,.webm,.avi,.m4v';
+export const MAX_VIDEO_BYTES = 100 * 1024 ** 3;
 const EXT = /\.(mp4|mov|mkv|webm|avi|m4v)$/i;
 
 async function contentProbe(file) {
@@ -25,6 +26,7 @@ export function validateFile(file) {
   if (!file) return 'Chưa chọn file.';
   if (!EXT.test(file.name)) return 'Định dạng chưa hỗ trợ. Dùng MP4, MOV, MKV, WebM, AVI hoặc M4V.';
   if (file.size < 1024 * 1024) return 'File quá nhỏ, có thể không phải video.';
+  if (!Number.isSafeInteger(file.size) || file.size > MAX_VIDEO_BYTES) return 'Video phải có kích thước tối đa 100 GB.';
   return '';
 }
 

@@ -9,3 +9,5 @@ Sửa hộp xác nhận trên trang Cập nhật để hiển thị đúng nội
 Máy cài mới bằng bộ cài 1.15.8 tự kiểm tra phần cứng và tải bộ tính năng ban đầu trong lần mở đầu tiên. Không có NVIDIA phù hợp thì dùng CPU. Trạng thái được lưu để không tự cài lại tính năng đã gỡ ở các lần mở sau. Chỉ chuẩn bị gói và yêu cầu khởi động lại sau khi toàn bộ lượt tải hoàn tất, không tự ngắt LIVE. Cài đè/nâng cấp máy đang có dữ liệu không bật thiết lập tự động này.
 
 Phát hành app 1.15.8 qua kênh Thử nghiệm, dùng lại runtime 1.0.0 và extensions 1.0.1.
+
+Nâng giới hạn video từ 20 lên 100 GB/file (100 × 1024³ byte), kiểm tra ở cả giao diện và backend. Giữ tải theo từng phần 8 MB và khả năng tiếp tục; không nạp toàn bộ video lớn vào RAM. Ổ dữ liệu cần đủ chỗ lưu bản video được tải lên cùng các file phân tích.

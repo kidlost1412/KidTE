@@ -1,10 +1,10 @@
 import {h, clear} from '../core/dom.js';
 import {request, friendlyError} from '../core/api.js';
 import {bytes} from '../core/format.js';
-import {btn, chip, notice, progress, select} from '../ui/kit.js';
+import {btn, chip, notice, progress, select, toggle} from '../ui/kit.js';
 import {icon} from '../core/icons.js';
 import {confirmDialog, toast} from '../ui/overlays.js';
-import {headerLines, updateComponents, progressView, formatCheckedAt, OPTIONAL_INFO, OPTIONAL_IDS, LIVE_RESTART_TEXT} from '../core/update_notice.js';
+import {headerLines, updateComponents, allUpdateComponents, progressView, formatCheckedAt, OPTIONAL_INFO, OPTIONAL_IDS, LIVE_RESTART_TEXT} from '../core/update_notice.js';
 
 const names = {'core': 'Ứng dụng Kid TE', 'app': 'Ứng dụng Kid TE', 'runtime': 'Thư viện nền', 'extensions': 'Tiện ích Chrome',
   'gpu-cuda12': 'Tăng tốc chép lời NVIDIA',
@@ -25,6 +25,8 @@ export async function updates(ctx, host, owner) {
   let channel = null;
   let autoChecked = false;
   let restarting = false;
+  let includeGpu = false;
+  let planning = false;
   const opened = {};
   owner.add(() => { disposed = true; });
 
@@ -47,12 +49,29 @@ export async function updates(ctx, host, owner) {
     } catch (error) { if (!disposed) toast(friendlyError(error), 'danger'); }
   };
   const install = components => act('install', {components});
+  const installAll = async state => {
+    if (planning) return;
+    const components = allUpdateComponents(state, {includeGpu});
+    if (!Object.keys(components).length) return;
+    planning = true;
+    try {
+      await render();
+      const plan = await request('/api/updates/plan', {method: 'POST', body: {components}});
+      if (disposed) return;
+      const list = plan.packages.map(p => names[p.id] || p.id).join(', ');
+      const approved = await confirmDialog({title: 'Cập nhật toàn bộ?',
+        text: `Gồm: ${list}. Tổng tải ${bytes(plan.download_bytes)}. Tải và kiểm tra tất cả trong một lượt, sau đó chỉ khởi động lại một lần.`,
+        confirm: 'Tải và cài toàn bộ'});
+      if (approved && !disposed) await install(components);
+    } catch (error) { if (!disposed) toast(friendlyError(error), 'danger'); }
+    finally { planning = false; if (!disposed) await render(); }
+  };
   const restart = async () => {
     try {
       try { await request('/api/updates/restart', {method: 'POST', body: {}}); }
       catch (error) {
         if ((error && (error.code || error.message)) !== 'live_confirm_required') throw error;
-        const ok = await confirmDialog({title: 'Khởi động lại khi đang LIVE?', body: LIVE_RESTART_TEXT, confirmText: 'Khởi động lại ngay'});
+        const ok = await confirmDialog({title: 'Khởi động lại khi đang LIVE?', text: LIVE_RESTART_TEXT, confirm: 'Khởi động lại ngay'});
         if (!ok) return;
         await request('/api/updates/restart', {method: 'POST', body: {confirm_live: true}});
       }
@@ -70,18 +89,18 @@ export async function updates(ctx, host, owner) {
       h('div', {class: 'upd-row-main'}, h('strong', {}, names[pkg.id] || pkg.id),
         h('div', {class: 'muted fs-sm'}, info.text ? `${info.text}. ${status}` : status)),
       chip(installed ? `v${installed}` : `v${pkg.version}`, installed ? 'ok' : '', {size: 'sm'}),
-      !installed && btn('Cài', {kind: 'primary', size: 'sm', disabled: state.busy || state.restart_required, onClick: async () => {
+      !installed && btn('Cài', {kind: 'primary', size: 'sm', disabled: planning || state.busy || state.restart_required, onClick: async () => {
         try {
           const plan = await request('/api/updates/plan', {method: 'POST', body: {components: {[pkg.id]: pkg.version}}});
           if (disposed) return;
           const approved = await confirmDialog({title: `Cài ${names[pkg.id] || pkg.id}?`,
-            body: `Tổng tải ${bytes(plan.download_bytes)}. Tải xong, bấm "Khởi động lại ngay" để dùng tính năng.`, confirmText: 'Tải và cài'});
+            text: `Tổng tải ${bytes(plan.download_bytes)}. Tải xong, bấm "Khởi động lại ngay" để dùng tính năng.`, confirm: 'Tải và cài'});
           if (approved && !disposed) await install({[pkg.id]: pkg.version});
         } catch (error) { if (!disposed) toast(friendlyError(error), 'danger'); }
       }}),
-      installed && btn('Gỡ', {kind: 'ghost', size: 'sm', disabled: state.busy || state.restart_required, onClick: async () => {
+      installed && btn('Gỡ', {kind: 'ghost', size: 'sm', disabled: planning || state.busy || state.restart_required, onClick: async () => {
         const approved = await confirmDialog({title: `Gỡ ${names[pkg.id] || pkg.id}?`,
-          body: 'Tính năng sẽ tắt sau khi khởi động lại Kid TE. Dữ liệu được giữ.', confirmText: 'Gỡ tính năng'});
+          text: 'Tính năng sẽ tắt sau khi khởi động lại Kid TE. Dữ liệu được giữ.', confirm: 'Gỡ tính năng'});
         if (approved && !disposed) await act('remove', {component: pkg.id});
       }}));
   };
@@ -103,16 +122,19 @@ export async function updates(ctx, host, owner) {
       const comps = updateComponents(state);
       const hasUpdate = state.update_available && Object.keys(comps).length > 0;
       const selectChannel = select([['beta', 'Thử nghiệm'], ['stable', 'Ổn định']], channel);
-      selectChannel.disabled = Boolean(state.busy);
+      selectChannel.disabled = Boolean(planning || state.busy);
       selectChannel.addEventListener('change', () => { channel = selectChannel.value; act('check', {channel}); });
       const rows = state.channel === channel ? state.available || [] : [];
       const optional = rows.filter(p => OPTIONAL_IDS.includes(p.id));
+      const allComps = state.channel === channel ? allUpdateComponents(state, {includeGpu}) : {};
+      const showAll = !restarting && !state.restart_required && Object.keys(allComps).length > 0;
+      const missingGpu = optional.some(p => p.id === 'gpu-cuda12' && !p.installed_version && !state.installed?.[p.id]);
       const display = state.installed_display || {};
 
       const current = state.current_version || '';
       const checkedAt = formatCheckedAt(state.last_checked_at);
       const checking = state.enabled && !head.newest && !state.busy && !state.error;
-      const recheck = btn('Kiểm tra lại', {kind: 'ghost', size: 'sm', icon: 'refresh', disabled: !state.enabled || !state.trusted || state.busy, onClick: () => act('check', {channel})});
+      const recheck = btn('Kiểm tra lại', {kind: 'ghost', size: 'sm', icon: 'refresh', disabled: planning || !state.enabled || !state.trusted || state.busy, onClick: () => act('check', {channel})});
       const mb = Math.max(1, Math.round((state.update_total_bytes || 0) / 1e6));
       const showUpdate = !restarting && !state.restart_required && hasUpdate && !state.busy;
       const hero = [h('div', {class: 'upd-hero-top'},
@@ -122,11 +144,13 @@ export async function updates(ctx, host, owner) {
           head.newest && h('span', {class: 'muted fs-sm'}, head.newest)),
         h('div', {class: 'upd-hero-act'},
           head.upToDate && chip('Đã là bản mới nhất', 'ok', {iconName: 'check'}),
-          showUpdate && btn(`Cập nhật lên ${state.latest?.version || ''} (~${mb} MB)`, {kind: 'primary', icon: 'download', disabled: !state.enabled, onClick: () => install(comps)}))),
+          showAll && btn(planning ? 'Đang tính tổng tải…' : 'Cập nhật toàn bộ', {kind: 'primary', icon: 'download', disabled: planning || state.busy || !state.enabled || !state.trusted, onClick: () => installAll(state)}),
+          showUpdate && btn(`Chỉ cập nhật gói đã cài (~${mb} MB)`, {kind: 'ghost', disabled: planning || !state.enabled, onClick: () => install(comps)}))),
         h('div', {class: 'upd-hero-meta muted fs-sm'},
           checking ? 'Đang kiểm tra bản mới nhất trên GitHub…' : (checkedAt ? `Kiểm tra lần cuối: ${checkedAt}` : 'Chưa kiểm tra'), recheck),
         !state.enabled && h('div', {class: 'muted fs-sm'}, 'Bản mã nguồn không tự cập nhật; hãy dùng bản cài đã đóng gói.'),
-        showUpdate && h('div', {class: 'muted fs-sm'}, 'Tự tải, kiểm tra, rồi hỏi bạn khởi động lại.')];
+        showAll && h('div', {class: 'muted fs-sm'}, 'Cài các tính năng còn thiếu và cập nhật gói đã cài trong một lượt. Chỉ khởi động lại một lần sau khi tải xong.'),
+        missingGpu && !state.restart_required && toggle('Kèm tăng tốc NVIDIA (dành cho máy có card NVIDIA)', includeGpu, value => { includeGpu = value; render(); }, {disabled: planning || state.busy})];
       const main = [];
       if (state.error) {
         main.push(notice('danger', 'Chưa cập nhật được', friendlyError({code: state.error}),
@@ -145,7 +169,7 @@ export async function updates(ctx, host, owner) {
       }
 
       const optionalSection = det('optional', 'Tính năng tuỳ chọn', {iconName: 'layers', sub: 'Chỉ cài khi cần', count: optional.length}, h('div', {class: 'col gap-2'},
-        h('p', {class: 'muted fs-sm'}, 'Chỉ cài khi cần (ví dụ NVIDIA để tăng tốc chép lời). Tính năng đã cài tự được cập nhật cùng nút "Cập nhật".'),
+        h('p', {class: 'muted fs-sm'}, 'Dùng "Cập nhật toàn bộ" ở trên để cài các tính năng cùng lúc, hoặc cài riêng từng gói bên dưới. Gói NVIDIA chưa cài cần chọn thêm ở trên.'),
         optional.length ? optional.map(p => optionalRow(state, p)) : h('p', {class: 'muted'}, 'Bấm "Kiểm tra lại" ở phần trên để xem danh sách.')));
       const techSection = det('tech', 'Chi tiết kỹ thuật', {iconName: 'terminal'}, h('div', {class: 'col gap-2'},
         h('p', {class: 'muted fs-sm'}, `Kênh: ${state.channel}. Kiểm tra lúc: ${checkedAt || 'chưa'}.`),
@@ -159,7 +183,7 @@ export async function updates(ctx, host, owner) {
           btn('Hủy cập nhật chờ', {disabled: state.busy || !state.restart_required, onClick: () => act('cancel')}),
           btn('Quay lại bản trước', {disabled: state.busy, onClick: async () => {
             const approved = await confirmDialog({title: 'Quay lại bộ chương trình trước?',
-              body: 'Thao tác được áp dụng ở lần mở tiếp theo. Hãy đóng và mở lại Kid TE.', confirmText: 'Chuẩn bị quay lại'});
+              text: 'Thao tác được áp dụng ở lần mở tiếp theo. Hãy đóng và mở lại Kid TE.', confirm: 'Chuẩn bị quay lại'});
             if (approved && !disposed) await act('rollback');
           }}))));
 

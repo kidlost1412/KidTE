@@ -144,6 +144,35 @@ def test_installing_current_core_is_a_noop_and_later_feature_install_still_works
     assert transport.calls == ["check", gpu["url"]]
 
 
+def test_batch_update_prepares_one_generation_without_intermediate_restart(tmp_path):
+    old_archive, old_core = package(tmp_path, version="1.0.0")
+    new_archive, new_core = package(tmp_path, version="1.0.1")
+    gpu_archive, gpu = package(tmp_path, "gpu-cuda12")
+    store = ComponentStore(tmp_path / "App")
+    store.stage_package(old_core, old_archive)
+    initial = store.prepare({"core": old_core}, 1)
+    store.activate_pending()
+    store.confirm_active(initial["generation"])
+    raw, keys = signed([new_core, gpu])
+    transport = Transport(raw, {new_core["url"]: new_archive, gpu["url"]: gpu_archive})
+    manager = UpdateManager(store.app_root, transport=transport, trusted_keys=keys, store=store)
+    manager.action("check", {})
+    assert done(manager)["error"] == ""
+    components = {"core": "1.0.1", "gpu-cuda12": "1.0.0"}
+    plan = manager.action("plan", {"components": components})
+    assert plan["download_bytes"] == new_core["archive_bytes"] + gpu["archive_bytes"]
+    assert store.load_pending() is None
+    manager.action("install", {"components": components})
+    state = done(manager)
+    assert state["error"] == ""
+    assert state["pending"] == components
+    assert state["installed"] == {"core": "1.0.0"}
+    assert store.load_active()["generation"] == initial["generation"]
+    assert transport.calls == ["check", new_core["url"], gpu["url"]]
+    activated = store.activate_pending()
+    assert {k: v["package"]["version"] for k, v in activated["components"].items()} == components
+
+
 def test_expired_catalog_and_unsigned_payload_never_prepare(tmp_path):
     archive, core = package(tmp_path)
     raw, keys = signed([core], expired=True)

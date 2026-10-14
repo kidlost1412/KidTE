@@ -64,6 +64,19 @@ export function updateComponents(state) {
   return out;
 }
 
+// Một lượt: cập nhật gói đã cài và bổ sung các tính năng còn thiếu.
+// NVIDIA chỉ bổ sung khi người dùng chọn; gói NVIDIA đã cài vẫn được cập nhật.
+export function allUpdateComponents(state, {includeGpu = false} = {}) {
+  const out = {};
+  for (const p of state?.available || []) {
+    if (!CORE_IDS.includes(p.id) && !OPTIONAL_IDS.includes(p.id)) continue;
+    const installed = p.installed_version || state?.installed?.[p.id];
+    if (p.newer || (!installed && OPTIONAL_IDS.includes(p.id)
+        && (p.id !== 'gpu-cuda12' || includeGpu))) out[p.id] = p.version;
+  }
+  return out;
+}
+
 // "hh:mm dd/mm" theo giờ Việt Nam, không phụ thuộc múi giờ máy.
 export function formatCheckedAt(iso) {
   if (!iso) return '';

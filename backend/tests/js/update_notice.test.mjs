@@ -2,7 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const source = await readFile(new URL('../../src/web/app/core/update_notice.js', import.meta.url), 'utf8');
-const {updateNotice, upToDateLine, formatClock, newerPackages, headerLines, updateComponents, progressView, formatDate, formatCheckedAt, LIVE_RESTART_TEXT} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const {updateNotice, upToDateLine, formatClock, newerPackages, headerLines, updateComponents, allUpdateComponents, progressView, formatDate, formatCheckedAt, LIVE_RESTART_TEXT} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+test('fresh machine batch installs missing features with app updates in one selection', () => {
+  const state = {installed: {app: '1.15.7', runtime: '1.0.0', extensions: '1.0.1'}, available: [
+    {id: 'app', version: '1.15.8', installed_version: '1.15.7', newer: true},
+    {id: 'runtime', version: '1.0.0', installed_version: '1.0.0'},
+    {id: 'extensions', version: '1.0.1', installed_version: '1.0.1'},
+    ...['media-tools', 'captcha-solver', 'video-sync', 'video-analysis-cpu', 'gpu-cuda12'].map(id => ({id, version: '1.0.0'})),
+    {id: 'unrecognized', version: '1.0.0', newer: true},
+  ]};
+  const expected = {app: '1.15.8', 'media-tools': '1.0.0', 'captcha-solver': '1.0.0', 'video-sync': '1.0.0', 'video-analysis-cpu': '1.0.0'};
+  assert.deepEqual(allUpdateComponents(state), expected);
+  assert.deepEqual(allUpdateComponents(state, {includeGpu: true}), {...expected, 'gpu-cuda12': '1.0.0'});
+  assert.deepEqual(allUpdateComponents(null), {});
+});
+
+test('batch leaves unchanged or newer installed versions alone and updates installed NVIDIA', () => {
+  const state = {installed: {'media-tools': '3.0.0'}, available: [
+    {id: 'media-tools', version: '2.0.0', newer: false},
+    {id: 'video-sync', version: '1.0.0', installed_version: '1.0.0', newer: false},
+    {id: 'gpu-cuda12', version: '1.0.1', installed_version: '1.0.0', newer: true},
+  ]};
+  assert.deepEqual(allUpdateComponents(state), {'gpu-cuda12': '1.0.1'});
+});
 
 const newer = {update_available: true, update_total_bytes: 48_200_000, restart_required: false,
   available: [

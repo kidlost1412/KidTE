@@ -531,7 +531,8 @@ class WorkspaceStore:
                 else "tiktok")
         except Exception:
             return ""
-        return self.privacy.key_hmac(key) if strength >= 2 else ""
+        safe = getattr(self.privacy, "safe_key_hmac", None) or self.privacy.key_hmac
+        return safe(key) if strength >= 2 else ""
 
     def forget_customer(self, key_hmac, *, exclude_legacy=True, identifiers=()):
         """F02: delete corrections/examples attributed to ``key_hmac``; hide legacy ones that mention the customer."""

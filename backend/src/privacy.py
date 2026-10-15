@@ -75,6 +75,9 @@ class PrivacyService:
             # bộ nhớ khách hàng coi mọi khách là "đã xoá" (fail-closed).
             self._secret = None
             self.unavailable_reason = str(exc)
+            import logging
+            logging.getLogger("kidte.privacy").warning(
+                "Bộ nhớ khách tạm tắt: khoá quyền riêng tư không đọc được (%s)", exc)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(self.db_path, timeout=5, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
@@ -136,6 +139,17 @@ class PrivacyService:
             tmp.unlink(missing_ok=True)
         return data
 
+    @property
+    def memory_available(self):
+        """False khi khoá HMAC không dùng được: bộ nhớ khách phải tắt hẳn."""
+        return self._secret is not None
+
+    def safe_key_hmac(self, customer_key):
+        try:
+            return self.key_hmac(customer_key)
+        except PrivacyUnavailableError:
+            return ""
+
     def _require_secret(self):
         if self._secret is None:
             raise PrivacyUnavailableError(self.unavailable_reason or "privacy_key_unavailable")
@@ -149,7 +163,9 @@ class PrivacyService:
         if not customer_key:
             return False
         if self._secret is None:
-            return True  # fail-closed: không biết khách đã xoá hay chưa
+            # Không biết → KHÔNG huỷ trả lời. Bộ nhớ khách tắt hẳn qua
+            # ``memory_available`` nên không "nhớ lại" ai.
+            return False
         digest = self.key_hmac(customer_key)
         with self._lock:
             return self._db.execute("SELECT 1 FROM privacy_tombstones WHERE key_hmac=?",

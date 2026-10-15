@@ -433,7 +433,7 @@ class CustomerMemory:
         if not wants_forget(comment):
             return False
         ident = self._identity(**identity)
-        if self.privacy is not None:
+        if self.privacy is not None and self.memory_available():
             self.privacy.forget(ident["customer_key"], memory=self,
                                 display_name=ident["display_name"],
                                 derived=self._derived(),
@@ -453,6 +453,10 @@ class CustomerMemory:
 
     def is_forgotten(self, customer_key):
         return self.privacy is not None and self.privacy.is_forgotten(customer_key)
+
+    def memory_available(self):
+        """False khi khoá quyền riêng tư hỏng: không ghi/không trả trí nhớ khách."""
+        return getattr(self.privacy, "memory_available", True) is not False
 
     def purge_customer(self, customer_key, display_name=""):
         ident = {"customer_key": customer_key, "display_name": display_name}
@@ -505,7 +509,7 @@ class CustomerMemory:
             # Never journal the plain key/name of someone who asked to be forgotten.
             self._append_journal(
                 "memory_deleted_by_customer",
-                key_hmac=(self.privacy.key_hmac(ident["customer_key"]) if self.privacy is not None else ""),
+                key_hmac=(self.privacy.safe_key_hmac(ident["customer_key"]) if self.privacy is not None else ""),
             )
 
     @staticmethod
@@ -603,7 +607,7 @@ class CustomerMemory:
                     }, ensure_ascii=False),
                 ),
             )
-            for fact_key, fact_value in facts.items():
+            for fact_key, fact_value in (facts.items() if self.memory_available() else ()):
                 self._db.execute(
                     """
                     INSERT INTO customer_facts (
@@ -921,7 +925,7 @@ class CustomerMemory:
                 "SELECT 1 FROM memory_opt_outs WHERE customer_key = ?",
                 (customer_key,),
             ).fetchone()
-            if opted_out or self.is_forgotten(customer_key):
+            if opted_out or self.is_forgotten(customer_key) or not self.memory_available():
                 return ""
             customer = self._db.execute(
                 """
@@ -1006,7 +1010,7 @@ class CustomerMemory:
             return None
         with self._lock:
             if self._db.execute("SELECT 1 FROM memory_opt_outs WHERE customer_key = ?",
-                                (customer_key,)).fetchone() or self.is_forgotten(customer_key):
+                                (customer_key,)).fetchone() or self.is_forgotten(customer_key)                     or not self.memory_available():
                 return None
             customer = self._db.execute(
                 "SELECT identity_strength FROM customers WHERE customer_key = ?", (customer_key,)).fetchone()

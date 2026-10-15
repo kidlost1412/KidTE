@@ -111,7 +111,10 @@ class CustomerHistory:
 
     def _is_forgotten(self, customer_key):
         check = getattr(self.memory, "is_forgotten", None)
+        available = getattr(self.memory, "memory_available", None)
         try:
+            if callable(available) and not available():
+                return True  # bộ nhớ khách tắt: không lập chỉ mục, không trả lịch sử
             return bool(check and check(customer_key))
         except Exception:
             return False

@@ -832,7 +832,17 @@ class ReplyEngine:
             "learning": self._learning_summary(),
             "ai_queue": self._ai_queue_summary(),
             "restore_v2_enabled": self._restore_v2_flag(),
+            "privacy": self._privacy_status(),
         }
+
+    def _privacy_status(self):
+        privacy = getattr(self, "privacy", None)
+        if privacy is None or getattr(privacy, "memory_available", True):
+            return {"memory_available": True, "warning": ""}
+        return {"memory_available": False,
+                "warning": "Bộ nhớ khách tạm tắt: khoá quyền riêng tư không đọc được. "
+                           "AI vẫn trả lời nhưng không nhớ khách; kiểm tra tệp data/machine/privacy_key.",
+                "detail": str(getattr(privacy, "unavailable_reason", ""))[:200]}
 
     def _restore_v2_flag(self):
         try:

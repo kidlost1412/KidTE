@@ -52,7 +52,8 @@ def test_privacy_key_only_created_when_absent(tmp_path):
     try:
         assert key.read_bytes() == b"short"  # không ghi đè
         assert service.unavailable_reason
-        assert service.is_forgotten("tiktok:abc") is True  # fail-closed
+        assert service.is_forgotten("tiktok:abc") is False  # không chặn trả lời
+        assert service.memory_available is False
         with pytest.raises(privacy.PrivacyUnavailableError):
             service.key_hmac("tiktok:abc")
     finally:
@@ -154,3 +155,36 @@ def test_launcher_missing_core_without_previous_falls_back_or_reports(tmp_path):
     (root / "KidTE.exe").write_bytes(b"baseline")
     update_launcher._recover_store(root, store)
     assert store.load_active() is None
+
+
+def test_broken_privacy_key_keeps_replies_but_disables_customer_memory(tmp_path):
+    from comment_queue import CommentQueue
+    from customer_memory import CustomerMemory
+    from delivery_store import DeliveryStore
+    import server
+
+    db = tmp_path / "db.sqlite3"
+    key = tmp_path / "machine" / "privacy_key"
+    key.parent.mkdir(parents=True)
+    key.write_bytes(b"bad")
+    service = privacy.PrivacyService(db, key)
+    memory = CustomerMemory(db, tmp_path / "journal", privacy=service)
+    queue = CommentQueue(db, privacy=service)
+    delivery = DeliveryStore(db, privacy=service)
+    try:
+        ck = memory.customer_key(platform_user_id="9")[0]
+        assert queue.enqueue("tiktok", "room", ck, {"comment_id": "1", "comment": "Giá?"})["state"] == "queued"
+        ref = memory.record_comment("tôi ở Cần Thơ, giá bao nhiêu?", platform_user_id="9")
+        assert ref["interaction_id"] and not ref.get("opted_out")
+        assert memory.db_path.exists()
+        with sqlite3.connect(db) as c:
+            assert c.execute("SELECT COUNT(*) FROM customer_facts").fetchone()[0] == 0
+        assert memory.context_for_reply(ck) == ""
+        assert memory.card_source(ck) is None
+        delivery.prepare("t1", "tiktok", "room", ref["interaction_id"], ["Dạ giá 100k ạ"])
+        assert memory.forget_if_requested("xóa dữ liệu của tôi", platform_user_id="9")
+        fake = type("E", (), {"privacy": service})()
+        status = server.ReplyEngine._privacy_status(fake)
+        assert status["memory_available"] is False and "Bộ nhớ khách tạm tắt" in status["warning"]
+    finally:
+        delivery.close(); queue.close(); memory.close(); service.close()

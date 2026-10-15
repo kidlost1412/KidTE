@@ -1,12 +1,17 @@
 import io
+from collections import namedtuple
 
 import pytest
 import video_analysis
+
+shutil_usage = namedtuple("usage", "free total used", defaults=(0, 0))
 
 
 @pytest.mark.parametrize("size", [50 * 1024**3, 100 * 1024**3])
 def test_large_video_metadata_and_resume_do_not_allocate_large_file(tmp_path, monkeypatch, size):
     monkeypatch.setattr(video_analysis, "_require_analysis_runtime", lambda: None)
+    monkeypatch.setattr(video_analysis.shutil, "disk_usage",
+                        lambda _p: shutil_usage(free=200 * 1024**3))
     manager = video_analysis.VideoAnalysisManager(root=tmp_path, catalog_provider=lambda: {
         "products": [{"product_id": "p", "title": "Product"}]})
     state = manager.start_upload("large.mp4", size, "a" * 64)

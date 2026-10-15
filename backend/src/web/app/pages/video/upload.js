@@ -1,5 +1,5 @@
 // Tải video lên để phân tích. Chunk 8 MB, tiếp nối đúng byte server đã
-// commit, xác minh cùng một file bằng vân tay nội dung (đầu + cuối 1 MB + cỡ).
+// commit, xác minh cùng một file bằng vân tay (đầu + cuối 1 MB + cỡ + tên + ngày sửa).
 import {request, ApiError} from '../../core/api.js';
 
 const CHUNK = 8 * 1024 * 1024;
@@ -8,10 +8,16 @@ export const ACCEPT = '.mp4,.mov,.mkv,.webm,.avi,.m4v';
 export const MAX_VIDEO_BYTES = 100 * 1024 ** 3;
 const EXT = /\.(mp4|mov|mkv|webm|avi|m4v)$/i;
 
-async function contentProbe(file) {
+// Video LIVE xuất lại có thể trùng đầu/cuối 1 MB và cùng cỡ; thêm tên và
+// lastModified để không nối nhầm vào phần đã tải của một file khác.
+export async function contentProbe(file) {
   const head = file.slice(0, Math.min(PROBE, file.size));
   const tail = file.slice(Math.max(0, file.size - PROBE));
-  const bytes = new Uint8Array(await new Blob([head, tail, String(file.size)]).arrayBuffer());
+  const identity = `
+${file.size}
+${file.name}
+${Number(file.lastModified) || 0}`;
+  const bytes = new Uint8Array(await new Blob([head, tail, identity]).arrayBuffer());
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 }

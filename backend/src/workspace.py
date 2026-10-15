@@ -734,6 +734,36 @@ class WorkspaceStore:
             rows.append(row)
         return rows
 
+    _TRANSCRIPT_COUNTS = OrderedDict()
+    _TRANSCRIPT_COUNTS_LOCK = threading.Lock()
+
+    @classmethod
+    def _transcript_segments(cls, transcript_path):
+        """Số đoạn chép lời, nhớ theo (đường dẫn, mtime_ns, cỡ) (F3).
+
+        Dashboard gọi _videos() mỗi 5 giây; bản cũ parse nguyên transcript.json
+        (vài MB mỗi video) chỉ để đếm đoạn.
+        """
+        try:
+            stat = transcript_path.stat()
+        except OSError:
+            return 0
+        key, signature = str(transcript_path), (stat.st_mtime_ns, stat.st_size)
+        with cls._TRANSCRIPT_COUNTS_LOCK:
+            entry = cls._TRANSCRIPT_COUNTS.get(key)
+            if entry is not None and entry[0] == signature:
+                return entry[1]
+        try:
+            count = len(json.loads(transcript_path.read_text(encoding="utf-8")).get("segments", []))
+        except (OSError, json.JSONDecodeError, TypeError):
+            return 0
+        with cls._TRANSCRIPT_COUNTS_LOCK:
+            cls._TRANSCRIPT_COUNTS[key] = (signature, count)
+            cls._TRANSCRIPT_COUNTS.move_to_end(key)
+            while len(cls._TRANSCRIPT_COUNTS) > 1024:
+                cls._TRANSCRIPT_COUNTS.popitem(last=False)
+        return count
+
     def _videos(self):
         rows, hashes, source_names = [], {}, {}
         trashed = self._trashed_ids("videos")
@@ -754,13 +784,8 @@ class WorkspaceStore:
             source_key = "".join(ch for ch in Path(source_file).stem.casefold() if ch.isalnum())
             if source_key:
                 source_names.setdefault(source_key, []).append(item["video_id"])
-            transcript_path = VIDEO_DIR / item["video_id"] / "transcript.json"
-            transcript_segments = 0
-            if transcript_path.exists():
-                try:
-                    transcript_segments = len(json.loads(transcript_path.read_text(encoding="utf-8")).get("segments", []))
-                except (OSError, json.JSONDecodeError, TypeError):
-                    pass
+            transcript_segments = self._transcript_segments(
+                VIDEO_DIR / item["video_id"] / "transcript.json")
             # Lúc lịch ghim được ghi lần cuối — Studio hiện "Đã áp dụng lúc …".
             try:
                 applied_at = datetime.fromtimestamp(
@@ -857,24 +882,74 @@ class WorkspaceStore:
         except (TypeError, ValueError):
             return 0.0
 
-    def _read_raw_rows(self):
+    def _parse_raw_lines(self, path, lines, first_number):
         rows = []
-        for path in sorted((LOG_DIR / "raw_stream").glob("stream_*.jsonl")):
+        for number, line in enumerate(lines, first_number):
             try:
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError:
+                item = json.loads(line)
+            except json.JSONDecodeError:
                 continue
-            for number, line in enumerate(lines, 1):
+            if not isinstance(item, dict):
+                continue
+            stable = str(item.get("msg_id") or f"{path.name}:{number}:{line}")
+            rows.append({"id": hashlib.sha256(stable.encode("utf-8")).hexdigest()[:24],
+                         "source_file": path.name, "source_line": number,
+                         "_at": self._parse_at(item.get("ts")), **item})
+        return rows
+
+    _RAW_HEAD_BYTES = 256
+
+    def _read_raw_rows(self):
+        """Đọc stream_*.jsonl TIẾP THEO OFFSET (F2), như customer_history._refresh.
+
+        Mỗi tệp nhớ offset tới dòng trọn cuối cùng, số dòng và các dòng đã
+        parse; lần sau chỉ đọc phần mới nối thêm. Tệp bị thu nhỏ hoặc bị ghi
+        lại (đầu tệp khác) thì đọc lại từ đầu. Dòng dở dang cuối tệp (chưa có
+        xuống dòng) được parse mỗi lần nhưng không chốt offset. Kết quả giống
+        hệt bản đọc toàn bộ: cùng số dòng, cùng id, cùng thứ tự.
+        """
+        state = self.__dict__.setdefault("_raw_files", {})
+        lock = self.__dict__.setdefault("_raw_files_lock", threading.Lock())
+        rows = []
+        with lock:
+            paths = sorted((LOG_DIR / "raw_stream").glob("stream_*.jsonl"))
+            alive = set()
+            for path in paths:
+                key = str(path)
+                alive.add(key)
                 try:
-                    item = json.loads(line)
-                except json.JSONDecodeError:
+                    with path.open("rb") as stream:
+                        size = os.fstat(stream.fileno()).st_size
+                        entry = state.get(key)
+                        if entry is not None:
+                            head = stream.read(min(len(entry["head"]), size))
+                            if size < entry["offset"] or head != entry["head"]:
+                                entry = None
+                        if entry is None:
+                            entry = {"offset": 0, "count": 0, "rows": [], "head": b""}
+                        stream.seek(entry["offset"])
+                        data = stream.read(max(0, size - entry["offset"]))
+                except OSError:
+                    state.pop(key, None)
                     continue
-                if not isinstance(item, dict):
-                    continue
-                stable = str(item.get("msg_id") or f"{path.name}:{number}:{line}")
-                rows.append({"id": hashlib.sha256(stable.encode("utf-8")).hexdigest()[:24],
-                             "source_file": path.name, "source_line": number,
-                             "_at": self._parse_at(item.get("ts")), **item})
+                cut = data.rfind(b"\n") + 1
+                if cut:
+                    lines = data[:cut].decode("utf-8", errors="replace").splitlines()
+                    entry["rows"].extend(self._parse_raw_lines(path, lines, entry["count"] + 1))
+                    entry["count"] += len(lines)
+                    if len(entry["head"]) < self._RAW_HEAD_BYTES:
+                        need = self._RAW_HEAD_BYTES - len(entry["head"])
+                        entry["head"] += data[:cut][:need]
+                    entry["offset"] += cut
+                state[key] = entry
+                rows.extend(dict(row) for row in entry["rows"])
+                tail = data[cut:]
+                if tail:
+                    lines = tail.decode("utf-8", errors="replace").splitlines()
+                    rows.extend(self._parse_raw_lines(path, lines, entry["count"] + 1))
+            for key in list(state):
+                if key not in alive:
+                    del state[key]
         rows.sort(key=lambda row: (row["_at"], row["source_file"], row["source_line"]))
         return rows
 
@@ -1006,18 +1081,40 @@ class WorkspaceStore:
         if not hasattr(self, "_memo"):
             self._memo = {}
         self._memo[key] = (signature, time.monotonic(), list(value))
+        self.__dict__.setdefault("_memo_stale", {})[key] = list(value)
 
     def invalidate_memo(self):
         getattr(self, "_memo", {}).clear()
+        # Sau một lần ghi của người dùng không được trả bản cũ.
+        getattr(self, "_memo_stale", {}).clear()
 
-    def _raw_events(self):
-        cached = self._memo_get(("raw",))
+    _MEMO_FLIGHT_GUARD = threading.Lock()
+
+    def _memo_build(self, key, builder):
+        """Single-flight (F2): một luồng dựng; luồng khác trong lúc đó dùng
+        bản dựng trước (nếu có) thay vì cùng dựng lại toàn bộ lịch sử."""
+        cached = self._memo_get(key)
         if cached is not None:
             return cached
-        signature = self._input_signature()
-        rows = self._raw_events_uncached()
-        self._memo_put(("raw",), rows, signature)
-        return rows
+        with self._MEMO_FLIGHT_GUARD:
+            flight = self.__dict__.setdefault("_memo_flights", {}).setdefault(
+                key, threading.Lock())
+        stale = getattr(self, "_memo_stale", {}).get(key)
+        if not flight.acquire(blocking=stale is None):
+            return list(stale)
+        try:
+            cached = self._memo_get(key)
+            if cached is not None:
+                return cached
+            signature = self._input_signature()
+            value = builder()
+            self._memo_put(key, value, signature)
+            return value
+        finally:
+            flight.release()
+
+    def _raw_events(self):
+        return self._memo_build(("raw",), self._raw_events_uncached)
 
     def _raw_events_uncached(self):
         raw_rows = self._read_raw_rows()
@@ -1164,14 +1261,8 @@ class WorkspaceStore:
         return dict(row) if row else None
 
     def _derived_live_rows(self, resource):
-        key = ("derived", resource)
-        cached = self._memo_get(key)
-        if cached is not None:
-            return cached
-        signature = self._input_signature()
-        result = self._derived_live_rows_uncached(resource)
-        self._memo_put(key, result, signature)
-        return result
+        return self._memo_build(("derived", resource),
+                                lambda: self._derived_live_rows_uncached(resource))
 
     FACT_LABELS = {
         "cay_trong": "Cây trồng", "dien_tich": "Diện tích", "quy_mo": "Quy mô", "van_de": "Vấn đề đang gặp",
@@ -1888,13 +1979,9 @@ class WorkspaceStore:
         tu tra ve, nen moi con so deu tran o 100 khi du lieu lon hon. Cac phep
         dem o day chay tren tap da loai thung rac, giong het bo loc cua list().
         """
-        cached = self._memo_get(("totals",))   # cung chu ky + TTL 15s voi cac ban dung khac
-        if cached:
-            return dict(cached[0])
-        signature = self._input_signature()
-        result = self._totals_uncached()
-        self._memo_put(("totals",), [result], signature)
-        return dict(result)
+        # cung chu ky + TTL 15s voi cac ban dung khac; single-flight
+        cached = self._memo_build(("totals",), lambda: [self._totals_uncached()])
+        return dict(cached[0])
 
     def _totals_uncached(self):
         conversations = self._live_rows("conversations")

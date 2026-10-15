@@ -107,6 +107,14 @@ def has_prompt_override():
     return False
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069]+")
+
+
+def _one_line(value, limit):
+    """Nickname/bình luận là dữ liệu của khách: bỏ xuống dòng/ký tự điều khiển để không giả được dòng chỉ thị (C3)."""
+    return re.sub(r"\s{2,}", " ", _CONTROL.sub(" ", str(value or ""))).strip()[:limit]
+
+
 def _trim_reply(value, limit):
     text = clean(value, limit * 3)
     text = re.sub(r"^\s*@[^\s]+\s+", "", text)
@@ -425,7 +433,7 @@ class DeepSeekResponder:
         messages.append({"role": "user", "content": (
             "DỮ LIỆU VÀ NGỮ CẢNH CHO LƯỢT NÀY (đọc đúng mức chắc chắn ghi trong từng trường):\n"
             + json.dumps(turn, ensure_ascii=False, separators=(",", ":"))
-            + f"\nKHÁCH {nickname}: {comment}\n"
+            + f"\nKHÁCH {_one_line(nickname, 160)}: {_one_line(comment, 2000)}\n"
             + (f"Viết đủ ý trong 1–3 messages, thường 1–2 tin; mỗi tin tối đa {max_chars} đơn vị UTF-16. "
                "Giới hạn áp dụng từng tin, không áp dụng tổng lượt. Không tách điều kiện khỏi hướng dẫn. " if multi else
                f"Độ dài reply: viết TRỌN Ý trong khoảng {max(1, int(max_chars * .75))} đơn vị UTF-16, "

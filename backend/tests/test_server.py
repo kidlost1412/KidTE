@@ -936,6 +936,47 @@ class CatalogGuardTests(unittest.TestCase):
         self.assertEqual(current["products"], [])
 
 
+    def test_prelive_snapshot_saves_phase_and_owner(self):
+        store = LiveCatalogStore()
+        store.snapshot = {}
+        saved = store.sync({"room_id": "", "phase": "prelive", "host": {"user_id": "777"},
+                            "products": [{"product_id": "a1"}]})
+        self.assertEqual(saved["phase"], "prelive")
+        self.assertEqual(saved["owner_key"], "uid:777")
+        self.assertEqual(saved["product_count"], 1)
+        live = store.sync({"room_id": "r9", "host": {"user_id": "777"}, "products": [{"product_id": "b1"}]})
+        self.assertEqual(live["phase"], "live")
+        self.assertEqual(live["products"][0]["product_id"], "b1")
+
+    def test_prelive_does_not_overwrite_active_live_same_owner(self):
+        store = LiveCatalogStore()
+        store.snapshot = {}
+        store.sync({"room_id": "r1", "host": {"user_id": "777"}, "products": [{"product_id": "p1"}]})
+        kept = store.sync({"room_id": "", "phase": "prelive", "host": {"user_id": "777"},
+                           "products": [{"product_id": "x1"}]})
+        self.assertEqual(kept["skipped"], "live_active")
+        self.assertEqual(store.snapshot["room_id"], "r1")
+        self.assertEqual(store.snapshot["products"][0]["product_id"], "p1")
+        # Phiên LIVE cũ (>10 phút) thì giỏ prelive được thay.
+        stale = dict(store._snapshot)
+        stale["synced_at"] = "2000-01-01T00:00:00+07:00"
+        store.snapshot = stale
+        fresh = store.sync({"room_id": "", "phase": "prelive", "host": {"user_id": "777"},
+                            "products": [{"product_id": "x1"}]})
+        self.assertNotIn("skipped", fresh)
+        self.assertEqual(fresh["products"][0]["product_id"], "x1")
+
+    def test_other_owner_replaces_catalog_with_warning(self):
+        store = LiveCatalogStore()
+        store.snapshot = {}
+        store.sync({"room_id": "r1", "host": {"user_id": "777"}, "products": [{"product_id": "p1"}]})
+        with self.assertLogs("kid-te.core", level="WARNING"):
+            other = store.sync({"room_id": "", "phase": "prelive", "host": {"user_id": "888"},
+                                "products": [{"product_id": "z1"}]})
+        self.assertEqual(other["owner_key"], "uid:888")
+        self.assertEqual(other["products"][0]["product_id"], "z1")
+
+
 class PricePolicyUnitTests(unittest.TestCase):
     def test_quotable_price_prefers_original_and_hides_sale(self):
         context = price_context({"original_price": "289.000₫", "sale_price": "226.380₫"})

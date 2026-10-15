@@ -334,14 +334,14 @@ class LiveCatalogStore:
         # Every reader receives the filtered snapshot property above.
         products = snapshot.get("products") or []
         incoming_room = clean(snapshot.get("room_id"), 160)
-        if not products:
-            with self._lock:
-                if self.snapshot.get("products") and (not incoming_room or self.snapshot.get("room_id") == incoming_room):
-                    return dict(self.snapshot)
+        phase = "live" if incoming_room else (clean(snapshot.get("phase"), 20) or "prelive")
+        owner_key = self._owner_key(snapshot.get("host") or snapshot.get("owner"))
         compact = {
             "schema_version": 1,
             "synced_at": now_iso(),
             "room_id": incoming_room,
+            "phase": phase,
+            "owner_key": owner_key,
             "pin_id": clean(snapshot.get("pin_id"), 160),
             "product_count": len(products),
             "price_policy": (
@@ -357,6 +357,22 @@ class LiveCatalogStore:
             "raw_api_data": snapshot.get("raw_api_data") or {},
         }
         with self._lock:
+            # Quyết định bỏ qua và ghi nằm cùng một khoá (tránh 2 sync đè sai).
+            current = dict(getattr(self, "_snapshot", {}) or {})
+            current_owner = clean(current.get("owner_key"), 200)
+            if owner_key and current_owner and owner_key != current_owner and products:
+                logging.getLogger("kid-te.core").warning(
+                    "catalog owner changed (%s -> %s); replacing catalog", current_owner[:12], owner_key[:12])
+            if (not incoming_room and current.get("room_id") and current.get("products")
+                    and (not owner_key or not current_owner or owner_key == current_owner)
+                    and self._age_seconds(current.get("synced_at")) < self.LIVE_ACTIVE_SECONDS):
+                # Giỏ prelive không được đè catalog của phiên LIVE còn hoạt động.
+                kept = dict(self.snapshot)
+                kept["skipped"] = "live_active"
+                return kept
+            if not products and self.snapshot.get("products") and (
+                    not incoming_room or self.snapshot.get("room_id") == incoming_room):
+                return dict(self.snapshot)
             # Chỉ chạm đĩa khi nội dung thật sự đổi: trước đây mỗi bình luận
             # ghi lại ~22KB, cộng 125KB raw mỗi lần extension thử cài lại.
             changed = self._fingerprint(compact) != self._fingerprint(self._snapshot)
@@ -366,6 +382,27 @@ class LiveCatalogStore:
             if raw["raw_api_data"]:
                 atomic_json(LIVE_RAW_CATALOG_PATH, raw)
         return self.snapshot
+
+    LIVE_ACTIVE_SECONDS = 600
+
+    @staticmethod
+    def _owner_key(host):
+        if not isinstance(host, dict):
+            return ""
+        for field, prefix in (("user_id", "uid"), ("sec_uid", "sec"), ("unique_id", "handle")):
+            value = clean(host.get(field), 160)
+            if value:
+                return f"{prefix}:{value.lower() if field == 'unique_id' else value}"
+        return ""
+
+    @staticmethod
+    def _age_seconds(stamp):
+        try:
+            then = datetime.fromisoformat(str(stamp))
+            now = datetime.now(then.tzinfo) if then.tzinfo else datetime.now()
+            return (now - then).total_seconds()
+        except (TypeError, ValueError):
+            return float("inf")
 
     @staticmethod
     def _fingerprint(snapshot):
@@ -2313,7 +2350,11 @@ class ReplyEngine:
     def sync_catalog(self, snapshot):
         saved = self.catalog.sync(snapshot)
         self.workspace._touch("products", "catalog", "dashboard")
-        return {"ok": True, "product_count": saved["product_count"], "synced_at": saved["synced_at"]}
+        result = {"ok": True, "product_count": saved["product_count"], "synced_at": saved["synced_at"],
+                  "phase": saved.get("phase", "")}
+        if saved.get("skipped"):
+            result["skipped"] = saved["skipped"]
+        return result
 
     def acknowledge_reply(self, payload):
         interaction_id = clean(payload.get("interaction_id"), 160)

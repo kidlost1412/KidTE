@@ -1095,6 +1095,10 @@ function noteSendFailure(detail) {
     if (Number(catalog.product_count || 0) <= 0) {
       throw new Error("API TikTok chưa trả về danh sách sản phẩm; AI vẫn tắt");
     }
+    if (!catalog.live_room_id) {
+      // Giỏ trước LIVE đã lưu nhưng chưa có room_id: không bật AI trả lời bình luận.
+      throw new Error(`Chưa LIVE: đã lưu giỏ ${Number(catalog.product_count || 0)} sản phẩm, AI chờ có phòng LIVE`);
+    }
     aiReady = true;
     await setStatus(
       `AI đã sẵn sàng · đã lưu ${Number(catalog.product_count || 0)} sản phẩm từ API TikTok`,
@@ -1119,7 +1123,12 @@ function noteSendFailure(detail) {
       payload: { live_context: snapshot.snapshot || {} }
     });
     if (!catalog?.ok) throw new Error(catalog?.error || "Không đồng bộ được danh mục LIVE");
-    return catalog;
+    const context = snapshot.snapshot || {};
+    return {
+      ...catalog,
+      live_room_id: String(context.room_id || ""),
+      live_phase: context.room_id ? "live" : String(context.phase || "prelive")
+    };
   }
 
   async function applyEnabled(value) {
@@ -1191,11 +1200,21 @@ function noteSendFailure(detail) {
     }
   }, 10000);
 
+  // Làm mới giỏ định kỳ cả khi AI tắt hoặc chưa LIVE (giỏ prelive).
+  // Khi AI tắt chỉ tab dashboard giỏ LIVE đang hiển thị mới tự làm mới,
+  // để nhiều tab shop.tiktok.com không cùng gọi API và ghi đè giỏ lẫn nhau.
+  function shouldPeriodicSync() {
+    if (enabled && aiReady) return true;
+    const path = String(globalThis.location?.pathname || "");
+    const visible = globalThis.document?.visibilityState === "visible";
+    return path.startsWith("/streamer/live/product/dashboard") && visible;
+  }
+
   setInterval(() => {
-    if (enabled && aiReady) syncCatalog(false).catch((error) => setStatus(
-      `Lỗi làm mới danh mục: ${clean(error?.message || error, 180)}`,
-      false
-    ));
+    if (!shouldPeriodicSync()) return;
+    syncCatalog(false).catch((error) => {
+      if (enabled) setStatus(`Lỗi làm mới danh mục: ${clean(error?.message || error, 180)}`, false);
+    });
   }, 60000);
 
   // Quet chu dong truoc LIVE, doc lap voi nut Bật AI va dong ho ghim.
@@ -1224,6 +1243,7 @@ function noteSendFailure(detail) {
       getObserveQueue: () => observeQueue.slice(),
       applyPrivacyPurge,
       sendHeartbeat,
+      shouldPeriodicSync,
       setRuntimeForTest: (patch = {}) => {
         if (patch.enabled !== undefined) enabled = patch.enabled;
         if (patch.aiReady !== undefined) aiReady = patch.aiReady;

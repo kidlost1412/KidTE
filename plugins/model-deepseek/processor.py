@@ -35,6 +35,12 @@ SETTINGS_SCHEMA = [
      "group": "Câu trả lời", "label": "Độ sáng tạo (temperature)",
      "help": "Thấp (0,2–0,4): câu an toàn nhưng lặp khuôn. 0,8: tự nhiên mà vẫn bám dữ kiện. "
              "Trên 1,1: đa dạng hơn, dễ nói lan man. Chỉ áp dụng khi tắt chế độ suy nghĩ."},
+    {"key": "phat_lap_y", "type": "number", "default": 0.35, "min": 0, "max": 1, "step": 0.05,
+     "group": "Câu trả lời", "label": "Tránh lặp ý/chữ đã dùng (presence_penalty)",
+     "help": "0,3–0,4: câu đa dạng hơn mà vẫn bám dữ kiện. 0 để tắt. Chỉ áp dụng khi tắt chế độ suy nghĩ."},
+    {"key": "phat_lap_tu", "type": "number", "default": 0.3, "min": 0, "max": 1, "step": 0.05,
+     "group": "Câu trả lời", "label": "Tránh lặp cùng một từ (frequency_penalty)",
+     "help": "0,3–0,4 là vừa. 0 để tắt. Chỉ áp dụng khi tắt chế độ suy nghĩ."},
     {"key": "suy_nghi", "type": "bool", "default": not DEEPSEEK_DISABLE_THINKING, "group": "Suy nghĩ",
      "label": "Bật chế độ suy nghĩ khi trả lời khách",
      "help": "Bật thì câu khó (liều, so sánh) chắc hơn nhưng chậm 3–10 giây và tốn hơn. "
@@ -94,6 +100,22 @@ def system_prompt():
     notes = ai_notes()
     base = prompt_view.base_rules_text(default_system_prompt())
     return base + (f"\n\n{NOTES_HEADER}\n{notes}" if notes else "")
+
+
+def _non_thinking_sampling(inference):
+    """Tham số lấy mẫu cho chế độ KHÔNG suy nghĩ. DeepSeek (OpenAI-compatible) nhận
+    presence_penalty/frequency_penalty ở non-thinking; chế độ thinking bỏ qua nên không gửi."""
+    inference["temperature"] = SETTINGS["nhiet_do"]
+    for key, name in (("phat_lap_y", "presence_penalty"), ("phat_lap_tu", "frequency_penalty")):
+        try:
+            value = max(0.0, min(2.0, float(SETTINGS.get(key) or 0)))
+        except (TypeError, ValueError):
+            value = 0.0
+        if value:
+            inference[name] = value
+        else:
+            inference.pop(name, None)
+    return inference
 
 
 def compose_system(task=REPLY_TASK, *extra):
@@ -386,7 +408,7 @@ class DeepSeekResponder:
         ]
         retry.pop("reasoning_effort", None)
         retry["extra_body"] = {"thinking": {"type": "disabled"}}
-        retry["temperature"] = SETTINGS["nhiet_do"]
+        _non_thinking_sampling(retry)
         started = time.monotonic()
         try:
             response = self.client.chat.completions.create(**retry)
@@ -453,7 +475,7 @@ class DeepSeekResponder:
                      "response_format": {"type": "json_object"},
                      "extra_body": {"thinking": {"type": "disabled" if tat_suy_nghi else "enabled"}}}
         if tat_suy_nghi:
-            inference["temperature"] = SETTINGS["nhiet_do"]
+            _non_thinking_sampling(inference)
         else:
             configured = muc_suy_nghi if muc_suy_nghi in {"low", "high", "max"} else "high"
             # An approved arithmetic conversion still uses thinking, but low
@@ -517,7 +539,7 @@ class DeepSeekResponder:
             elif step == "off":
                 inference.pop("reasoning_effort", None)
                 inference["extra_body"] = {"thinking": {"type": "disabled"}}
-                inference["temperature"] = SETTINGS["nhiet_do"]
+                _non_thinking_sampling(inference)
             else:
                 inference["reasoning_effort"] = step
             try:
@@ -567,7 +589,7 @@ class DeepSeekResponder:
                     f'Viết lại đủ ý trong 1–3 messages, mỗi tin tối đa {max_chars} đơn vị UTF-16. Không cắt chuỗi. Trả JSON action/messages.'}]
                 retry.pop('reasoning_effort', None)
                 retry['extra_body'] = {'thinking': {'type': 'disabled'}}
-                retry['temperature'] = SETTINGS['nhiet_do']
+                _non_thinking_sampling(retry)
                 try:
                     rewritten = self.client.chat.completions.create(**retry)
                     result = json.loads(rewritten.choices[0].message.content or '{}')

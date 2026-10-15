@@ -55,7 +55,7 @@ PRICE_QUESTION = re.compile(r"\b(?:gia|bao (?:nhieu|nhu|nhiu|tien)|bn|nhieu tien
 PROMOTION_QUESTION = re.compile(r"\b(?:tang|khuyen mai|qua|uu dai|mua \d+)\b")
 
 
-from dose_selection import (DOSE_RULE_NOTE, DOSE_HANDOFF, usable_dose_rules,
+from dose_selection import (DOSE_RULE_NOTE, DOSE_HANDOFF, dose_handoff, usable_dose_rules,
     reply_dose_numbers_ok, select_dose_rule, clarify_listing, clarify_count_for)
 
 
@@ -328,7 +328,7 @@ class ShopeeAiEngine:
         if self.dose_rule_source is not None and KnowledgeBase.intents(comment)['dose']:
             dose_gate = self._dose_rule_gate(key, nickname, comment, context, product_id)
             if dose_gate and dose_gate.get('handoff'):
-                return self._prepare_reply(session_id, nickname, DOSE_HANDOFF, ref, record, title,
+                return self._prepare_reply(session_id, nickname, dose_handoff(), ref, record, title,
                     product_id, metrics={}, reply_source="dose_handoff")
         documents = getattr(self.owner, "documents", None)
         if documents is not None and not lane:
@@ -382,7 +382,7 @@ class ShopeeAiEngine:
                 result = self._call_model(key, nickname, comment, context, body_limit, system_override=system,
                     correction="Chỉ được nêu liều đúng bằng verified_dose_calculations; không tự tính hay nêu số liều khác.")
                 if result.get("action") != "reply" or not reply_dose_numbers_ok(clean(result.get("reply"), 2000), dose_gate['rows']):
-                    return self._prepare_reply(session_id, nickname, DOSE_HANDOFF, ref, record, title,
+                    return self._prepare_reply(session_id, nickname, dose_handoff(), ref, record, title,
                         product_id, metrics={}, reply_source="dose_handoff")
         schema = reply_schema.safe_normalize(result)
         # Schema chỉ bổ sung; đầu ra không chuẩn hoá được vẫn đi đường cũ (kiểm tra cũ bên dưới giữ nguyên).

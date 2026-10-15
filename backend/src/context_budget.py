@@ -16,7 +16,8 @@ FLAGS_PATH = DATA_DIR / "machine" / "context_budget.json"
 # Gói C: persona_all_lanes = làn xã giao dùng CÙNG nền cố định như làn đầy đủ (giữ giọng/quy tắc);
 # customer_card = thẻ khách `the_khach`; playbook = sổ tay tình huống (sales_playbook).
 DEFAULT_FLAGS = {"smalltalk_lane": True, "intent_fields": True, "compact_catalog": True,
-                 "persona_all_lanes": True, "customer_card": True, "playbook": True}
+                 "persona_all_lanes": True, "customer_card": True, "playbook": True,
+                 "reply_angles": True}
 _log = logging.getLogger("kid-te.core")
 _cache = {"key": None, "flags": dict(DEFAULT_FLAGS)}
 

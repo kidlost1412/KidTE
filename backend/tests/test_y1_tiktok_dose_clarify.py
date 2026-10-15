@@ -115,7 +115,7 @@ def test_foreign_rule_rejected_then_handoff(engine):
     foreign = _rule(engine, True, sku="SP-99", amount=99)
     engine.responder.selections = [{"rule_id": foreign, "params": {"volume": 16, "unit": "l"}}] * 2
     out = _dose(engine, "d4")
-    assert out["should_send"] and out["reply"] == dose_selection.DOSE_HANDOFF
+    assert out["should_send"] and out["reply"] in dose_selection.DOSE_HANDOFFS
     assert len(_asks(engine)) == 2
 
 
@@ -132,13 +132,13 @@ def test_single_correction_then_valid(engine):
 def test_wrong_volume_rejected(engine):
     good = _rule(engine, True)
     engine.responder.selections = [{"rule_id": good, "params": {"volume": 20, "unit": "l"}}] * 2
-    assert _dose(engine, "d6")["reply"] == dose_selection.DOSE_HANDOFF
+    assert _dose(engine, "d6")["reply"] in dose_selection.DOSE_HANDOFFS
 
 
 def test_wrong_number_in_reply_is_replaced(engine):
     _rule(engine, True)
     engine.responder.final = "Pha 50ml cho bình 16 lít nha."
-    assert _dose(engine, "d7")["reply"] == dose_selection.DOSE_HANDOFF
+    assert _dose(engine, "d7")["reply"] in dose_selection.DOSE_HANDOFFS
 
 
 def test_shared_functions_are_the_shopee_ones():

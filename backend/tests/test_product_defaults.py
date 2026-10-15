@@ -243,3 +243,17 @@ class IncomingBundleGuardTests(DefaultTests):
         self.assertTrue(rec["approved_for_live"])
         self.assertEqual(rec["gia_goc_duyet"], "secret price")
         self.assertEqual(out["skipped_existing"], 1)
+
+    def test_orphan_approved_mapping_does_not_activate_new_profile(self):
+        mapping = self.root / "data/machine/mapping.json"
+        mapping.parent.mkdir(parents=True, exist_ok=True)
+        mapping.write_text(json.dumps({"assignments": {"sku-1": {
+            "product_code": "X", "approved_for_live": True}}}), encoding="utf-8")
+        row = {**self.source, "san_pham_id": "X"}
+        row.pop("shop_product_ids")
+        out = self.service.choose({"mode": "default", "source": self._bundle_file([row])})
+        self.k.reload()
+        self.assertIn("X", {r["san_pham_id"] for r in self.k.all_records()})
+        self.assertNotIn("X", self.k.approved_product_codes())
+        self.assertNotIn("sku-1", self.k.by_shop_id)
+        self.assertEqual(out["unmapped_stale"], 1)

@@ -240,6 +240,38 @@ class DefaultProfiles:
             "excluded": errors,
         }
 
+    @staticmethod
+    def _drop_stale_mappings(mapping_path, new_ids):
+        """Gỡ ánh xạ SKU mồ côi trỏ tới mã hồ sơ vừa nạp.
+
+        Duyệt = gắn SKU. Một dòng ánh xạ cũ (đã duyệt) trỏ tới mã chưa tồn tại
+        sẽ khiến hồ sơ mới nạp lên LIVE mà chủ shop chưa xem; gỡ hẳn dòng đó
+        (như khi gán rỗng trong _apply_machine_mapping) để chủ shop gắn lại.
+        """
+        if not mapping_path or not new_ids or not mapping_path.is_file():
+            return 0
+        raw = json.loads(mapping_path.read_text(encoding="utf-8"))
+        current = raw.get("assignments") if isinstance(raw, dict) else None
+        if not isinstance(current, dict):
+            return 0
+        kept = {
+            sid: a
+            for sid, a in current.items()
+            if not (isinstance(a, dict) and a.get("product_code") in new_ids)
+        }
+        removed = len(current) - len(kept)
+        if removed:
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            history = raw.get("history") if isinstance(raw.get("history"), list) else []
+            history.append(
+                {"changed_at": stamp, "reason": "default_profiles_stale_mapping",
+                 "assignments": current}
+            )
+            raw["history"] = history[-50:]
+            raw["assignments"] = kept
+            _atomic_json(mapping_path, raw)
+        return removed
+
     @_serialized_write
     def choose(self, payload):
         mode = payload.get("mode")
@@ -295,8 +327,19 @@ class DefaultProfiles:
                 continue
             photos[rid] = _webp_800(normalize_image(data, max_side=800))
         before = target.read_bytes() if target.exists() else None
+        mapping_path = getattr(self.engine.knowledge, "mapping_path", None)
+        mapping_path = Path(mapping_path) if mapping_path else None
+        mapping_before = (
+            mapping_path.read_bytes()
+            if mapping_path and mapping_path.exists()
+            else None
+        )
+        unmapped = 0
         previous_photos = {}
         try:
+            unmapped = self._drop_stale_mappings(
+                mapping_path, {r["san_pham_id"] for r in new_rows}
+            )
             for rid, data in photos.items():
                 path = self.ingest.staged_image_path(rid, create=True)
                 if path.exists():
@@ -319,6 +362,10 @@ class DefaultProfiles:
                 tmp.replace(target)
             for path in previous_photos:
                 path.unlink(missing_ok=True)
+            if mapping_path and mapping_before is not None:
+                tmp = mapping_path.with_suffix(".rollback")
+                tmp.write_bytes(mapping_before)
+                tmp.replace(mapping_path)
             self.engine.knowledge.reload()
             raise
         self.engine.workspace._touch("profiles", "products", "dashboard")
@@ -328,5 +375,6 @@ class DefaultProfiles:
             "products": sum(r.get("reference_only") is not True for r in new_rows),
             "pending_approval": len(new_rows),
             "skipped_existing": len(skipped),
+            "unmapped_stale": unmapped,
             "images": len(photos),
         }

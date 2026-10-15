@@ -810,12 +810,16 @@ class ReplyEngine:
         # thi raw_stream_rows, business_session_count, ai_replied, manual_replied
         # va unanswered deu bi cat cung o 100.
         totals, review_jobs = {}, []
+        video_library = None
         session_error = ""
         try:
             totals = self.workspace.totals()
             review_jobs = [row for row in self.video_analysis_jobs().get("jobs", [])
                            if row.get("state") == "review"]
-            active_video_ids = {row["id"] for row in self.workspace._videos()}
+            video_rows = self.workspace._videos()
+            active_video_ids = {row["id"] for row in video_rows}
+            video_library = {"count": len(video_rows),
+                             "ready": sum(1 for row in video_rows if (row.get("events") or 0) > 0)}
             if video and video.get("video_id") not in active_video_ids:
                 video = {**video, "state": "unavailable", "reason": "video_no_longer_in_library",
                          "video_id": "", "position_s": None, "margin": None}
@@ -823,7 +827,7 @@ class ReplyEngine:
             # Khong nuot loi thanh so 0: UI phai phan biet "chua doc duoc"
             # voi "that su bang 0".
             session_error = f"{type(exc).__name__}: {exc}"[:200]
-        return {
+        state = {
             "ok": True,
             "backend": {"state": "ready", "started_at": self.started_at},
             "captcha": self.captcha.status(),
@@ -856,6 +860,7 @@ class ReplyEngine:
             "video": video,
             "live_channels": self.live_channels(),
             "video_review": {"pending_jobs": len(review_jobs),
+                             "first_job_id": str(review_jobs[0].get("job_id") or "") if review_jobs else "",
                              "pending_events": sum((row.get("suggestions") or 0) for row in review_jobs)},
             "extension": extension,
             "recent_activity": self.workspace.recent_activity(),
@@ -864,6 +869,26 @@ class ReplyEngine:
             "restore_v2_enabled": self._restore_v2_flag(),
             "privacy": self._privacy_status(),
         }
+        try:
+            from live_readiness import build_readiness
+            state["readiness"] = build_readiness(state, {"video_library": video_library,
+                                                         "whisper_ready": self._whisper_ready_cached()})
+        except Exception as exc:
+            state["readiness"] = {"ok": False, "error": type(exc).__name__}
+        return state
+
+    def _whisper_ready_cached(self):
+        """Model chép lời đã có chưa; đọc đĩa tối đa 1 lần/60 s."""
+        cached = getattr(self, "_whisper_ready_cache", None)
+        if cached and time.monotonic() - cached[0] < 60:
+            return cached[1]
+        try:
+            import whisper_models
+            ready = bool(whisper_models.active_model_path())
+        except Exception:
+            ready = None
+        self._whisper_ready_cache = (time.monotonic(), ready)
+        return ready
 
     def _privacy_status(self):
         privacy = getattr(self, "privacy", None)
@@ -4612,6 +4637,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(403, {"ok": False, "error": "local_only"})
                 return
             self.send_json(200, self.engine.dashboard_state())
+        elif route == "/api/live/readiness":
+            if not self.local_tool_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
+            self.send_json(200, self.engine.dashboard_state().get("readiness") or {"ok": False})
         elif route == "/api/captcha":
             if not self.local_tool_request():
                 self.send_json(403, {"ok": False, "error": "local_only"})

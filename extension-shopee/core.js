@@ -99,5 +99,19 @@
       return false;
     });
   }
-  return { desired, liveSession, findLiveTab, purgeFold, purgeMentions };
+  // Kiểm tra trước khi bật AI — dùng chung cho nút popup "ai-start" và lệnh từ app.
+  // Trả "" khi được bật, ngược lại là lý do (tiếng Việt) để hiện cho người dùng.
+  async function aiStartCheck({ config, tabId, sessionId, aiStatus, latestConfig }) {
+    if (!config || tabId !== config.tabId || sessionId !== config.sessionId || !config.videoId) {
+      return "Đang chờ tiện ích tự nhận phiên và video";
+    }
+    const ai = await aiStatus();
+    if (!ai?.ok) return ai?.error || "DeepSeek chưa sẵn sàng";
+    const current = (await latestConfig()) || {};
+    if (current.tabId !== config.tabId || current.sessionId !== config.sessionId || current.videoId !== config.videoId) {
+      return "Phiên hoặc video đã đổi; hãy bật lại AI ở phiên hiện tại";
+    }
+    return "";
+  }
+  return { desired, liveSession, findLiveTab, purgeFold, purgeMentions, aiStartCheck };
 });

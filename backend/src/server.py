@@ -761,6 +761,7 @@ class ReplyEngine:
             item = {'seq': int(row.get('seq') or 0) if str(row.get('seq') or 0).isdigit() else 0,
                     'ai_enabled': row.get('ai_enabled') if isinstance(row.get('ai_enabled'), bool) else None,
                     'applied': row.get('applied') is True,
+                    'control_error': str(row.get('control_error') or '')[:200],
                     'updated_at': row.get('updated_at') if isinstance(row.get('updated_at'), (int, float)) else None}
             if platform == 'tiktok':
                 item['auto_pin'] = row.get('auto_pin') if isinstance(row.get('auto_pin'), bool) else None
@@ -798,6 +799,7 @@ class ReplyEngine:
             row.update(changes)
             row['seq'] = int(row.get('seq') or 0) + 1
             row['applied'] = False
+            row['control_error'] = ''
             row['updated_at'] = time.time()
             path = self._live_control_path()
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -816,13 +818,15 @@ class ReplyEngine:
             with self._LIVE_CONTROL_LOCK:
                 state = {key: dict(value) for key, value in state.items()}
                 state[platform]['applied'] = True
+                state[platform]['control_error'] = clean(payload.get('control_error'), 200)
                 try:
                     atomic_json(self._live_control_path(), state)
                 except OSError:
                     pass
                 self._live_control_cache = state
                 row = state[platform]
-        control = {'seq': row['seq'], 'ai_enabled': row.get('ai_enabled')}
+        control = {'seq': row['seq'], 'ai_enabled': row.get('ai_enabled'),
+                   'issued_at': row.get('updated_at')}
         if platform == 'tiktok':
             control['auto_pin'] = row.get('auto_pin')
         return control
@@ -1222,6 +1226,7 @@ class ReplyEngine:
             "ai_enabled": payload.get("ai_enabled") is True and not self._ai_disabled_by_restore(),
             "ai_ready": payload.get("ai_ready") is True,
             "observer": payload.get("observer") is True,
+            "pin_running": payload.get("pin_running") is True if "pin_running" in payload else None,
             "reply_queue": max(0, min(int(payload.get("reply_queue", 0) or 0), 10000)),
             "observe_queue": max(0, min(int(payload.get("observe_queue", 0) or 0), 10000)),
             "send_paused_until_ms": max(0, int(payload.get("send_paused_until_ms", 0) or 0)),

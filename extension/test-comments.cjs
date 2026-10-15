@@ -656,7 +656,7 @@ require("./comments.js");
   {
     const priorSend = chrome.runtime.sendMessage;
     const beats = [], pinCalls = [];
-    let control = { seq: 3, ai_enabled: true, auto_pin: false };
+    let control = { seq: 3, ai_enabled: true, auto_pin: false, issued_at: Date.now() / 1000 };
     delete storage.liveReControlSeq;
     storage.liveReAiEnabled = false;
     chrome.runtime.sendMessage = async (message) => {
@@ -679,11 +679,18 @@ require("./comments.js");
     assert.equal(pinCalls.length, 1);
     // seq cũ hơn cũng bị bỏ qua; seq mới hơn áp tiếp.
     assert.equal(await debug.applyAppControl({ seq: 2, ai_enabled: true }), false);
-    control = { seq: 4, ai_enabled: false, auto_pin: null };
+    control = { seq: 4, ai_enabled: false, auto_pin: null, issued_at: Date.now() / 1000 };
     storage.liveReAiEnabled = true;
     await debug.sendHeartbeat();
     assert.equal(storage.liveReAiEnabled, false);
     assert.equal(storage.liveReControlSeq, 4);
+    assert.equal(typeof beats[1].pin_running, "boolean");
+    // Lệnh quá 10 phút (cài lại tiện ích): ghi nhận seq, không bật AI, báo control_error.
+    assert.equal(await debug.applyAppControl({ seq: 9, ai_enabled: true, issued_at: Date.now() / 1000 - 11 * 60 }), false);
+    assert.equal(storage.liveReAiEnabled, false);
+    assert.equal(storage.liveReControlSeq, 9);
+    await debug.sendHeartbeat();
+    assert.match(beats.at(-1).control_error, /quá hạn/);
     chrome.runtime.sendMessage = priorSend;
   }
 

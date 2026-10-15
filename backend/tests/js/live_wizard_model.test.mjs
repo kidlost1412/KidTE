@@ -103,3 +103,23 @@ test('quickToggles with live_control: desired state, pending note, auto-pin', ()
   assert.equal(pin.on, true);       // null => theo thực tế
   assert.equal(pin.pending, false);
 });
+
+test('quickToggles: control_error shows real state + reason; queue toggle; pin from heartbeat', () => {
+  const base = baseDash();
+  const dash = {...base, extension: {...base.extension, pin_running: false},
+    live_channels: {...base.live_channels, shopee: {settings: {enabled: true}, extension: {connected: true, ai_enabled: true}}},
+    live_control: {tiktok: {ai_enabled: null, auto_pin: true, applied: true, control_error: ''},
+      shopee: {ai_enabled: true, applied: true, control_error: 'DeepSeek chưa sẵn sàng'}, queue_mode: true}};
+  const t = quickToggles(dash);
+  const sp = t.find(x => x.id === 'ai-shopee');
+  assert.equal(sp.actual, false, 'thiếu ai_ready thì Shopee AI chưa chạy');
+  assert.equal(sp.on, false);
+  assert.match(sp.note, /DeepSeek/);
+  assert.equal(t.find(x => x.id === 'pin-tiktok').actual, false);
+  const q = t.find(x => x.id === 'queue-mode');
+  assert.equal(q.on, true);
+  const r = toggleRequest('queue-mode', false, {live: true});
+  assert.equal(r.endpoint, '/api/live/queue-mode');
+  assert.deepEqual(r.body, {enabled: false});
+  assert.ok(r.confirm && /chưa LIVE/.test(r.confirm.text));
+});

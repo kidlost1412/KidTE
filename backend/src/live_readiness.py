@@ -149,13 +149,25 @@ def build_readiness(dash, extra=None):
     add(_step("C2", "live", "Video đã nhận diện", "Kid TE nghe/đọc nguồn phát để biết video đang ở đâu.",
               "done" if found else ("todo" if live else "blocked"), reason, required=False,
               action=None if found else _post("/api/live/reidentify", {}, "Nghe lại")))
+    # Tự ghim thật = đồng hồ ghim của tiện ích TikTok (pin_running trong heartbeat);
+    # tiện ích cũ chưa gửi trường này thì suy như trước từ vị trí video.
+    pin_flag = ext.get("pin_running") if connected else None
+    pinning = (pin_flag is True and found) if isinstance(pin_flag, bool) else (found and live)
     add(_step("C3", "live", "Tự ghim đang chạy", "Tiện ích tự ghim theo lịch khi phòng đang LIVE.",
-              "done" if found and live else "optional",
-              "Đang theo lịch ghim" if found and live else "Sẽ chạy khi đang LIVE và nhận được video", required=False))
-    ai_on = bool(ext.get("ai_enabled")) and bool(ext.get("ai_ready"))
+              "done" if pinning else "optional",
+              "Đang theo lịch ghim" if pinning else
+              ("Tự ghim đang tạm dừng" if pin_flag is False else "Sẽ chạy khi đang LIVE và nhận được video"),
+              required=False))
+    # AI thật của từng sàn: heartbeat TikTok (dash.extension) và Shopee (live_channels.shopee.extension).
+    sh_beat = _d(shopee.get("extension")) if shopee_on else {}
+    ai_tk = bool(ext.get("ai_enabled")) and bool(ext.get("ai_ready"))
+    ai_sp = bool(sh_beat.get("connected")) and bool(sh_beat.get("ai_enabled")) and bool(sh_beat.get("ai_ready"))
+    ai_on = ai_tk or ai_sp
+    ai_detail = ("AI đang trả lời" + (" (TikTok, Shopee)" if ai_tk and ai_sp else " (TikTok)" if ai_tk else " (Shopee)")
+                 if ai_on else "AI đang tắt")
     add(_step("C4", "live", "Bật AI trả lời", "AI trả lời bình luận khách khi được bật.",
-              "done" if ai_on else ("todo" if connected else "blocked"),
-              "AI đang trả lời" if ai_on else "AI đang tắt", required=False))
+              "done" if ai_on else ("todo" if connected or sh_ext else "blocked"),
+              ai_detail, required=False))
     add(_step("C5", "live", "Theo dõi khách hỏi", "Xem câu chưa trả lời và duyệt câu AI đã gửi.",
               "optional", "", required=False, action=_nav("inbox", "todo")))
 

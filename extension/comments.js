@@ -513,11 +513,19 @@ function noteSendFailure(detail) {
   // applyEnabled giữ mọi chặn an toàn: room_id, tab điều khiển, tạm dừng gửi) và
   // LIVE_RE_PAUSE/RESUME như nút "Tạm dừng" ghim. Người dùng đổi trong popup sau
   // đó không bị ép lại vì seq đã áp được nhớ trong liveReControlSeq.
+  // Lệnh quá 10 phút (vd. cài lại tiện ích còn lệnh cũ trên backend) chỉ ghi nhận seq.
+  const CONTROL_MAX_AGE_MS = 10 * 60 * 1000;
   async function applyAppControl(control) {
     const seq = Number(control?.seq);
     if (!Number.isInteger(seq) || seq <= 0) return false;
     const saved = await chrome.storage.local.get("liveReControlSeq");
     if (seq <= Number(saved?.liveReControlSeq || 0)) return false;
+    const issuedMs = Number(control.issued_at) * 1000;
+    if (!Number.isFinite(issuedMs) || issuedMs <= 0 || Date.now() - issuedMs > CONTROL_MAX_AGE_MS) {
+      await chrome.storage.local.set({ liveReControlSeq: seq,
+        liveReControlError: "Lệnh từ app đã quá hạn (hơn 10 phút); không áp" });
+      return false;
+    }
     if (typeof control.ai_enabled === "boolean") {
       await chrome.storage.local.set({ liveReAiEnabled: control.ai_enabled });
     }
@@ -531,7 +539,7 @@ function noteSendFailure(detail) {
         await chrome.runtime.sendMessage({ type: "LIVE_RE_RESUME" });
       }
     }
-    await chrome.storage.local.set({ liveReControlSeq: seq });
+    await chrome.storage.local.set({ liveReControlSeq: seq, liveReControlError: "" });
     return true;
   }
 
@@ -542,7 +550,8 @@ function noteSendFailure(detail) {
     if (!shouldSend && !heartbeatEverSent) return;
     heartbeatEverSent = true;
     try {
-      const appliedSeq = Number((await chrome.storage.local.get("liveReControlSeq"))?.liveReControlSeq || 0);
+      const ctlSaved = await chrome.storage.local.get(["liveReControlSeq", "liveReControlError"]);
+      const appliedSeq = Number(ctlSaved?.liveReControlSeq || 0);
       const result = await chrome.runtime.sendMessage({
         type: "LIVE_RE_HEARTBEAT",
         payload: {
@@ -557,7 +566,10 @@ function noteSendFailure(detail) {
           observe_queue: observeQueue.length,
           send_paused_until_ms: sendPausedUntil,
           send_pause_reason: sendPauseReason,
-          ...(appliedSeq > 0 ? { control_applied_seq: appliedSeq } : {})
+          // Đồng hồ tự ghim (liveReState.running) — trợ lý LIVE đọc trạng thái Tự ghim thật.
+          pin_running: liveStateCache?.running === true,
+          ...(appliedSeq > 0 ? { control_applied_seq: appliedSeq,
+            control_error: String(ctlSaved?.liveReControlError || "") } : {})
         }
       });
       if (!result?.ok) throw new Error(result?.error || "backend từ chối heartbeat");

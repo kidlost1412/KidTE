@@ -46,14 +46,30 @@
   // Lệnh bật/tắt AI từ app Kid TE (Trung tâm LIVE) đi kèm heartbeat. Áp đúng MỘT lần
   // theo seq bằng cùng khóa popup dùng (shopeeAiRequested); background/ai-controller vẫn
   // giữ mọi chặn (tab điều khiển, phiên, video). Bấm popup sau đó không bị ép lại.
-  async function applyAppControl(control) {
+  // Lệnh quá 10 phút (vd. cài lại tiện ích) chỉ ghi nhận seq, không áp. Bật AI phải qua
+  // đúng kiểm tra của nút popup (core.aiStartCheck); không đạt thì báo control_error.
+  const CONTROL_MAX_AGE_MS = 10 * 60 * 1000;
+  async function applyAppControl(control, ctx = {}) {
     const seq = Number(control?.seq);
     if (!Number.isInteger(seq) || seq <= 0) return false;
     const saved = await call(() => chrome.storage.local.get("shopeeControlSeq"));
     if (seq <= Number(saved?.shopeeControlSeq || 0)) return false;
-    if (typeof control.ai_enabled === "boolean") await save({shopeeAiRequested: control.ai_enabled});
-    await save({shopeeControlSeq: seq});
-    return true;
+    let error = "";
+    const issuedMs = Number(control.issued_at) * 1000;
+    if (!Number.isFinite(issuedMs) || issuedMs <= 0 || Date.now() - issuedMs > CONTROL_MAX_AGE_MS) {
+      error = "Lệnh từ app đã quá hạn (hơn 10 phút); không áp";
+    } else if (control.ai_enabled === true) {
+      error = await core.aiStartCheck({config: ctx.config, tabId: ctx.config?.tabId,
+        sessionId: ctx.isController ? core.liveSession(location.href) : null,
+        aiStatus: () => send({type: "KIDTE_SHOPEE_BACKEND", resource: "ai_status"}),
+        latestConfig: async () => (await call(() => chrome.storage.local.get("shopeeConfig"))).shopeeConfig})
+        .catch(e => String(e?.message || e));
+      if (!error) await save({shopeeAiRequested: true});
+    } else if (control.ai_enabled === false) {
+      await save({shopeeAiRequested: false});
+    }
+    await save({shopeeControlSeq: seq, shopeeControlError: error});
+    return !error;
   }
   globalThis.KidTEShopeeApplyControl = applyAppControl;
 
@@ -68,7 +84,7 @@
       if (!connection?.ok) throw new Error(connection?.error || "Chưa nối được Kid TE; tự thử lại");
       if (!connection.controller) { await status({ok: true, label: "Tab theo dõi — tab khác đang điều khiển"}, false); return; }
       const {config, position} = connection;
-      const stored = await call(() => chrome.storage.local.get(["shopeeAiStatus", "shopeeControlSeq"]));
+      const stored = await call(() => chrome.storage.local.get(["shopeeAiStatus", "shopeeControlSeq", "shopeeControlError"]));
       const aiState = stored.shopeeAiStatus;
       const appliedSeq = Number(stored.shopeeControlSeq || 0);
       const heartbeat = await send({type: "KIDTE_SHOPEE_BACKEND", resource: "heartbeat", method: "POST",
@@ -77,8 +93,8 @@
           ai_ready: Boolean(config.aiEnabled && aiState?.sessionId === config.sessionId && aiState?.ok === true &&
             Date.now() - Number(aiState.at || 0) >= 0 && Date.now() - Number(aiState.at || 0) < 20000),
           observer: !connection.paused,
-          ...(appliedSeq > 0 ? {control_applied_seq: appliedSeq} : {})}});
-      if (heartbeat?.control) await applyAppControl(heartbeat.control).catch(() => false);
+          ...(appliedSeq > 0 ? {control_applied_seq: appliedSeq, control_error: String(stored.shopeeControlError || "")} : {})}});
+      if (heartbeat?.control) await applyAppControl(heartbeat.control, {config, isController: true}).catch(() => false);
       if (Array.isArray(heartbeat?.privacy_purge) && heartbeat.privacy_purge.length &&
           typeof globalThis.KidTEShopeeAiPurge === "function") {
         await globalThis.KidTEShopeeAiPurge(heartbeat.privacy_purge).catch(() => []);

@@ -103,6 +103,11 @@ export function toggleRequest(id, on, ctx = {}) {
     return {endpoint: '/api/live/control', body: {platform, ai_enabled: on},
       confirm: !on && live ? {title: 'Tắt AI trả lời?', text: 'Khách hỏi sẽ không được AI trả lời cho tới khi bật lại.', tone: 'danger', confirm: 'Tắt AI'} : null};
   }
+  if (id === 'queue-mode') return {endpoint: '/api/live/queue-mode', body: {enabled: !!on},
+    confirm: {title: on ? 'Bật chế độ hàng chờ?' : 'Tắt chế độ hàng chờ?',
+      text: (on ? 'Tiện ích sẽ lấy câu trả lời qua hàng chờ của Kid TE và kiểm lại dữ kiện ngay lúc gửi.'
+        : 'Tiện ích quay về cách trả lời trực tiếp như trước.') + ' Nên đổi khi chưa LIVE' + (live ? ' — bạn đang LIVE.' : '.'),
+      tone: live ? 'danger' : 'warn', confirm: on ? 'Bật' : 'Tắt'}};
   if (id === 'pin-tiktok') return {endpoint: '/api/live/control', body: {platform: 'tiktok', auto_pin: on}, confirm: null};
   return null;
 }
@@ -125,14 +130,17 @@ export function quickToggles(dash) {
     note: cap.running ? 'Đang chạy' : 'Khi bật, Windows sẽ hỏi quyền quản trị (UAC) — bấm Có'});
   const aiTk = !!(ext.ai_enabled && ext.ai_ready);
   const spExt = sp.extension || {};
-  const aiSp = !!(spExt.ai_enabled && (spExt.ai_ready ?? true));
+  const aiSp = !!(spExt.connected !== false && spExt.ai_enabled && spExt.ai_ready === true);
   const ctl = (pf, key, actual) => {
     if (!lc) return {mode: 'info', on: actual};
     const c = lc[pf] || {};
     const want = c[key];
     const pending = want !== null && want !== undefined && c.applied === false;
-    return {mode: 'control', on: want === null || want === undefined ? actual : !!want, actual, pending,
-      note: pending ? 'Đang chờ tiện ích nhận lệnh…' : null};
+    // Tiện ích đã nhận lệnh nhưng không áp được (vd. DeepSeek chưa sẵn sàng, lệnh quá hạn): hiện trạng thái thật + lý do.
+    const failed = !pending && c.applied === true && !!c.control_error;
+    return {mode: 'control', on: failed || want === null || want === undefined ? actual : !!want, actual, pending,
+      error: failed ? c.control_error : '',
+      note: pending ? 'Đang chờ tiện ích nhận lệnh…' : failed ? 'Không áp được: ' + c.control_error : null};
   };
   const ai = (id, label, pf, actual) => {
     const c = ctl(pf, 'ai_enabled', actual);
@@ -142,9 +150,13 @@ export function quickToggles(dash) {
   out.push(ai('ai-tiktok', 'AI trả lời TikTok', 'tiktok', aiTk));
   if (sp.settings ? sp.settings.enabled !== false : !!sp.extension) out.push(ai('ai-shopee', 'AI trả lời Shopee', 'shopee', aiSp));
   if (lc) {
-    const pinActual = !!(tk.position && tk.position.available && ext.live_running);
+    // Trạng thái thật từ heartbeat TikTok (đồng hồ ghim); tiện ích cũ thì suy từ vị trí video.
+    const pinActual = typeof ext.pin_running === 'boolean' ? ext.pin_running
+      : !!(tk.position && tk.position.available && ext.live_running);
     const c = ctl('tiktok', 'auto_pin', pinActual);
     out.push({id: 'pin-tiktok', label: 'Tự ghim TikTok', ...c, note: c.note || (c.on ? 'Ghim theo lịch' : 'Đang tạm dừng')});
+    out.push({id: 'queue-mode', label: 'Chế độ hàng chờ', on: !!lc.queue_mode,
+      note: lc.queue_mode ? 'Trả lời qua hàng chờ, kiểm dữ kiện lúc gửi' : 'Trả lời trực tiếp'});
   }
   return out;
 }

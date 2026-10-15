@@ -84,9 +84,23 @@ def test_states_and_blocking_count():
 def test_disconnected_blocks_cart_and_ai():
     dash = _ready_dash()
     dash["extension"] = {"connected": False}
+    dash["live_channels"]["shopee"]["extension"] = {"connected": False}
     dash["catalog"] = {"total": 0, "unmapped": 0, "approved_profiles": 0}
     s = _by_id(build_readiness(dash, EXTRA))
     assert s["A5"]["state"] == "blocked"
     assert s["C4"]["state"] == "blocked"
     assert s["C1"]["state"] == "todo"
     assert all(st["state"] in ("done", "todo", "blocked", "error", "optional", "na") for st in s.values())
+
+
+def test_pin_running_from_heartbeat_and_shopee_ai():
+    dash = _ready_dash()
+    dash["extension"] = {**dash["extension"], "live_running": True, "pin_running": False,
+                         "ai_enabled": False, "ai_ready": False}
+    s = _by_id(build_readiness(dash, EXTRA))
+    assert s["C3"]["state"] == "optional" and "tạm dừng" in s["C3"]["detail"]
+    assert s["C4"]["state"] == "todo"
+    dash["extension"]["pin_running"] = True
+    dash["live_channels"]["shopee"]["extension"] = {"connected": True, "ai_enabled": True, "ai_ready": True}
+    s = _by_id(build_readiness(dash, EXTRA))
+    assert s["C4"]["state"] == "done" and "Shopee" in s["C4"]["detail"]

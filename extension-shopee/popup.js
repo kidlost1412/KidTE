@@ -88,11 +88,10 @@ action("resume", async () => {
 action("ai-start", async () => {
     const {shopeeConfig: config = {}} = await chrome.storage.local.get("shopeeConfig");
     const tab = await KidTEShopeeCore.findLiveTab(chrome.tabs, config.tabId);
-    if (tab.id !== config.tabId || KidTEShopeeCore.liveSession(tab.url) !== config.sessionId || !config.videoId) throw new Error("Đang chờ tiện ích tự nhận phiên và video");
-    const ai = await chrome.runtime.sendMessage({type: "KIDTE_SHOPEE_BACKEND", resource: "ai_status"});
-    if (!ai?.ok) throw new Error(ai?.error || "DeepSeek chưa sẵn sàng");
-    const current = (await chrome.storage.local.get("shopeeConfig")).shopeeConfig || {};
-    if (current.tabId !== config.tabId || current.sessionId !== config.sessionId || current.videoId !== config.videoId) throw new Error("Phiên hoặc video đã đổi; hãy bật lại AI ở phiên hiện tại");
+    const blocked = await KidTEShopeeCore.aiStartCheck({config, tabId: tab.id, sessionId: KidTEShopeeCore.liveSession(tab.url),
+      aiStatus: () => chrome.runtime.sendMessage({type: "KIDTE_SHOPEE_BACKEND", resource: "ai_status"}),
+      latestConfig: async () => (await chrome.storage.local.get("shopeeConfig")).shopeeConfig});
+    if (blocked) throw new Error(blocked);
     await chrome.storage.local.set({shopeeAiRequested: true});
     await refreshStatus();
 }, 'Đã bật AI · đang chờ bình luận');

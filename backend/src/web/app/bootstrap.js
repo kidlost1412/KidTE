@@ -124,6 +124,8 @@ window.addEventListener('beforeunload', e => {
 
 store.subscribe(state => shell.setStatus(state.dashboard, state.dashboardError));
 const poll = startDashboardPoll(store, 5000);
+// Trang gọi ctx.store.refresh() sau khi đổi công tắc để thấy kết quả ngay, không chờ 5 giây.
+store.refresh = () => poll.refresh();
 window.__kidTe = {store, poll, navigate};
 window.__liveRe = window.__kidTe; // Legacy integration alias.
 router.start();

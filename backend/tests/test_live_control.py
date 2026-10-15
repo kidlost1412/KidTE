@@ -29,8 +29,8 @@ def _beat(eng, platform, **extra):
 
 def test_default_state_is_unset(engine):
     state = engine.live_control()
-    assert state["tiktok"] == {"ai_enabled": None, "auto_pin": None, "applied": False, "updated_at": None}
-    assert state["shopee"] == {"ai_enabled": None, "applied": False, "updated_at": None}
+    assert state["tiktok"] == {"ai_enabled": None, "auto_pin": None, "applied": False, "control_error": "", "updated_at": None}
+    assert state["shopee"] == {"ai_enabled": None, "applied": False, "control_error": "", "updated_at": None}
     assert state["queue_mode"] is False
     assert "control" not in _beat(engine, "tiktok")
 
@@ -56,8 +56,12 @@ def test_heartbeat_delivers_control_per_platform_and_applied_on_matching_seq(eng
     engine.set_live_control({"platform": "tiktok", "ai_enabled": True, "auto_pin": True})
     engine.set_live_control({"platform": "shopee", "ai_enabled": False})
     tiktok = _beat(engine, "tiktok")
+    issued = tiktok["control"].pop("issued_at")
+    assert isinstance(issued, float) and issued > 0
     assert tiktok["control"] == {"seq": 1, "ai_enabled": True, "auto_pin": True}
-    assert _beat(engine, "shopee")["control"] == {"seq": 1, "ai_enabled": False}
+    shopee = _beat(engine, "shopee")["control"]
+    shopee.pop("issued_at")
+    assert shopee == {"seq": 1, "ai_enabled": False}
     _beat(engine, "tiktok", control_applied_seq=0)
     assert engine.live_control()["tiktok"]["applied"] is False
     _beat(engine, "tiktok", control_applied_seq=1)
@@ -118,3 +122,19 @@ def test_endpoints_local_ui_only(http, path):
             post(path, body, origin=origin)
         assert caught.value.code == 403
     assert len(stub.calls) == 1
+
+
+def test_control_error_reported_with_applied(engine):
+    engine.set_live_control({"platform": "shopee", "ai_enabled": True})
+    _beat(engine, "shopee", control_applied_seq=1, control_error="DeepSeek chưa sẵn sàng")
+    row = engine.live_control()["shopee"]
+    assert row["applied"] is True and row["control_error"] == "DeepSeek chưa sẵn sàng"
+    engine.set_live_control({"platform": "shopee", "ai_enabled": True})
+    assert engine.live_control()["shopee"]["control_error"] == ""
+
+
+def test_heartbeat_keeps_pin_running(engine):
+    _beat(engine, "tiktok", pin_running=True)
+    assert engine.platform_heartbeats["tiktok"]["pin_running"] is True
+    _beat(engine, "tiktok")
+    assert engine.platform_heartbeats["tiktok"]["pin_running"] is None

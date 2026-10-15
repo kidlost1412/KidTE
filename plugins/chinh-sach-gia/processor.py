@@ -211,6 +211,11 @@ def price_context(product, approved=None):
     # live, khong phai gia duoc phep noi. Thieu ca 3 bac tren thi coi nhu
     # khong co du lieu, khong doan bang sale_price.
     listed = clean((product or {}).get("price"), 80)
+    sale = clean((product or {}).get("sale_price"), 80)
+    if sale and listed and price_to_vnd(listed) == price_to_vnd(sale):
+        # Extension/API gan price = sale_price khi dang giam: do la gia sale,
+        # khong phai gia niem yet. Khong co gia goc thi im lang (tra {}).
+        listed = ""
     quotable = declared or original or listed
     if not quotable:
         return {}

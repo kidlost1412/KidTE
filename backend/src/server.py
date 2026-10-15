@@ -9,6 +9,7 @@ import re
 import threading
 import time
 import uuid
+import unicodedata
 from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -3073,9 +3074,11 @@ class ReplyEngine:
                         result = {'action': 'reply', 'reply': dose_selection.DOSE_HANDOFF, 'metrics': {}}
         own_replies = [clean(t.get("response"), 300) for t in reversed(turns or [])
                        if isinstance(t, dict) and t.get("delivery_status") == "sent" and t.get("response")]
-        correction = (self._policy_violation(comment, result, price_signal)
-                      or self._invented_price(result, live, sel["approved"], price_signal)
-                      or self._variety_correction(result, own_replies))
+        correction = self._combined_correction(
+            self._policy_violation(comment, result, price_signal),
+            self._invented_price(result, live, sel["approved"], price_signal),
+            self._invented_promo(result, sel.get("product"), sel["approved"]),
+            self._variety_correction(result, own_replies))
         if dose_gate and dose_gate.get('handoff'):
             correction = ''
         retried = False
@@ -3089,6 +3092,7 @@ class ReplyEngine:
             )
             if result.get("action") != "reply":
                 result = drafted
+            result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
             if (self._policy_violation(comment, result, price_signal)
                     or self._invented_price(result, live, sel["approved"], price_signal)
                     or reply_variety.admits_fault(result.get("reply"))):
@@ -3625,15 +3629,18 @@ class ReplyEngine:
         try_system = _model_processor.compose_system(_TRY_TASK)
         result = self.responder.reply("Khách", comment, context, max_body, system_override=try_system)
         # Cùng lớp kiểm chính sách như lúc LIVE, để "Thử AI" phản ánh đúng câu sẽ gửi.
-        correction = (self._policy_violation(comment, result, _signal)
-                      or self._invented_price(result, live, sel["approved"], _signal)
-                      or self._variety_correction(result))
+        correction = self._combined_correction(
+            self._policy_violation(comment, result, _signal),
+            self._invented_price(result, live, sel["approved"], _signal),
+            self._invented_promo(result, sel.get("product"), sel["approved"]),
+            self._variety_correction(result))
         if correction:
             drafted = result
             result = self.responder.reply("Khách", comment, context, max_body, correction=correction,
                                           system_override=try_system)
             if result.get("action") != "reply":
                 result = drafted
+            result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
             if (self._policy_violation(comment, result, _signal)
                     or self._invented_price(result, live, sel["approved"], _signal)):
                 logging.getLogger("kid-te.core").warning(
@@ -3689,7 +3696,7 @@ class ReplyEngine:
 
     # "555k", "1.110k", "640.000đ", "1,2 triệu" — số tiền trong câu trả lời.
     _PRICE_TOKEN = re.compile(
-        r"(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+|\d{2,4})(?:\s?(k|nghin|ngan)(?![a-z])|\s?(d|vnd|dong)(?![a-z])"
+        r"(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+|\d{1,4})(?:\s?(k|nghin|ngan)(?![a-z])|\s?(d|vnd|dong)(?![a-z])"
         r"|(?=[.,]?\s|$))|(?<![\d.,])(\d{1,3}(?:[.,]\d)?)\s?(tr|trieu)(?![a-z])")
 
     @classmethod
@@ -3706,7 +3713,8 @@ class ReplyEngine:
                 continue                    # số trần (vd "20", "150") không phải giá
             number = int(re.sub(r"[.,]", "", digits))
             values.add(number * 1000 if k else number)
-        return {v for v in values if v >= 10_000}
+        # >= 1.000đ: bắt cả "1k", "5k", "5 nghìn" (C2). Số trần không đơn vị đã bỏ ở trên.
+        return {v for v in values if v >= 1_000}
 
     def _invented_price(self, result, live, approved, price_signal):
         """Câu trả lời có số tiền KHÔNG phải giá của sản phẩm nào → tự tính/bịa.
@@ -3721,8 +3729,12 @@ class ReplyEngine:
             return ""
         allowed = set()
         for item in live.get("products") or []:
-            for key in ("original_price", "price"):
-                allowed |= self._price_values(clean((item or {}).get(key), 80) + " d")
+            item = item or {}
+            allowed |= self._price_values(clean(item.get("original_price"), 80) + " d")
+            listed = self._price_values(clean(item.get("price"), 80) + " d")
+            sale = self._price_values(clean(item.get("sale_price"), 80) + " d")
+            if not (sale and listed == sale):   # price == sale_price là giá sale: không được nói (C1)
+                allowed |= listed
         allowed |= self._price_values(clean((approved or {}).get("gia_goc_duyet"), 80) + " d")
         allowed |= self._price_values(json.dumps(price_signal or {}, ensure_ascii=False))
         extra = sorted(said - allowed)
@@ -3731,6 +3743,83 @@ class ReplyEngine:
         return (f"Câu vừa soạn có số tiền {extra[0]:,}đ không phải giá gốc của sản phẩm nào (có vẻ tự "
                 "nhân/cộng hoặc tự đoán). Chỉ nói đúng giá gốc của MỘT sản phẩm trong price.quotable_price; "
                 "khách mua nhiều thì mời chọn số lượng trong giỏ, TikTok tự tính tổng theo mã của họ.").replace(",", ".")
+
+    @staticmethod
+    def _combined_correction(*problems):
+        """Gộp mọi vi phạm vào MỘT lời nhắc sinh lại (C12)."""
+        return " ".join(p for p in problems if p)
+
+    # Quà/khuyến mãi khẳng định trong câu trả lời (C5). Chỉ chặn khi AI KHẲNG ĐỊNH
+    # mà dữ liệu (promotion của SKU, hồ sơ đã duyệt, thông tin shop) không có.
+    # So khớp trên chữ CÓ DẤU: "tặng" khác "tăng" (bỏ dấu thì trùng).
+    _PROMO_KINDS = (
+        ("qua", re.compile(r"(tặng kèm|tặng thêm|quà tặng|có quà|kèm quà|mua \d+\s*\S*\s*tặng|tặng \d+|tặng ngay|được tặng|sẽ tặng|shop tặng|em tặng)"),
+         re.compile(r"tặng|quà|gift")),
+        ("freeship", re.compile(r"(freeship|free ship|miễn phí (?:vận chuyển|ship|giao)|miễn ship)"),
+         re.compile(r"freeship|free ship|miễn phí (?:vận chuyển|ship|giao)|miễn ship|free_?shipping")),
+    )
+    _PROMO_PERCENT = re.compile(r"\b(?:giam|sale|off|bot)\s*(?:gia\s*)?(?:den\s*)?(\d{1,2})\s*%|\b(\d{1,2})\s*%\s*off\b")
+    _SENTENCE_SPLIT = re.compile(r"(?<=[.!?\n])\s+")
+    # Câu hỏi / phủ định / hẹn kiểm tra: không phải khẳng định có quà.
+    _PROMO_HEDGE = re.compile(r"\?|\b(chua co|khong co|ko co|k co|chua thay|kiem tra|check|hoi lai|de em xem|"
+                              r"em xem lai|neu co|co khong|hong co)\b")
+
+    def _promo_source(self, product, approved):
+        parts = [clean((product or {}).get("promotion"), 3000),
+                 json.dumps(approved or {}, ensure_ascii=False),
+                 json.dumps(getattr(self, "shop_info", {}) or {}, ensure_ascii=False)]
+        return unicodedata.normalize("NFC", " ".join(parts)).casefold()
+
+    def _promo_sentences(self, reply, source):
+        """Các câu khẳng định quà/%/freeship không có căn cứ trong dữ liệu."""
+        bad = []
+        for sentence in self._SENTENCE_SPLIT.split(reply or ""):
+            folded = fold(sentence)
+            if not folded or self._PROMO_HEDGE.search(folded):
+                continue
+            low = unicodedata.normalize("NFC", sentence).casefold()
+            hit = any(claim.search(low) and not basis.search(source)
+                      for _kind, claim, basis in self._PROMO_KINDS)
+            for m in self._PROMO_PERCENT.finditer(folded):
+                pct = m.group(1) or m.group(2)
+                if not re.search(rf"(?<!\d){pct}\s*%", source):
+                    hit = True
+            if hit:
+                bad.append(sentence)
+        return bad
+
+    def _invented_promo(self, result, product, approved):
+        if result.get("action") != "reply":
+            return ""
+        bad = self._promo_sentences(result.get("reply") or "", self._promo_source(product, approved))
+        if not bad:
+            return ""
+        return (f"Câu vừa soạn khẳng định quà/khuyến mãi không có trong dữ liệu: «{clean(bad[0], 120)}». "
+                "Chỉ nói quà tặng, % giảm, freeship khi có trong promotion của sản phẩm, hồ sơ đã duyệt hoặc "
+                "thong_tin_shop; không có thì bỏ ý đó, không bịa.")
+
+    def _drop_invented_promo(self, result, product, approved):
+        """Sau lần sinh lại vẫn bịa quà: bỏ riêng câu vi phạm; không còn gì thì skip."""
+        if result.get("action") != "reply":
+            return result
+        reply = result.get("reply") or ""
+        bad = self._promo_sentences(reply, self._promo_source(product, approved))
+        if not bad:
+            return result
+        kept = [s for s in self._SENTENCE_SPLIT.split(reply) if s and s not in bad]
+        logging.getLogger("kid-te.core").warning("dropped invented promo sentences=%d", len(bad),
+                                                 extra={"event": "ai_promo_dropped"})
+        out = dict(result)
+        if not "".join(kept).strip():
+            out.update({"action": "skip", "reply": "", "reason": "invented_promotion"})
+            out.pop("messages", None)
+            return out
+        out["reply"] = " ".join(kept).strip()
+        if isinstance(out.get("messages"), list):
+            msgs = [m for m in (" ".join(k for k in self._SENTENCE_SPLIT.split(str(m)) if k not in bad).strip()
+                                for m in out["messages"]) if m]
+            out["messages"] = msgs or [out["reply"]]
+        return out
 
     def _variety_correction(self, result, own_replies=()):
         """Câu soạn xong mà xin lỗi/nhận lỗi công khai, hoặc lặp câu đã gửi gần đây -> lời nhắc sinh lại (1 lần)."""

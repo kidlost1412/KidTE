@@ -6,10 +6,13 @@ lời Kid TE trả lời được lưu để nối mạch, không được xem l
 """
 from __future__ import annotations
 
+import contextlib
+import copy
 import json
 import os
 import re
 import sqlite3
+import time
 import threading
 import uuid
 from datetime import datetime
@@ -835,21 +838,63 @@ class CustomerMemory:
                 ORDER BY m.ordinal''', (interaction_id,)).fetchall()
             return ' '.join(row[0] for row in rows)
 
-    def data_summary(self):
-        """Số liệu vận hành không chứa danh tính, dùng để tách live khỏi test."""
-        with self._lock:
-            status_rows = self._db.execute(
+    def data_summary(self, max_age=0.0):
+        """Số liệu vận hành không chứa danh tính, dùng để tách live khỏi test.
+
+        max_age > 0 (dashboard poll 5 giây): dùng lại kết quả còn mới; khi phải
+        đếm lại thì đếm bằng kết nối ĐỌC RIÊNG (WAL) ngoài khoá chung, để
+        record_comment/record_reply trên đường trả lời không xếp hàng sau một
+        lần quét toàn bảng. Một luồng dựng, luồng khác dùng kết quả cũ.
+        """
+        if max_age <= 0:
+            return self._data_summary_compute()
+        cache = getattr(self, "_summary_cache", None)
+        if cache and time.monotonic() - cache[0] < max_age:
+            return copy.deepcopy(cache[1])
+        flight = self.__dict__.setdefault("_summary_flight", threading.Lock())
+        if not flight.acquire(blocking=cache is None):
+            return copy.deepcopy(cache[1])
+        try:
+            cache = getattr(self, "_summary_cache", None)
+            if cache and time.monotonic() - cache[0] < max_age:
+                return copy.deepcopy(cache[1])
+            result = self._data_summary_compute(separate=True)
+            self._summary_cache = (time.monotonic(), result)
+            return copy.deepcopy(result)
+        finally:
+            flight.release()
+
+    def _data_summary_compute(self, separate=False):
+        if separate and not self._closed and self.db_path.exists():
+            try:
+                db = sqlite3.connect(f"file:{self.db_path.resolve().as_posix()}?mode=ro",
+                                     uri=True, timeout=3.0)
+            except sqlite3.Error:
+                db = None
+            if db is not None:
+                try:
+                    db.row_factory = sqlite3.Row
+                    return self._data_summary_rows(db, contextlib.nullcontext())
+                except sqlite3.Error:
+                    pass   # lui ve duong cu duoi khoa chung
+                finally:
+                    db.close()
+        return self._data_summary_rows(self._db, self._lock)
+
+    def _data_summary_rows(self, db, guard):
+        with guard:
+            status_rows = db.execute(
                 "SELECT delivery_status, COUNT(*) FROM interactions "
                 "GROUP BY delivery_status"
             ).fetchall()
             try:
                 # Gom ngay trong SQLite thay vi nap + json.loads 100k dong.
-                source_rows = self._db.execute(
+                source_rows = db.execute(
                     "SELECT json_extract(metadata_json, '$.data_source'), COUNT(*) FROM interactions "
                     "GROUP BY 1").fetchall()
             except sqlite3.Error:   # metadata_json hong -> lui ve duong cham
                 source_rows = None
-            metadata_rows = None if source_rows is not None else self._db.execute(
+            metadata_rows = None if source_rows is not None else db.execute(
                 "SELECT metadata_json FROM interactions").fetchall()
         sources = {}
         if source_rows is not None:

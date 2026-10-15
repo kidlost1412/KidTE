@@ -87,7 +87,25 @@ export function disposer() {
   return {
     on(target, type, fn, opts) { if (!closed) { target.addEventListener(type, fn, opts); add(() => target.removeEventListener(type, fn, opts)); } return fn; },
     add,
-    interval(fn, ms) { if (closed) return 0; const id = setInterval(fn, ms); add(() => clearInterval(id)); return id; },
+    /* Poll định kỳ: bỏ nhịp khi tab ẩn (trừ {whenHidden: true}) và không chồng
+       yêu cầu — nhịp trước (Promise) chưa xong thì bỏ nhịp này, để backend
+       chậm không bị dồn thêm yêu cầu. */
+    interval(fn, ms, {whenHidden = false} = {}) {
+      if (closed) return 0;
+      let busy = false;
+      const tick = (...args) => {
+        if (busy || closed) return undefined;
+        if (!whenHidden && typeof document !== 'undefined' && document.hidden) return undefined;
+        const result = fn(...args);
+        if (result && typeof result.then === 'function') {
+          busy = true;
+          const done = () => { busy = false; };
+          result.then(done, error => { done(); throw error; });
+        }
+        return result;
+      };
+      const id = setInterval(tick, ms); add(() => clearInterval(id)); return id;
+    },
     timeout(fn, ms) { if (closed) return 0; const id = setTimeout(fn, ms); add(() => clearTimeout(id)); return id; },
     dispose() { if (closed) return; closed = true; while (fns.length) { try { fns.pop()(); } catch (_) { /* bỏ qua */ } } },
   };

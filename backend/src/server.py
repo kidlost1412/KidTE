@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import inspect
 import logging
 import math
 import os
@@ -672,10 +673,27 @@ class ReplyEngine:
             logging.getLogger("kid-te.core").warning("dose rules merge failed", exc_info=True)
             return profile
 
-    def health(self):
+    @staticmethod
+    def _accepts(fn, name):
+        try:
+            return name in inspect.signature(fn).parameters
+        except (TypeError, ValueError):
+            return False
+
+    def _memory_summary(self):
+        # Dashboard poll 5 giay: so lieu thong ke tre toi 45 giay, khong quet
+        # toan bang interactions duoi khoa chung moi lan (F1).
+        summary = self.memory.data_summary
+        return summary(max_age=45) if self._accepts(summary, "max_age") else summary()
+
+    def health(self, wait=True):
         checker = getattr(self.responder, "check_balance", None)
-        status = (checker() if callable(checker)
-                  else {"ok": True, "service": "kid-te-ai-standalone"})
+        if callable(checker) and not wait and self._accepts(checker, "wait"):
+            # Dashboard khong bao gio cho mang: tra gia tri cache, lam moi nen (F6).
+            status = checker(wait=False)
+        else:
+            status = (checker() if callable(checker)
+                      else {"ok": True, "service": "kid-te-ai-standalone"})
         # Mot server CU con song va chiem cong 8793 thi ban moi khong bind
         # duoc, tien ich van noi chuyen voi ban cu — danh muc cu, ma cu, ma
         # khong co dau hieu gi. Ba truong nay lam cai do lo ra ngay.
@@ -798,7 +816,7 @@ class ReplyEngine:
             "ok": True,
             "backend": {"state": "ready", "started_at": self.started_at},
             "captcha": self.captcha.status(),
-            "ai": self.health(),
+            "ai": self.health(wait=False),
             "plugins": self.plugin_state(),
             "catalog": {
                 "total": len(products), "mapped": mapped,
@@ -817,7 +835,7 @@ class ReplyEngine:
                 "todo": totals.get("todo"),
                 "review": totals.get("review"),
                 "missing_count": self.missing.count,
-                "memory": self.memory.data_summary(),
+                "memory": self._memory_summary(),
                 "metrics": self.metrics.snapshot(),
                 "scope": "all_time",
                 "counts_available": not session_error,

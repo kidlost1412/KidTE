@@ -1,3 +1,4 @@
+import {aiStatus} from '../core/ai-status.js';
 import {h, clear, disposer} from '../core/dom.js';
 import {icon} from '../core/icons.js';
 import {request, friendlyError} from '../core/api.js';
@@ -155,7 +156,7 @@ async function setup(ctx, host) {
       h('p', {class: 'fs-xs muted'}, 'Toàn bộ dữ liệu của máy này (khoá DeepSeek, khách hàng, Trí nhớ AI, tài liệu, video, sao lưu, model chép lời) nằm trong thư mục này. Máy khác cài Kid TE là máy trắng — tự nhập khoá, thông tin shop và dạy AI từ đầu.')),
     {footer: btn('Mở thư mục dữ liệu', {kind: 'ghost', icon: 'archive', onClick: () => openTarget('data')})}),
     card('AI trả lời bình luận', h('div', {class: 'card-body form-grid'},
-      dash.ai && dash.ai.deepseek_available ? notice('ok', 'AI đang sẵn sàng', `${labels[s.selected_model] || s.selected_model}. ${s.model_error ? 'Lỗi lấy danh sách model: ' + s.model_error : ''}`) : notice('danger', 'AI chưa sẵn sàng', 'Nhập khoá API DeepSeek để AI có thể trả lời khách.'),
+      aiStatus(dash.ai).checking ? notice('warn', 'Đang kiểm tra số dư DeepSeek…', 'Kết quả sẽ hiện sau vài giây.') : dash.ai && dash.ai.deepseek_available ? notice('ok', 'AI đang sẵn sàng', `${labels[s.selected_model] || s.selected_model}. ${s.model_error ? 'Lỗi lấy danh sách model: ' + s.model_error : ''}`) : notice('danger', 'AI chưa sẵn sàng', 'Nhập khoá API DeepSeek để AI có thể trả lời khách.'),
       field('Model trả lời khách', model, {hint: 'Từ 10/09/2026 “deepseek-flash” CHÍNH LÀ DeepSeek V4.1 Flash — nhanh hơn, rẻ hơn và trả lời tốt hơn V4 Pro. Việc HỌC (rút kiến thức, học lại) chọn model riêng ở trang Trí nhớ AI. Độ dài câu, độ sáng tạo, lời nhắc: Trợ lý tự động → Nhà cung cấp DeepSeek.'}),
       field('Khoá API DeepSeek', key, {hint: 'Khoá được lưu trong file .env trên máy này, không hiển thị lại. “Kiểm tra key” thử khoá đang nhập (để trống = khoá đã lưu) và cho biết còn tiền không.'}),
       dsStatus),

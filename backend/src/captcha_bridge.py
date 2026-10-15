@@ -1,6 +1,7 @@
 """Launch and observe a separate CAPTCHA program without touching its solver."""
 from __future__ import annotations
 
+import copy
 import ctypes
 import hashlib
 import json
@@ -160,7 +161,33 @@ class CaptchaBridge:
             entries.append({"at": line[:19], "detail": line.split(" | ", 3)[-1][:300]})
         return entries[-limit:]
 
-    def status(self):
+    # status() chay psutil.process_iter + cmdline (toi ~2 giay khi gap tien
+    # trinh duoc bao ve) ma dashboard goi moi 5 giay (F5). Dung lai ket qua
+    # vai giay; chua cau hinh khoa thi lau hon. start/stop/luu khoa xoa cache.
+    STATUS_TTL_S = 5.0
+    STATUS_TTL_UNCONFIGURED_S = 30.0
+
+    def invalidate_status(self):
+        self._status_cache = None
+
+    def status(self, fresh=False):
+        cache = None if fresh else getattr(self, "_status_cache", None)
+        if cache is not None:
+            ttl = (self.STATUS_TTL_S if cache[1].get("configured")
+                   else self.STATUS_TTL_UNCONFIGURED_S)
+            if time.monotonic() - cache[0] < ttl:
+                return copy.deepcopy(cache[1])
+        flight = self.__dict__.setdefault("_status_flight", threading.Lock())
+        if not flight.acquire(blocking=cache is None):
+            return copy.deepcopy(cache[1])   # luong khac dang quet: dung ban cu
+        try:
+            value = self._status_uncached()
+            self._status_cache = (time.monotonic(), value)
+            return copy.deepcopy(value)
+        finally:
+            flight.release()
+
+    def _status_uncached(self):
         package_error = None
         try:
             command = self._command()
@@ -374,13 +401,14 @@ class CaptchaBridge:
         except OSError:
             result = {"ok": False, "error": "captcha_start_failed"}
         self._record_start(result)
+        self.invalidate_status()
         return result
 
     def _start(self):
         with self._lock:
             if self._closing:
                 return {"ok": False, "error": "captcha_app_closing"}
-            state = self.status()
+            state = self.status(fresh=True)
             if state.get("package_error"):
                 return {**state, "ok": False, "error": state["package_error"]}
             if state["running"]:
@@ -448,9 +476,10 @@ class CaptchaBridge:
 
     def save_key(self, key):
         save_key(self.data_dir, key)
+        self.invalidate_status()
         (self.data_dir / "key-rejected.marker").unlink(missing_ok=True)
         (self.data_dir / "startup-error.txt").unlink(missing_ok=True)
-        if self.status()["running"]:
+        if self.status(fresh=True)["running"]:
             return {"ok": True, "restart_required": True}
         launch = self.start()
         return {"ok": True, "start_requested": launch.get("ok", False),
@@ -463,8 +492,9 @@ class CaptchaBridge:
             except (OSError, ValueError, KeyError, UnicodeError):
                 raise ValueError("captcha_telegram_missing") from None
         save_telegram(self.data_dir, token, chat_id)
+        self.invalidate_status()
         with self._lock:
-            state = self.status()
+            state = self.status(fresh=True)
             return {"ok": True, **self._ensure_monitor(state)}
 
     def test_telegram(self):
@@ -493,6 +523,12 @@ class CaptchaBridge:
         return {"ok": accepted, "error": None if accepted else "captcha_telegram_rejected"}
 
     def stop(self, *, closing=False):
+        try:
+            return self._stop(closing=closing)
+        finally:
+            self.invalidate_status()
+
+    def _stop(self, *, closing=False):
         with self._lock:
             if closing:
                 self._closing = True

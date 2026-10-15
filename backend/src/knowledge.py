@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import pickle
 import re
+import threading
+import time
 import unicodedata
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
@@ -141,11 +145,51 @@ def name_tokens(value):
     return {item for item in tokens(value) if item not in GENERIC_NAME_TOKENS}
 
 
+_LOAD_JSON_CACHE = OrderedDict()
+_LOAD_JSON_LOCK = threading.Lock()
+_LOAD_JSON_MAX = 64
+
+
 def load_json(path, default):
+    """Đọc JSON, nhớ theo (đường dẫn, mtime_ns, cỡ) (F4).
+
+    mapping_state/dashboard đọc lại catalog, overrides, mapping nhiều lần mỗi
+    lượt poll. Cache giữ bản pickle; mỗi lần gọi trả một bản sao mới hoàn toàn
+    nên caller sửa thoải mái mà không làm bẩn cache. Tệp đổi -> chữ ký đổi ->
+    đọc lại. Lỗi đọc/parse không được cache.
+    """
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+        target = Path(path)
+        stat = target.stat()
+        key = str(target)
+        signature = (stat.st_mtime_ns, stat.st_size)
+        # "Racy" như git: tệp vừa ghi (< 2 giây) có thể bị ghi lại cùng cỡ
+        # trong cùng nhịp đồng hồ mtime -> không tin cache, không lưu cache.
+        racy = time.time_ns() - stat.st_mtime_ns < 2_000_000_000
+        with _LOAD_JSON_LOCK:
+            entry = _LOAD_JSON_CACHE.get(key)
+            if entry is not None and entry[0] == signature and not racy:
+                _LOAD_JSON_CACHE.move_to_end(key)
+                blob = entry[1]
+            else:
+                blob = None
+        if blob is not None:
+            return pickle.loads(blob)
+        value = json.loads(target.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return default
+    if racy:
+        return value
+    try:
+        blob = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        return value
+    with _LOAD_JSON_LOCK:
+        _LOAD_JSON_CACHE[key] = (signature, blob)
+        _LOAD_JSON_CACHE.move_to_end(key)
+        while len(_LOAD_JSON_CACHE) > _LOAD_JSON_MAX:
+            _LOAD_JSON_CACHE.popitem(last=False)
+    return value
 
 
 class KnowledgeBase:

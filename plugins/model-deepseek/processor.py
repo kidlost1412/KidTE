@@ -301,6 +301,7 @@ class DeepSeekResponder:
         # Trạng thái số dư của khóa cũ không nói gì về khóa mới.
         with self._balance_lock:
             self._balance_status, self._balance_checked_at = None, 0.0
+            self._balance_generation = getattr(self, "_balance_generation", 0) + 1
         return models
 
     def list_models(self, max_age=300):
@@ -325,20 +326,75 @@ class DeepSeekResponder:
         self.model = model
         return model
 
-    def check_balance(self, max_age=30):
-        """Fail closed when DeepSeek cannot safely accept a completion request."""
+    # Dashboard (wait=False) chưa có kết quả nào: chờ tối đa chừng này rồi trả
+    # trạng thái "đang kiểm tra" thay vì treo tới 10 giây timeout mạng.
+    BALANCE_NOWAIT_S = 1.5
+
+    def check_balance(self, max_age=30, wait=True):
+        """Fail closed when DeepSeek cannot safely accept a completion request.
+
+        Khoá chỉ giữ để đọc/ghi trạng thái, KHÔNG giữ trong lúc gọi mạng. Một
+        luồng gọi mạng (single-flight); luồng khác dùng giá trị cũ nếu có, hoặc
+        chờ kết quả (wait=True). wait=False: làm mới ở nền, không bao giờ chờ mạng.
+        """
         if self.client is None:
             return {"ok": False, "deepseek_available": False,
                     "reason": "deepseek_key_missing",
                     "error": "Chưa cấu hình khóa DeepSeek; AI trả lời đang tắt"}
-        now = time.monotonic()
         with self._balance_lock:
-            if self._balance_status is not None and now - self._balance_checked_at < max_age:
+            cond = self.__dict__.get("_balance_cond")
+            if cond is None:
+                cond = self._balance_cond = threading.Condition(self._balance_lock)
+            now = time.monotonic()
+            stale = self._balance_status
+            if stale is not None and now - self._balance_checked_at < max_age:
+                return dict(stale)
+            inflight = getattr(self, "_balance_inflight", False)
+            if not inflight:
+                self._balance_inflight = True
+                generation = getattr(self, "_balance_generation", 0)
+                api_key = self.api_key
+        if not inflight:
+            if wait:
+                return self._balance_refresh(api_key, generation)
+            threading.Thread(target=self._balance_refresh, args=(api_key, generation),
+                             name="deepseek-balance", daemon=True).start()
+        with self._balance_lock:
+            if self._balance_status is not None and (not wait or stale is not None):
                 return dict(self._balance_status)
+            deadline = time.monotonic() + (12 if wait else self.BALANCE_NOWAIT_S)
+            while getattr(self, "_balance_inflight", False) and time.monotonic() < deadline:
+                cond.wait(max(0.01, deadline - time.monotonic()))
+            if self._balance_status is not None:
+                return dict(self._balance_status)
+        return {"ok": False, "service": "kid-te-ai-standalone",
+                "deepseek_available": False, "reason": "deepseek_balance_checking",
+                "error": "Đang kiểm tra số dư DeepSeek; AI trả lời tạm tắt"}
+
+    def _balance_refresh(self, api_key, generation):
+        try:
+            status = self._balance_fetch(api_key)
+        except Exception as exc:   # khong de co in-flight ket mai
+            status = {"ok": False, "service": "kid-te-ai-standalone",
+                      "deepseek_available": False,
+                      "reason": "deepseek_balance_check_failed",
+                      "error": "Không kiểm tra được số dư DeepSeek; AI trả lời vẫn tắt",
+                      "detail": type(exc).__name__}
+        with self._balance_lock:
+            self._balance_inflight = False
+            if generation == getattr(self, "_balance_generation", 0):
+                self._balance_status, self._balance_checked_at = status, time.monotonic()
+            cond = self.__dict__.get("_balance_cond")
+            if cond is not None:
+                cond.notify_all()
+        return dict(status)
+
+    def _balance_fetch(self, api_key):
+        if True:
             # Dùng đúng khóa đang hoạt động, không dùng hằng số lúc import.
             request = urllib.request.Request(
                 DEEPSEEK_BASE_URL.rstrip("/") + "/user/balance",
-                headers={"Authorization": f"Bearer {self.api_key}",
+                headers={"Authorization": f"Bearer {api_key}",
                          "Accept": "application/json"},
             )
             try:
@@ -373,8 +429,7 @@ class DeepSeekResponder:
                           "reason": reasons.get(info["code"], "deepseek_balance_check_failed"),
                           "error": info["message"] + "; AI trả lời vẫn tắt",
                           "detail": info["detail"]}
-            self._balance_status, self._balance_checked_at = status, now
-            return dict(status)
+            return status
 
     def _shorten(self, inference, previous, length, max_chars, metrics):
         retry = dict(inference)

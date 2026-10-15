@@ -319,8 +319,69 @@ def restore_operational_backup(backup_id: str, parts=None):
         destination = _restore_target(path)
         if destination is not None and part_of(path) in wanted:
             targets[path] = destination
+    privacy_state = _capture_privacy_state(manifest, targets)
     result = restore_backup(target_dir, targets)
-    return {**result, "parts": sorted(wanted), "safety_backup": safety.get("backup_id", "")}
+    purged = _reapply_privacy_state(privacy_state)
+    return {**result, "parts": sorted(wanted), "safety_backup": safety.get("backup_id", ""),
+            "privacy_reapplied": purged}
+
+
+# Khoá HMAC máy (privacy.py). KHÔNG đưa vào bản V1: V1 chép tệp trần, không mã
+# hoá — để khoá nằm cạnh dữ liệu sẽ làm tombstone (HMAC) dò ngược được.
+PRIVACY_KEY_PATH = DATA_DIR / "machine" / "privacy_key"
+
+
+def _read_opt_outs(db_path):
+    path = Path(db_path)
+    if not path.is_file():
+        return []
+    db = sqlite3.connect(path, timeout=10)
+    try:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_opt_outs'").fetchone():
+            return []
+        return db.execute("SELECT customer_key,display_name,opted_out_at FROM memory_opt_outs").fetchall()
+    finally:
+        db.close()
+
+
+def _capture_privacy_state(manifest, targets):
+    """Trước khi khôi phục: đọc tombstone + opt-out HIỆN TẠI để áp lại sau đó,
+    tránh khách đã yêu cầu xoá/không ghi nhớ hiện lại từ bản cũ (giống V2)."""
+    import privacy
+    sqlite_paths = {record.get("path") for record in manifest.get("files") or []
+                    if record.get("kind") == "sqlite"}
+    dbs = [Path(dest) for rel, dest in targets.items() if rel in sqlite_paths]
+    if not dbs:
+        return None
+    tombstones = privacy.merge_tombstones(privacy.read_tombstones(MEMORY_DB),
+                                          *(privacy.read_tombstones(db) for db in dbs))
+    opt_outs = {db: _read_opt_outs(db) for db in dbs}
+    secret = privacy.load_secret_from_path(PRIVACY_KEY_PATH)
+    if tombstones and secret is None:
+        # Không áp lại được tombstone → không được khôi phục (sẽ làm khách đã xoá hiện lại).
+        raise ValueError("backup_privacy_secret_required")
+    return {"dbs": dbs, "tombstones": tombstones, "opt_outs": opt_outs, "secret": secret}
+
+
+def _reapply_privacy_state(state):
+    if not state:
+        return {"deleted": 0, "tombstones": 0}
+    import privacy
+    deleted = 0
+    for db_path in state["dbs"]:
+        rows = state["opt_outs"].get(db_path) or []
+        if rows:
+            db = sqlite3.connect(db_path, timeout=10)
+            try:
+                with db:
+                    db.execute("CREATE TABLE IF NOT EXISTS memory_opt_outs (customer_key TEXT PRIMARY KEY, "
+                               "display_name TEXT NOT NULL DEFAULT '', opted_out_at TEXT NOT NULL)")
+                    db.executemany("INSERT OR IGNORE INTO memory_opt_outs VALUES (?,?,?)", rows)
+            finally:
+                db.close()
+        if state["tombstones"]:
+            deleted += privacy.purge_db_by_tombstones(db_path, state["tombstones"], state["secret"])["deleted"]
+    return {"deleted": deleted, "tombstones": len(state["tombstones"])}
 
 
 # ------------------------------------------------------------------ xem chi tiết

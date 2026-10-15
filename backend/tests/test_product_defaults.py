@@ -203,3 +203,57 @@ class DefaultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class IncomingBundleGuardTests(DefaultTests):
+    def _bundle_file(self, rows):
+        content = {"nhom_san_pham": [{"nhom": "X", "san_pham": rows}], "images": {}}
+        bundle = {"schema_version": 1, "version": "2026-01-01T00:00:00+00:00",
+                  "publisher": "x", "content": content,
+                  "content_sha256": content_hash(content)}
+        path = self.root / "incoming.json"
+        path.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def test_incoming_prices_promotions_stripped_and_pending(self):
+        row = {**self.source, "san_pham_id": "N", "approved_for_live": True,
+               "gia_goc_duyet": "99k", "live_promotion": "tang 1", "la_truong_la": 1,
+               "combo_components": []}
+        row.pop("shop_product_ids")
+        out = self.service.choose({"mode": "default", "source": self._bundle_file([row])})
+        rec = next(r for r in self.k.all_records() if r["san_pham_id"] == "N")
+        raw = self.catalog.read_text(encoding="utf-8")
+        for bad in ("99k", "tang 1", "la_truong_la", "machine alias"):
+            self.assertNotIn(bad, raw)
+        self.assertFalse(rec.get("approved_for_live"))
+        self.assertEqual(out["pending_approval"], 1)
+
+    def test_owner_approved_profile_not_downgraded(self):
+        self.write_profiles()
+        self.k.reload()
+        before = next(r for r in self.k.all_records() if r["san_pham_id"] == "A")
+        incoming = {**self.source, "approved_for_live": False,
+                    "gia_goc_duyet": "other price", "quy_cach_dong_goi": "1L",
+                    "huong_dan_su_dung": ["99ml / 16L"], "cong_dung": ["Rễ"]}
+        out = self.service.choose(
+            {"mode": "default", "source": self._bundle_file([incoming])}
+        )
+        rec = next(r for r in self.k.all_records() if r["san_pham_id"] == "A")
+        self.assertEqual(rec, before)
+        self.assertTrue(rec["approved_for_live"])
+        self.assertEqual(rec["gia_goc_duyet"], "secret price")
+        self.assertEqual(out["skipped_existing"], 1)
+
+    def test_orphan_approved_mapping_does_not_activate_new_profile(self):
+        mapping = self.root / "data/machine/mapping.json"
+        mapping.parent.mkdir(parents=True, exist_ok=True)
+        mapping.write_text(json.dumps({"assignments": {"sku-1": {
+            "product_code": "X", "approved_for_live": True}}}), encoding="utf-8")
+        row = {**self.source, "san_pham_id": "X"}
+        row.pop("shop_product_ids")
+        out = self.service.choose({"mode": "default", "source": self._bundle_file([row])})
+        self.k.reload()
+        self.assertIn("X", {r["san_pham_id"] for r in self.k.all_records()})
+        self.assertNotIn("X", self.k.approved_product_codes())
+        self.assertNotIn("sku-1", self.k.by_shop_id)
+        self.assertEqual(out["unmapped_stale"], 1)

@@ -7,6 +7,7 @@ So khớp tiêu đề theo dạng bỏ dấu, chữ thường. Thiếu/hỏng fi
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from datetime import datetime, timezone
 
@@ -16,14 +17,43 @@ from product_ref import fold
 PATH = DATA_DIR / "shared" / "ai_excluded_products.json"
 REMOVED_PATH = DATA_DIR / "machine" / "removed_products.json"
 _lock = threading.RLock()
+_log = logging.getLogger(__name__)
+# path -> (mtime_ns, size, value); value giữ bản đọc được gần nhất.
+_cache = {}
+
+
+def _cached(path, parse, empty):
+    """Đọc JSON theo mtime; tệp hỏng => giữ bản tốt gần nhất và cảnh báo."""
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        _cache.pop(path, None)
+        return empty
+    except OSError:
+        st = None
+    key = (st.st_mtime_ns, st.st_size) if st else None
+    hit = _cache.get(path)
+    if hit and key and hit[0] == key:
+        return hit[1]
+    try:
+        value = parse(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
+        _log.warning("Không đọc được %s (%s); dùng bản đọc được gần nhất.", path, exc)
+        return hit[1] if hit else empty
+    if key:
+        _cache[path] = (key, value)
+    return value
+
+
+def _parse_removed(data):
+    rows = data["products"]
+    if not isinstance(rows, dict):
+        raise ValueError("products không phải dict")
+    return rows
 
 
 def removed_products():
-    try:
-        data = json.loads(REMOVED_PATH.read_text(encoding="utf-8"))
-        return data.get("products", {}) if isinstance(data.get("products"), dict) else {}
-    except (OSError, ValueError, AttributeError):
-        return {}
+    return dict(_cached(REMOVED_PATH, _parse_removed, {}))
 
 
 def set_removed(product, removed=True):
@@ -51,13 +81,11 @@ def set_removed(product, removed=True):
         temporary = REMOVED_PATH.with_suffix(".json.tmp")
         temporary.write_text(json.dumps({"schema_version": 1, "products": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(REMOVED_PATH)
+        _cache.pop(REMOVED_PATH, None)
 
 
 def _rules():
-    try:
-        data = json.loads(PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    data = _cached(PATH, lambda d: d if isinstance(d, dict) else {}, {})
     terms = [fold(t) for t in data.get("title_contains") or [] if isinstance(t, str) and t.strip()]
     ids = {str(i) for i in data.get("product_ids") or [] if str(i).strip()}
     ids.update(removed_products())

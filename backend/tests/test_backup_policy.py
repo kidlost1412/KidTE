@@ -81,3 +81,19 @@ def test_manual_backup_never_deletes_automatic_backups(tmp_path, monkeypatch):
     make("auto")
     left = {p.name for p in (tmp_path / "backups").iterdir() if p.is_dir()}
     assert set(manuals[-5:]) <= left   # auto backup does not touch manual ones
+
+
+def test_product_setup_files_and_ingest_images_are_backed_up(tmp_path, monkeypatch):
+    (tmp_path / "machine").mkdir()
+    (tmp_path / "machine" / "removed_products.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "product_setup_choice.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "ingest_images").mkdir()
+    (tmp_path / "ingest_images" / "A.webp").write_bytes(b"x")
+    monkeypatch.setattr(backup_policy, "DATA_DIR", tmp_path)
+    src = backup_policy._sources()["san_pham"]
+    assert "machine/removed_products.json" in src["json"]
+    assert "product_setup_choice.json" in src["json"]
+    assert src["file"]["ingest_images/A.webp"] == tmp_path / "ingest_images" / "A.webp"
+    assert backup_policy._restore_target("ingest_images/A.webp") == tmp_path / "ingest_images" / "A.webp"
+    assert backup_policy._restore_target("product_setup_choice.json") == tmp_path / "product_setup_choice.json"
+    assert backup_policy.part_of("ingest_images/A.webp") == "san_pham"

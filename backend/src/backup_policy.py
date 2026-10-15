@@ -11,7 +11,7 @@ from pathlib import Path
 from backup import BackupError, create_snapshot, prune_backups, retention_class, restore_backup, verify_backup
 from config import (
     APPROVED_CATALOG_PATH, APPROVED_PROFILES_PATH, BACKUP_DIR,
-    CATALOG_MAPPING_PATH,
+    CATALOG_MAPPING_PATH, DATA_DIR,
     LIVE_CATALOG_PATH, LIVE_RAW_CATALOG_PATH, MACHINE_CATALOG_MAPPING_PATH,
     SHOPEE_LIVE_MAPPING_PATH,
     MEMORY_DB, OPERATOR_WORKSPACE_DB, RAW_STREAM_DIR, SHOP_INFO_PATH,
@@ -42,6 +42,10 @@ def _sources():
     def existing(mapping):
         return {name: Path(path) for name, path in mapping.items() if Path(path).is_file()}
 
+    ingest_dir = Path(DATA_DIR) / "ingest_images"
+    ingest_images = ({f"ingest_images/{p.name}": p for p in sorted(ingest_dir.iterdir())
+                      if p.is_file() and p.suffix not in {".tmp", ".incoming"}}
+                     if ingest_dir.is_dir() else {})
     videos = {f"videos/{t.parent.name}/timeline.json": t
               for t in sorted(Path(VIDEO_LIBRARY_DIR).glob("*/timeline.json"))}
     return {
@@ -59,7 +63,9 @@ def _sources():
             "live_products_current.json": LIVE_CATALOG_PATH,
             "live_products_raw_current.json": LIVE_RAW_CATALOG_PATH,
             "local_product_overrides.json": LOCAL_PRODUCT_OVERRIDES_PATH,
-        })},
+            "machine/removed_products.json": Path(DATA_DIR) / "machine" / "removed_products.json",
+            "product_setup_choice.json": Path(DATA_DIR) / "product_setup_choice.json",
+        }), "file": ingest_images},
         "cai_dat": {"json": existing({"thong_tin_shop.json": SHOP_INFO_PATH,
                                       "cai_dat_bo_xu_ly.json": PROCESSOR_SETTINGS_PATH,
                                       "sales_playbook.json": SALES_PLAYBOOK_PATH,
@@ -104,7 +110,11 @@ def _restore_target(path):
     if (len(parts) == 3 and parts[0] == "tai_lieu" and parts[1].isalnum()
             and parts[2] and parts[2] not in {".", ".."} and "\\" not in parts[2]):
         return Path(DOCUMENTS_DIR) / parts[1] / parts[2]
+    if len(parts) == 2 and parts[0] == "ingest_images" and parts[1] not in {"", ".", ".."} and "\\" not in parts[1]:
+        return Path(DATA_DIR) / "ingest_images" / parts[1]
     return {
+        "machine/removed_products.json": Path(DATA_DIR) / "machine" / "removed_products.json",
+        "product_setup_choice.json": Path(DATA_DIR) / "product_setup_choice.json",
         "customer_memory.sqlite3": MEMORY_DB,
         "shopee_customers.sqlite3": MEMORY_DB.with_name("shopee_customers.sqlite3"),
         "operator_workspace.sqlite3": OPERATOR_WORKSPACE_DB,

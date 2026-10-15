@@ -17,3 +17,15 @@ def test_title_and_id_filter(tmp_path, monkeypatch):
 def test_missing_file_keeps_all(tmp_path, monkeypatch):
     monkeypatch.setattr(product_blocklist, "PATH", tmp_path / "none.json")
     assert len(product_blocklist.filter_products([{"title": "a"}, {"title": "b"}])) == 2
+
+
+def test_corrupt_removed_file_keeps_last_good(tmp_path, monkeypatch, caplog):
+    removed = tmp_path / "removed.json"
+    monkeypatch.setattr(product_blocklist, "PATH", tmp_path / "none.json")
+    monkeypatch.setattr(product_blocklist, "REMOVED_PATH", removed)
+    product_blocklist.set_removed({"product_id": "7", "title": "Da xoa"})
+    items = [{"product_id": "7", "title": "a"}, {"product_id": "8", "title": "b"}]
+    assert [p["product_id"] for p in product_blocklist.filter_products(items)] == ["8"]
+    removed.write_text("{hong", encoding="utf-8")
+    assert [p["product_id"] for p in product_blocklist.filter_products(items)] == ["8"]
+    assert "removed" in caplog.text

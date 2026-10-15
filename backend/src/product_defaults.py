@@ -14,6 +14,8 @@ from knowledge_package import apply_package, content_hash, read_source, validate
 from product_ingest import FIELD_ORDER, _webp_800, normalize_image
 from workspace import _atomic_json, _serialized_write
 
+_COMPONENT_FIELDS = {"profile_id", "name", "source_revision", "quantity", "package"}
+
 _ALLOWED = (set(FIELD_ORDER) - {"gia_goc_duyet", "live_promotion"}) | {
     "san_pham_id",
     "is_combo",
@@ -26,6 +28,19 @@ _ALLOWED = (set(FIELD_ORDER) - {"gia_goc_duyet", "live_promotion"}) | {
     "featured_image_url",
     "reference_only",
 }
+
+
+def _sanitize_incoming(row):
+    """Hồ sơ nạp từ bộ: bỏ giá/khuyến mãi/trường lạ và vào ở trạng thái chờ duyệt."""
+    out = {k: copy.deepcopy(v) for k, v in row.items() if k in _ALLOWED}
+    if isinstance(out.get("combo_components"), list):
+        out["combo_components"] = [
+            {k: v for k, v in c.items() if k in _COMPONENT_FIELDS}
+            for c in out["combo_components"]
+            if isinstance(c, dict)
+        ]
+    out["approved_for_live"] = False
+    return out
 
 
 def audit(records):
@@ -178,18 +193,7 @@ class DefaultProfiles:
             row = {k: copy.deepcopy(v) for k, v in r.items() if k in _ALLOWED}
             if "combo_components" in row:
                 row["combo_components"] = [
-                    {
-                        k: v
-                        for k, v in c.items()
-                        if k
-                        in {
-                            "profile_id",
-                            "name",
-                            "source_revision",
-                            "quantity",
-                            "package",
-                        }
-                    }
+                    {k: v for k, v in c.items() if k in _COMPONENT_FIELDS}
                     for c in row["combo_components"]
                 ]
             row["reference_only"] = rid not in selected
@@ -236,6 +240,38 @@ class DefaultProfiles:
             "excluded": errors,
         }
 
+    @staticmethod
+    def _drop_stale_mappings(mapping_path, new_ids):
+        """Gỡ ánh xạ SKU mồ côi trỏ tới mã hồ sơ vừa nạp.
+
+        Duyệt = gắn SKU. Một dòng ánh xạ cũ (đã duyệt) trỏ tới mã chưa tồn tại
+        sẽ khiến hồ sơ mới nạp lên LIVE mà chủ shop chưa xem; gỡ hẳn dòng đó
+        (như khi gán rỗng trong _apply_machine_mapping) để chủ shop gắn lại.
+        """
+        if not mapping_path or not new_ids or not mapping_path.is_file():
+            return 0
+        raw = json.loads(mapping_path.read_text(encoding="utf-8"))
+        current = raw.get("assignments") if isinstance(raw, dict) else None
+        if not isinstance(current, dict):
+            return 0
+        kept = {
+            sid: a
+            for sid, a in current.items()
+            if not (isinstance(a, dict) and a.get("product_code") in new_ids)
+        }
+        removed = len(current) - len(kept)
+        if removed:
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            history = raw.get("history") if isinstance(raw.get("history"), list) else []
+            history.append(
+                {"changed_at": stamp, "reason": "default_profiles_stale_mapping",
+                 "assignments": current}
+            )
+            raw["history"] = history[-50:]
+            raw["assignments"] = kept
+            _atomic_json(mapping_path, raw)
+        return removed
+
     @_serialized_write
     def choose(self, payload):
         mode = payload.get("mode")
@@ -253,6 +289,12 @@ class DefaultProfiles:
             self.engine.knowledge.reload()
             return {"ok": True, "mode": mode}
         bundle = self._bundle(str(payload.get("source") or "").strip())
+        # Hồ sơ trùng mã đã có trên máy: dữ liệu chủ shop thắng, không ghi đè gì.
+        existing_ids = {
+            r.get("san_pham_id") for r in self.engine.knowledge.all_records()
+        } | set(getattr(self.engine.knowledge, "hidden_ids", set)())
+        for g in bundle["content"]["nhom_san_pham"]:
+            g["san_pham"] = [_sanitize_incoming(r) for r in g.get("san_pham", [])]
         rows = [
             r for g in bundle["content"]["nhom_san_pham"] for r in g.get("san_pham", [])
         ]
@@ -265,6 +307,13 @@ class DefaultProfiles:
         errors = audit(rows)
         if errors:
             raise ValueError("Bộ combo chưa qua kiểm tra: " + errors[0]["error"])
+        skipped = sorted(ids & existing_ids)
+        for g in bundle["content"]["nhom_san_pham"]:
+            g["san_pham"] = [
+                r for r in g["san_pham"] if r["san_pham_id"] not in existing_ids
+            ]
+        bundle["content_sha256"] = content_hash(bundle["content"])
+        new_rows = [r for r in rows if r["san_pham_id"] not in existing_ids]
         photos = {}
         for rid, encoded in (bundle["content"].get("images") or {}).items():
             if (
@@ -274,10 +323,23 @@ class DefaultProfiles:
             ):
                 raise ValueError("Ảnh trong bộ hồ sơ không hợp lệ.")
             data = base64.b64decode(encoded, validate=True)
+            if rid in existing_ids:
+                continue
             photos[rid] = _webp_800(normalize_image(data, max_side=800))
         before = target.read_bytes() if target.exists() else None
+        mapping_path = getattr(self.engine.knowledge, "mapping_path", None)
+        mapping_path = Path(mapping_path) if mapping_path else None
+        mapping_before = (
+            mapping_path.read_bytes()
+            if mapping_path and mapping_path.exists()
+            else None
+        )
+        unmapped = 0
         previous_photos = {}
         try:
+            unmapped = self._drop_stale_mappings(
+                mapping_path, {r["san_pham_id"] for r in new_rows}
+            )
             for rid, data in photos.items():
                 path = self.ingest.staged_image_path(rid, create=True)
                 if path.exists():
@@ -300,12 +362,19 @@ class DefaultProfiles:
                 tmp.replace(target)
             for path in previous_photos:
                 path.unlink(missing_ok=True)
+            if mapping_path and mapping_before is not None:
+                tmp = mapping_path.with_suffix(".rollback")
+                tmp.write_bytes(mapping_before)
+                tmp.replace(mapping_path)
             self.engine.knowledge.reload()
             raise
         self.engine.workspace._touch("profiles", "products", "dashboard")
         return {
             "ok": True,
             "mode": mode,
-            "products": sum(r.get("approved_for_live") is True for r in rows),
+            "products": sum(r.get("reference_only") is not True for r in new_rows),
+            "pending_approval": len(new_rows),
+            "skipped_existing": len(skipped),
+            "unmapped_stale": unmapped,
             "images": len(photos),
         }

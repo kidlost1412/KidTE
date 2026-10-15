@@ -17,3 +17,12 @@ test('missing ai_queue (old backend) renders nothing', () => {
 test('overview poll key includes ai_queue so panel refreshes', () => {
   assert.match(source, /dash\.ai_queue/);
 });
+
+const pbody = source.match(/export function privacyWarning[\s\S]*?\r?\n}\r?\n/)[0].replace('export ', '');
+const privacyWarning = new Function(pbody + '; return privacyWarning;')();
+test('privacy warning only when customer memory is unavailable', () => {
+  assert.equal(privacyWarning(undefined), '');
+  assert.equal(privacyWarning({memory_available: true, warning: ''}), '');
+  assert.match(privacyWarning({memory_available: false, warning: 'Bộ nhớ khách tạm tắt: x'}), /tạm tắt/);
+  assert.match(source, /dash\.privacy/);
+});

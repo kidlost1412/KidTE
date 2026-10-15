@@ -652,6 +652,41 @@ require("./comments.js");
     chrome.runtime.sendMessage = priorSend;
   }
 
+  // Lệnh từ app qua heartbeat: seq mới áp một lần qua đường popup, seq cũ không áp lại.
+  {
+    const priorSend = chrome.runtime.sendMessage;
+    const beats = [], pinCalls = [];
+    let control = { seq: 3, ai_enabled: true, auto_pin: false };
+    delete storage.liveReControlSeq;
+    storage.liveReAiEnabled = false;
+    chrome.runtime.sendMessage = async (message) => {
+      if (message.type === "LIVE_RE_HEARTBEAT") { beats.push(message.payload); return { ok: true, control }; }
+      if (message.type === "LIVE_RE_PAUSE" || message.type === "LIVE_RE_RESUME") { pinCalls.push(message.type); return { ok: true }; }
+      if (message.type === "LIVE_RE_GET_STATE") return { ok: true, state: { running: pinCalls.length === 0, startedAtMs: 1 } };
+      return priorSend(message);
+    };
+    debug.setRuntimeForTest({ isController: true });
+    await debug.sendHeartbeat();
+    assert.equal(storage.liveReAiEnabled, true, "seq mới bật AI qua liveReAiEnabled như popup");
+    assert.deepEqual(pinCalls, ["LIVE_RE_PAUSE"], "auto_pin=false tạm dừng ghim như nút popup");
+    assert.equal(storage.liveReControlSeq, 3);
+    assert.equal(beats[0].control_applied_seq, undefined);
+    // Người dùng tắt trong popup: heartbeat sau vẫn mang seq 3 -> không ép bật lại.
+    storage.liveReAiEnabled = false;
+    await debug.sendHeartbeat();
+    assert.equal(storage.liveReAiEnabled, false, "lệnh cũ không ép lại");
+    assert.equal(beats[1].control_applied_seq, 3);
+    assert.equal(pinCalls.length, 1);
+    // seq cũ hơn cũng bị bỏ qua; seq mới hơn áp tiếp.
+    assert.equal(await debug.applyAppControl({ seq: 2, ai_enabled: true }), false);
+    control = { seq: 4, ai_enabled: false, auto_pin: null };
+    storage.liveReAiEnabled = true;
+    await debug.sendHeartbeat();
+    assert.equal(storage.liveReAiEnabled, false);
+    assert.equal(storage.liveReControlSeq, 4);
+    chrome.runtime.sendMessage = priorSend;
+  }
+
   {
     // Chưa LIVE + AI tắt: nút Quét giỏ vẫn lưu giỏ prelive, AI không được bật.
     await debug.applyEnabled(false);

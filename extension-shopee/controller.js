@@ -43,6 +43,20 @@
     if (persist) await save({shopeeStatus: {...value, at: Date.now()}}).catch(() => {});
   }
 
+  // Lệnh bật/tắt AI từ app Kid TE (Trung tâm LIVE) đi kèm heartbeat. Áp đúng MỘT lần
+  // theo seq bằng cùng khóa popup dùng (shopeeAiRequested); background/ai-controller vẫn
+  // giữ mọi chặn (tab điều khiển, phiên, video). Bấm popup sau đó không bị ép lại.
+  async function applyAppControl(control) {
+    const seq = Number(control?.seq);
+    if (!Number.isInteger(seq) || seq <= 0) return false;
+    const saved = await call(() => chrome.storage.local.get("shopeeControlSeq"));
+    if (seq <= Number(saved?.shopeeControlSeq || 0)) return false;
+    if (typeof control.ai_enabled === "boolean") await save({shopeeAiRequested: control.ai_enabled});
+    await save({shopeeControlSeq: seq});
+    return true;
+  }
+  globalThis.KidTEShopeeApplyControl = applyAppControl;
+
   async function tick() {
     if (busy || stopped) return;
     if (!alive()) { stop(); return; }
@@ -54,13 +68,17 @@
       if (!connection?.ok) throw new Error(connection?.error || "Chưa nối được Kid TE; tự thử lại");
       if (!connection.controller) { await status({ok: true, label: "Tab theo dõi — tab khác đang điều khiển"}, false); return; }
       const {config, position} = connection;
-      const aiState = (await call(() => chrome.storage.local.get("shopeeAiStatus"))).shopeeAiStatus;
+      const stored = await call(() => chrome.storage.local.get(["shopeeAiStatus", "shopeeControlSeq"]));
+      const aiState = stored.shopeeAiStatus;
+      const appliedSeq = Number(stored.shopeeControlSeq || 0);
       const heartbeat = await send({type: "KIDTE_SHOPEE_BACKEND", resource: "heartbeat", method: "POST",
         payload: {platform: "shopee", session_id: config.sessionId,
           live_running: Boolean(core.liveSession(location.href)), ai_enabled: Boolean(config.aiEnabled),
           ai_ready: Boolean(config.aiEnabled && aiState?.sessionId === config.sessionId && aiState?.ok === true &&
             Date.now() - Number(aiState.at || 0) >= 0 && Date.now() - Number(aiState.at || 0) < 20000),
-          observer: !connection.paused}});
+          observer: !connection.paused,
+          ...(appliedSeq > 0 ? {control_applied_seq: appliedSeq} : {})}});
+      if (heartbeat?.control) await applyAppControl(heartbeat.control).catch(() => false);
       if (Array.isArray(heartbeat?.privacy_purge) && heartbeat.privacy_purge.length &&
           typeof globalThis.KidTEShopeeAiPurge === "function") {
         await globalThis.KidTEShopeeAiPurge(heartbeat.privacy_purge).catch(() => []);

@@ -290,6 +290,9 @@ def _main_messages(client):
 
 @pytest.mark.parametrize("bad", ["garbage", RuntimeError("down"), {"acts": "x"}])
 def test_tiktok_fail_open_equals_router_off(monkeypatch, tmp_path, bad):
+    import reply_angles
+    # Gợi ý góc mỗi lượt là ngẫu nhiên; so hai lần chạy thì tắt để chỉ so phần router.
+    monkeypatch.setattr(reply_angles.AnglePicker, "hint", lambda self: "")
     outputs = []
     for enabled, folder in ((False, "off"), (True, "on")):
         sub = tmp_path / folder

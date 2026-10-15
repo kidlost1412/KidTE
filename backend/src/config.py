@@ -132,6 +132,7 @@ SYSTEM_PROMPT_PATH = RESOURCE_ROOT / "prompts" / "system_prompt.txt"
 SALES_PLAYBOOK_PATH = DATA_DIR / "shared" / "sales_playbook.json"
 KNOWLEDGE_SEED_PATH = RESOURCE_ROOT / "prompts" / "knowledge_seed.json"
 SALES_PLAYBOOK_DEFAULT_PATH = RESOURCE_ROOT / "prompts" / "sales_playbook.default.json"
+REPLY_ANGLES_PATH = RESOURCE_ROOT / "prompts" / "reply_angles.json"
 # CŨ: bản lời nhắc chủ shop ghi đè TOÀN BỘ. Không còn dùng làm lời nhắc; chỉ đọc để báo/chuyển thành ghi chú.
 SYSTEM_PROMPT_OVERRIDE_PATH = Path((os.getenv("KID_TE_PROMPT_OVERRIDE", "") or
                                     os.getenv("LIVE_RE_PROMPT_OVERRIDE", "")).strip()

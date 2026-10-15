@@ -38,8 +38,8 @@ _DENIAL_QUESTION = re.compile(r"\b(có|còn|bán)\b.{0,40}\b(không|ko|hông|hon
 _DENIAL_ANSWER = re.compile(r"^\s*(dạ\s*)?(không|ko|chưa)\s*(có|bán|còn)\b", re.I)
 # Khách ĐÃ MUA mà AI vẫn thúc mua thêm: câu chăm sóc sau bán bị hỏng.
 PUSHY_PHRASES = ("chốt liền", "đặt liền", "chốt đi", "đặt đi", "mua liền", "chốt ngay")
-DEFAULT_VOUCHER_PITCH = ("gốc 289k đó anh, mà nay TikTok hỗ trợ mã lớn lắm, "
-                         "anh xem tài khoản có hông rồi đặt liền nha")
+DEFAULT_VOUCHER_PITCH = ("Nhắc giá gốc {gia} rồi mời khách tự xem mã/ưu đãi trên tài khoản của mình; "
+                         "mỗi lần diễn đạt một kiểu, không lặp chữ của câu trước.")
 
 # Người vận hành chỉnh ở Trợ lý tự động → Chính sách giá.
 SETTINGS_SCHEMA = [
@@ -47,7 +47,7 @@ SETTINGS_SCHEMA = [
      "label": "Nói giá xong thì nhắc khách xem mã TikTok trên tài khoản",
      "help": "Tắt thì AI chỉ báo giá gốc, không thêm câu mời kiểm tra mã."},
     {"key": "mau_nhac_ma", "type": "text", "default": DEFAULT_VOUCHER_PITCH, "group": "Khi khách hỏi giá",
-     "label": "Câu mẫu (AI học nhịp, không chép nguyên văn)", "max_length": 300, "required": True,
+     "label": "Ý cần truyền đạt (mô tả ý, không phải câu mẫu)", "max_length": 300, "required": True,
      "help": "Không ghi số tiền mã, số lượng mã hay hạn giờ — AI không được bịa những thứ đó."},
     {"key": "chan_tu_tinh_gia", "type": "bool", "default": True, "group": "Soát câu trả lời",
      "label": "Yêu cầu viết lại số tiền AI tự tính (vd 2 can = 1.110k)",
@@ -230,9 +230,9 @@ def price_context(product, approved=None):
     }
     if SETTINGS["nhac_ma_tiktok"]:
         out["voucher_pitch"] = (
-            "Ngay sau khi nói giá, nhắc khách tự kiểm tra mã trên tài khoản vì hôm "
-            f"nay TikTok hỗ trợ mã lớn, rồi thúc đặt liền. Mẫu nhịp: '{SETTINGS['mau_nhac_ma']}'. "
-            "Không bịa số tiền mã, số lượng mã hay hạn giờ."
+            "Sau khi nói giá, khi hợp ngữ cảnh thì mời khách tự xem mã trên tài khoản. "
+            f"Ý chủ shop muốn: {SETTINGS['mau_nhac_ma'].replace('{gia}', str(quotable)).rstrip(' .')}. "
+            "Tự diễn đạt bằng lời mới, không chép nguyên văn ý này, không bịa số tiền mã, số lượng mã hay hạn giờ."
         )
     else:
         out["voucher_pitch"] = "Chỉ báo giá gốc; KHÔNG nhắc khách kiểm tra mã hay voucher."

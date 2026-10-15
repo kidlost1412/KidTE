@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import re
+import random
 import threading
 import time
 import uuid
@@ -60,6 +61,16 @@ import customer_card
 import router
 import sales_playbook
 import reply_variety
+import reply_angles
+
+# C14: câu báo đã xoá ghi nhớ, đổi kiểu mỗi lần thay vì một câu nguyên văn.
+FORGET_REPLIES = (
+    "Em xoá phần ghi nhớ về mình rồi nha.",
+    "Xong rồi nha, em đã xoá hết dữ liệu ghi nhớ của mình.",
+    "Ok nha, phần em ghi nhớ về mình em xoá sạch rồi đó.",
+    "Em đã xoá thông tin ghi nhớ của mình rồi, yên tâm nha.",
+    "Dạ xong, dữ liệu em lưu về mình đã được xoá rồi nha.",
+)
 import smalltalk
 from live_sources import LiveSources, PLATFORMS, read_channel_health
 from video_analysis import (
@@ -2748,6 +2759,9 @@ class ReplyEngine:
         if recent:
             context["cau_da_gui_gan_day"] = recent
             context["tranh_mo_dau"] = reply_variety.openings(recent, words=2)
+        hint = self._reply_angle_hint()
+        if hint:
+            context["goi_y_luot_nay"] = hint
         if history:
             context["lich_su_khach"] = history
         documents = getattr(self, "documents", None)
@@ -2902,6 +2916,9 @@ class ReplyEngine:
         if recent:
             context["cau_da_gui_gan_day"] = recent
             context["tranh_mo_dau"] = reply_variety.openings(recent, words=2)
+        hint = self._reply_angle_hint()
+        if hint:
+            context["goi_y_luot_nay"] = hint
         if isinstance(video, dict):
             try:
                 position_s = round(max(0.0, float(video.get("position_s", 0))), 2)
@@ -2949,7 +2966,7 @@ class ReplyEngine:
         if self.memory.forget_if_requested(comment, **identity):
             return self._tracked_result({
                 "ok": True, "should_send": True,
-                "reply": "Dạ, em đã xóa dữ liệu ghi nhớ của mình rồi ạ.",
+                "reply": random.choice(FORGET_REPLIES),
                 "requires_ack": False,
             })
         live = self.catalog.sync(payload.get("live_context"))
@@ -3105,7 +3122,7 @@ class ReplyEngine:
             logging.getLogger('kid-te.core').warning('tiktok dose gate failed', exc_info=True)
             dose_gate = None
         if dose_gate and dose_gate.get('handoff'):
-            result = {'action': 'reply', 'reply': dose_selection.DOSE_HANDOFF, 'metrics': {}}
+            result = {'action': 'reply', 'reply': dose_selection.dose_handoff(), 'metrics': {}}
         else:
             result = self.responder.reply(nickname, comment, context, max_body)
             if dose_gate and dose_gate.get('rows') and result.get('action') == 'reply':
@@ -3114,7 +3131,7 @@ class ReplyEngine:
                         correction='Chỉ được nêu liều đúng bằng verified_dose_calculations; không tự tính hay nêu số liều khác.')
                     if (result.get('action') != 'reply'
                             or not dose_selection.reply_dose_numbers_ok(clean(result.get('reply'), 2000), dose_gate['rows'])):
-                        result = {'action': 'reply', 'reply': dose_selection.DOSE_HANDOFF, 'metrics': {}}
+                        result = {'action': 'reply', 'reply': dose_selection.dose_handoff(), 'metrics': {}}
         own_replies = [clean(t.get("response"), 300) for t in reversed(turns or [])
                        if isinstance(t, dict) and t.get("delivery_status") == "sent" and t.get("response")]
         correction = self._combined_correction(
@@ -3695,6 +3712,18 @@ class ReplyEngine:
                 "reason": "" if result.get("action") == "reply" else "model_skipped",
                 "missing_fields": result.get("missing_fields") or [], "metrics": metrics, "explain": explain}
 
+    def _reply_angle_hint(self):
+        """Gợi ý góc/cách mở mỗi lượt (phần theo lượt, không phá cache phần tĩnh)."""
+        try:
+            if not context_budget.enabled("reply_angles"):
+                return ""
+            picker = getattr(self, "_angle_picker", None)
+            if picker is None:
+                picker = self._angle_picker = reply_angles.AnglePicker()
+            return picker.hint()
+        except Exception:  # noqa: BLE001 - gợi ý hỏng không được chặn câu trả lời
+            return ""
+
     def _recent_sent_replies(self, max_age_s=1200, limit=6):
         replies = getattr(self, "_sent_replies", None)
         if not replies:
@@ -3876,7 +3905,7 @@ class ReplyEngine:
                     "riêng TikTok Shop kèm lời hứa tra liền, bằng cách mở câu khác hẳn.")
         old = reply_variety.repeats_recent(reply, [*own_replies, *self._recent_sent_replies()])
         if old:
-            return (f"Câu vừa soạn lặp lại cách nói của một câu đã gửi gần đây: «{old}». Viết lại bằng cách mở câu, "
+            return (f"Câu vừa soạn lặp lại cách nói của một câu đã gửi gần đây: «{old}». Viết lại bằng cách mở câu, cách khép, "
                     "từ nối và nhịp khác hẳn, vẫn đúng nội dung và dữ kiện.")
         return ""
 

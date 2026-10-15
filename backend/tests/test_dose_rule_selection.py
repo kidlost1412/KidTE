@@ -3,7 +3,8 @@ import time
 from types import SimpleNamespace
 
 import dose_rules
-from shopee_ai import ShopeeAiEngine, DOSE_HANDOFF
+from shopee_ai import ShopeeAiEngine
+from dose_selection import DOSE_HANDOFFS
 
 
 def _db(tmp_path):
@@ -81,7 +82,7 @@ def test_valid_rule_computed(tmp_path):
         main = r.calls[-1][0]
         assert main["verified_dose_calculations"][0]["calculated_ml"] == 12.5
         assert r.calls[0][0]["dose_rule_options"][0]["rule_id"] == rid
-        assert DOSE_HANDOFF not in str(result)
+        assert not any(h in str(result) for h in DOSE_HANDOFFS)
     finally:
         engine.close()
 
@@ -93,7 +94,7 @@ def test_foreign_rule_rejected(tmp_path):
     r = Responder([_sel(foreign), _sel(foreign)])
     engine = _engine(tmp_path, r, _source(db))
     try:
-        assert DOSE_HANDOFF in str(_ask(engine))
+        out = str(_ask(engine)); assert any(h in out for h in DOSE_HANDOFFS), out
     finally:
         engine.close()
 
@@ -107,7 +108,7 @@ def test_unapproved_rule_rejected(tmp_path):
     try:
         assert ok != cand
         assert all(o["rule_id"] != cand for o in r.calls[0][0]["dose_rule_options"]) if r.calls else True
-        assert DOSE_HANDOFF in str(_ask(engine))
+        out = str(_ask(engine)); assert any(h in out for h in DOSE_HANDOFFS), out
     finally:
         engine.close()
 
@@ -121,7 +122,7 @@ def test_single_correction(tmp_path):
         result = _ask(engine)
         selects = [c for c in r.calls if c[0].get("ask") == "select_dose_rule"]
         assert len(selects) == 2 and "correction" in selects[1][1]
-        assert DOSE_HANDOFF not in str(result)
+        assert not any(h in str(result) for h in DOSE_HANDOFFS)
     finally:
         engine.close()
 
@@ -132,7 +133,7 @@ def test_wrong_number_in_reply_is_replaced(tmp_path):
     r = Responder([_sel(rid)], final="Dạ pha 99ml nha")
     engine = _engine(tmp_path, r, _source(db))
     try:
-        assert DOSE_HANDOFF in str(_ask(engine))
+        out = str(_ask(engine)); assert any(h in out for h in DOSE_HANDOFFS), out
     finally:
         engine.close()
 

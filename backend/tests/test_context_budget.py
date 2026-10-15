@@ -25,13 +25,15 @@ def test_flags_default_all_true_when_file_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(cb, "FLAGS_PATH", tmp_path / "nope.json")
     # Gói C thêm 3 cờ mới (mặc định bật): persona_all_lanes, customer_card, playbook.
     assert cb.flags() == {"smalltalk_lane": True, "intent_fields": True, "compact_catalog": True,
-                          "persona_all_lanes": True, "customer_card": True, "playbook": True}
+                          "persona_all_lanes": True, "customer_card": True, "playbook": True,
+                          "reply_angles": True}
 
 
 def test_flags_partial_corrupt_and_non_dict_files(monkeypatch, tmp_path):
     set_flags(monkeypatch, tmp_path, intent_fields=False)
     assert cb.flags() == {"smalltalk_lane": True, "intent_fields": False, "compact_catalog": True,
-                          "persona_all_lanes": True, "customer_card": True, "playbook": True}
+                          "persona_all_lanes": True, "customer_card": True, "playbook": True,
+                          "reply_angles": True}
     (tmp_path / "context_budget.json").write_text("{not json", encoding="utf-8")
     assert all(cb.flags().values())
     (tmp_path / "context_budget.json").write_text("[1,2]", encoding="utf-8")
@@ -40,7 +42,7 @@ def test_flags_partial_corrupt_and_non_dict_files(monkeypatch, tmp_path):
 
 def test_flags_reload_when_file_changes(monkeypatch, tmp_path):
     off = dict(smalltalk_lane=False, intent_fields=False, compact_catalog=False,
-               persona_all_lanes=False, customer_card=False, playbook=False)
+               persona_all_lanes=False, customer_card=False, playbook=False, reply_angles=False)
     set_flags(monkeypatch, tmp_path, **off)
     assert not any(cb.flags().values())
     set_flags(monkeypatch, tmp_path, **{k: True for k in off}, extra=1)
@@ -155,7 +157,7 @@ def test_flags_off_reproduces_old_messages_exactly(rig):
     engine, captured, tmp_path, monkeypatch = rig
     # Gói C: tắt cả ba cờ mới để quay về đúng hành vi cũ.
     set_flags(monkeypatch, tmp_path, smalltalk_lane=False, intent_fields=False, compact_catalog=False,
-              persona_all_lanes=False, customer_card=False, playbook=False)
+              persona_all_lanes=False, customer_card=False, playbook=False, reply_angles=False)
     got = h.run_fixed(engine, captured)
     expected = json.loads(FIXTURE.read_text(encoding="utf-8"))
     # Lời nhắc hệ thống (tệp tĩnh, không theo cờ) đổi nên bỏ băm của nó. Giọng host nay nằm ở phong cách

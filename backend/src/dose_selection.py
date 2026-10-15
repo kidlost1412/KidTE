@@ -6,7 +6,20 @@ import re
 
 DOSE_UNITS = {"ml", "g", "kg"}
 LITRE_WORDS = {"l", "lit", "lít", "litre", "liter"}
-DOSE_HANDOFF = "Phần liều này em cần tư vấn viên xác nhận lại để đảm bảo chính xác, mình chờ chút nha."
+DOSE_HANDOFFS = (
+    "Liều này em muốn hỏi lại chủ vườn cho chắc rồi báo mình liền nha.",
+    "Phần liều em kiểm lại cho chuẩn rồi trả lời mình ngay, đợi em xíu nha.",
+    "Liều cụ thể em xác nhận lại cho đúng rồi nhắn mình liền nha.",
+    "Cái liều này em coi lại kỹ rồi báo mình sau ít phút nha.",
+    "Để em hỏi lại liều chính xác cho mình, chút xíu em trả lời liền nha.",
+)
+DOSE_HANDOFF = DOSE_HANDOFFS[0]
+
+
+def dose_handoff(rng=None):
+    """Một biến thể câu chuyển liều, chọn ngẫu nhiên để không gửi một câu nguyên văn mãi (C14)."""
+    import random
+    return (rng or random).choice(DOSE_HANDOFFS)
 _DOSE_NUM = re.compile(r"(\d+(?:[.,]\d+)?)(?:\s*[-–]\s*(\d+(?:[.,]\d+)?))?\s*(?:ml|kg|gam|gram|g)\b", re.I)
 
 

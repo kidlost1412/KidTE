@@ -351,6 +351,55 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
     delete chrome.alarms;
   }
 
+  {
+    // Chưa LIVE: GetLiveRoomInfo không có room_id, ListLiveProduct({}) trả giỏ.
+    const saved = { room: client.GetLiveRoomInfo, list: client.ListLiveProduct };
+    const writeCalls = [];
+    for (const name of ["PinLiveProduct", "AddLiveProduct", "DeleteLiveProduct", "Chat"]) {
+      const prior = client[name];
+      client[name] = async (payload) => { writeCalls.push(name); return prior ? prior(payload) : { code: 0 }; };
+    }
+    client.GetLiveRoomInfo = async () => ({ code: 0, message: "success", data: { anchor_info: { user: { id: "777", display_id: "shop_abc" } } } });
+    let listShape = "product_list";
+    client.ListLiveProduct = async (payload) => {
+      assert.equal(payload.room_id, undefined, "prelive must not invent room_id");
+      if (listShape === "product_list") return { code: 0, data: { product_list: [
+        { product_id: "a1", title: "Sp A", format_price: "10₫" }, { product_id: "a2", title: "Sp B" }] } };
+      if (listShape === "nested") return { code: 0, data: { sections: [{ live_products: [{ base: { product_id: "n1", title: "Lồng" } }] }] } };
+      return { code: 0, message: "success", data: { total: 0, has_more: false } };
+    };
+    for (const shape of ["product_list", "nested"]) {
+      listShape = shape;
+      const pre = await runTikTokLiveApi({ action: "snapshot" });
+      assert.equal(pre.ok, true, shape);
+      assert.equal(pre.snapshot.room_id, "");
+      assert.equal(pre.snapshot.phase, "prelive");
+      assert.ok(pre.snapshot.products.length >= 1);
+      assert.equal(pre.snapshot.host.user_id, "777");
+    }
+    // Không có sản phẩm: thử method đọc khác, rồi báo lỗi có chẩn đoán.
+    listShape = "empty";
+    let readCalled = 0;
+    client.GetLiveProductList = async () => { readCalled += 1; return { code: 0, data: { secret_token: "TOKEN-XYZ" } }; };
+    client.UpdateProductList = async () => { writeCalls.push("UpdateProductList"); return { code: 0 }; };
+    const fail = await runTikTokLiveApi({ action: "snapshot" });
+    assert.equal(fail.ok, false);
+    assert.equal(readCalled, 1);
+    assert.match(fail.error, /Chẩn đoán/);
+    assert.match(fail.error, /ListLiveProduct\(\{\}\)=\[.*data\{total,has_more\}/);
+    assert.match(fail.error, /GetLiveProductList/);
+    assert.doesNotMatch(fail.error, /TOKEN-XYZ|777|shop_abc/);
+    // Hành động khác vẫn bị chặn khi không có room_id.
+    const pinPre = await runTikTokLiveApi({ action: "pin", productId: "a1" });
+    assert.equal(pinPre.ok, false);
+    assert.deepEqual(writeCalls, [], "prelive must never call write methods");
+    delete client.GetLiveProductList; delete client.UpdateProductList;
+    client.GetLiveRoomInfo = saved.room; client.ListLiveProduct = saved.list;
+    const live = await runTikTokLiveApi({ action: "snapshot" });
+    assert.equal(live.snapshot.room_id, "room-19");
+    assert.equal(live.snapshot.phase, undefined, "LIVE snapshot unchanged");
+  }
+
   console.log("LIVE_RE_BACKGROUND_API_TEST_OK");
 })().catch((error) => {
   console.error(error);

@@ -16,6 +16,7 @@ const observed = [];
 let replyCalls = 0;
 let catalogCount = 42;
 let ackCalls = 0;
+let snapshotContext = { room_id: "r1", pin_id: "p1", products: [] };
 let sendChatFailure = "";
 const deliveries = [];
 let replyResult = {
@@ -64,7 +65,7 @@ global.chrome = {
       }
       if (message.type === "LIVE_RE_HEARTBEAT") return { ok: true };
       if (message.request?.action === "snapshot") {
-        return { ok: true, snapshot: { room_id: "r1", pin_id: "p1", products: [] } };
+        return { ok: true, snapshot: { ...snapshotContext } };
       }
       if (message.request?.action === "send_chat") {
         if (sendChatFailure) return { ok: false, error: sendChatFailure };
@@ -584,6 +585,23 @@ require("./comments.js");
     // an "id-looking" substring inside a longer token must not match
     await debug.applyPrivacyPurge([]);
     chrome.runtime.sendMessage = priorSend;
+  }
+
+  {
+    // Chưa LIVE + AI tắt: nút Quét giỏ vẫn lưu giỏ prelive, AI không được bật.
+    await debug.applyEnabled(false);
+    catalogCount = 42;
+    snapshotContext = { room_id: "", phase: "prelive", products: [{ product_id: "x" }] };
+    const prelive = await new Promise((resolve) => {
+      runtimeListeners[0]({ type: "LIVE_RE_SCAN_CATALOG_PAGE" }, {}, resolve);
+    });
+    assert.equal(prelive.product_count, 42, "prelive scan must work with AI off");
+    assert.equal(prelive.live_room_id, "");
+    assert.equal(prelive.live_phase, "prelive");
+    await debug.applyEnabled(true);
+    assert.equal(storage.liveReAiEnabled, false, "AI must not turn on without room_id");
+    assert.match(storage.liveReAiStatus.message, /Chưa LIVE/);
+    snapshotContext = { room_id: "r1", pin_id: "p1", products: [] };
   }
 
   console.log("LIVE_RE_COMMENTS_TEST_OK");

@@ -365,10 +365,131 @@ async function runTikTokLiveApi(request) {
     return null;
   };
   let roomOwner;
+  let roomInfoResponse = null;
+  let emptyListResponse = null;
+  let emptyListError = "";
+
+  // Chỉ những method ĐỌC mới được thử khi quét giỏ trước LIVE.
+  const READ_METHOD_RE = /^(Get|List|Query|Search)/;
+  const WRITE_METHOD_RE = /(Pin|Add|Delete|Update|Set|Remove|Chat|Start|End)/;
+  const PRODUCT_ARRAY_KEYS = [
+    "products", "product_list", "productList", "live_products", "liveProducts",
+    "product_infos", "items", "list", "data"
+  ];
+  const looksLikeProduct = (item) => !!item && typeof item === "object" && !Array.isArray(item) && !!(
+    item.product_id || item.productId || item.base?.product_id || item.product?.product_id ||
+    item.base?.productId || item.product?.productId
+  );
+  // Tìm mảng sản phẩm trong nhiều dạng response: data.products, data.product_list,
+  // data.live_products, mảng lồng (data.list[0].products), hoặc data là mảng.
+  const extractProductArray = (root) => {
+    const queue = [{ value: root, depth: 0 }];
+    const visited = new Set();
+    while (queue.length) {
+      const { value, depth } = queue.shift();
+      if (!value || typeof value !== "object" || visited.has(value)) continue;
+      visited.add(value);
+      if (Array.isArray(value)) {
+        if (value.some(looksLikeProduct)) return value.filter(looksLikeProduct);
+        if (depth < 4) for (const item of value.slice(0, 50)) queue.push({ value: item, depth: depth + 1 });
+        continue;
+      }
+      for (const key of PRODUCT_ARRAY_KEYS) {
+        const child = value[key];
+        if (Array.isArray(child) && child.some(looksLikeProduct)) return child.filter(looksLikeProduct);
+      }
+      if (depth >= 4) continue;
+      for (const child of Object.values(value)) {
+        if (child && typeof child === "object") queue.push({ value: child, depth: depth + 1 });
+      }
+    }
+    return [];
+  };
+  // Chẩn đoán an toàn: chỉ tên khoá cấp 1-2, không giá trị.
+  const keyShape = (response) => {
+    const out = {};
+    if (!response || typeof response !== "object") return out;
+    for (const key of Object.keys(response).slice(0, 20)) {
+      const child = response[key];
+      out[key] = child && typeof child === "object" && !Array.isArray(child)
+        ? Object.keys(child).slice(0, 30)
+        : (Array.isArray(child) ? `array(${child.length})` : typeof child);
+    }
+    return out;
+  };
+  const clientMethodNames = () => {
+    const names = new Set();
+    let obj = client;
+    for (let i = 0; obj && obj !== Object.prototype && i < 4; i += 1) {
+      for (const name of Object.getOwnPropertyNames(obj)) {
+        try { if (typeof client[name] === "function") names.add(name); } catch {}
+      }
+      obj = Object.getPrototypeOf(obj);
+    }
+    return [...names].filter((name) => name !== "constructor");
+  };
+
+  async function preliveSnapshot() {
+    let response = emptyListResponse;
+    let source = "ListLiveProduct";
+    let items = extractProductArray(response?.data ?? response);
+    const tried = [];
+    if (!items.length) {
+      const candidates = clientMethodNames().filter((name) =>
+        /product/i.test(name) && /list/i.test(name) && READ_METHOD_RE.test(name) &&
+        !WRITE_METHOD_RE.test(name.replace(READ_METHOD_RE, "")) && name !== "ListLiveProduct"
+      );
+      for (const name of candidates.slice(0, 6)) {
+        tried.push(name);
+        let candidate = null;
+        try { candidate = await client[name]({}); } catch { continue; }
+        const found = extractProductArray(candidate?.data ?? candidate);
+        if (found.length) { response = candidate; items = found; source = name; break; }
+      }
+    }
+    if (!items.length) {
+      const diagnostic = {
+        list_live_product_keys: keyShape(emptyListResponse),
+        list_live_product_error: emptyListError,
+        room_info_keys: keyShape(roomInfoResponse),
+        product_methods: clientMethodNames().filter((name) => /product/i.test(name)).slice(0, 40),
+        tried_methods: tried
+      };
+      const shapeText = (shape) => Object.entries(shape)
+        .map(([key, value]) => Array.isArray(value) ? `${key}{${value.join(",")}}` : `${key}:${value}`)
+        .join(" ");
+      const diagnosticText = [
+        `ListLiveProduct({})=[${shapeText(diagnostic.list_live_product_keys)}${emptyListError ? ` lỗi:${emptyListError}` : ""}]`,
+        `GetLiveRoomInfo({})=[${shapeText(diagnostic.room_info_keys)}]`,
+        `method sản phẩm=[${diagnostic.product_methods.join(",")}]`
+      ].join(" · ");
+      return {
+        ok: false,
+        error: `Chưa quét được giỏ trước LIVE: API không trả room_id và không có danh sách sản phẩm. Chẩn đoán: ${diagnosticText}`,
+        diagnostic
+      };
+    }
+    if (roomOwner === undefined) roomOwner = extractRoomOwner(roomInfoResponse?.data) || null;
+    const products = items.map((product, index) => compactProduct(product, index + 1));
+    return {
+      ok: true,
+      snapshot: {
+        room_id: "",
+        phase: "prelive",
+        source,
+        host: roomOwner ? { ...roomOwner, source: "room_info" } : null,
+        products,
+        pin_id: "",
+        response_code: asNumber(response?.code),
+        raw_api_data: {}
+      }
+    };
+  }
 
   async function getRoomId() {
     if (request?.roomId && !['send_chat','pin','unpin'].includes(request.action)) return cleanText(request.roomId);
     const roomResponse = await client.GetLiveRoomInfo({});
+    roomInfoResponse = roomResponse;
     roomOwner = extractRoomOwner(roomResponse?.data);
     const nestedRoomId = findField(
       [roomResponse?.data, roomResponse],
@@ -383,7 +504,8 @@ async function runTikTokLiveApi(request) {
     // đính kèm nó trong response danh sách sản phẩm. Thử đường này trước khi
     // kết luận dashboard chưa gắn với phòng LIVE.
     let listResponse = null;
-    try { listResponse = await client.ListLiveProduct({}); } catch {}
+    try { listResponse = await client.ListLiveProduct({}); } catch (error) { emptyListError = cleanText(error?.name || "error"); }
+    emptyListResponse = listResponse;
     const listRoomId = findField(
       [listResponse?.data, listResponse],
       ["room_id", "roomId", "live_room_id", "liveRoomId"],
@@ -441,6 +563,12 @@ async function runTikTokLiveApi(request) {
     }
     const roomLookup = await getRoomId();
     const roomId = typeof roomLookup === "string" ? roomLookup : roomLookup.roomId;
+    if (!roomId && request?.action === "snapshot") {
+      // Chưa LIVE: chỉ quét giỏ, không có room_id nên mọi thao tác khác vẫn bị chặn.
+      const pre = await preliveSnapshot();
+      if (pre.ok) return pre;
+      return { ...pre, room_lookup: roomLookup?.diagnostic || {} };
+    }
     if (!roomId) return {
       ok: false,
       error: "API chưa trả về room_id của LIVE hiện tại",

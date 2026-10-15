@@ -1,3 +1,4 @@
+import {aiStatus} from '../core/ai-status.js';
 import {h, clear, disposer} from '../core/dom.js';
 import {icon} from '../core/icons.js';
 import {request} from '../core/api.js';
@@ -90,7 +91,7 @@ export default {
 
       clear(servicesSlot,
         h('section', {class: 'hero-checklist card'}, h('h3', {class:'shared-services-title'}, 'Dữ liệu và dịch vụ dùng chung'),
-          checkItem(dash.ai && dash.ai.deepseek_available ? 'ok' : 'danger', 'DeepSeek', dash.ai && dash.ai.deepseek_available ? 'Sẵn sàng cho cả hai sàn; bật trả lời trong từng tiện ích' : 'Chưa kết nối AI', btn('Cài đặt', {size:'sm', onClick:()=>ctx.navigate('system','setup')})),
+          checkItem(aiStatus(dash.ai).kind, 'DeepSeek', aiStatus(dash.ai).kind === 'ok' ? 'Sẵn sàng cho cả hai sàn; bật trả lời trong từng tiện ích' : aiStatus(dash.ai).checking ? aiStatus(dash.ai).text : 'Chưa kết nối AI', btn('Cài đặt', {size:'sm', onClick:()=>ctx.navigate('system','setup')})),
           checkItem(catalog.total ? 'ok' : 'warn', 'Giỏ TikTok', `${number(catalog.total)} sản phẩm · ${number(catalog.mapped)} có hồ sơ`, btn('Xem giỏ', {size:'sm', onClick:()=>ctx.navigate('catalog')})),
           checkItem(dash.live_channels?.shopee?.catalog?.products_count ? 'ok' : 'warn', 'Giỏ Shopee', `${number(dash.live_channels?.shopee?.catalog?.products_count || 0)} sản phẩm · ánh xạ theo kịch bản Shopee`, btn('Nguồn LIVE', {size:'sm', onClick:()=>ctx.navigate('system','live')})),
           checkItem(dash.backup && !dash.backup.overdue ? 'ok' : 'warn', 'Sao lưu dùng chung', dash.backup ? `Gần nhất ${relative(dash.backup.latest)}` : 'Chưa có bản sao lưu', btn('Xem', {size:'sm',onClick:()=>ctx.navigate('system','backups')})),

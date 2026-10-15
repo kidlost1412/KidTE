@@ -1,3 +1,4 @@
+import {aiStatus} from './core/ai-status.js';
 import {h, clear, isTypingTarget} from './core/dom.js';
 import {icon} from './core/icons.js';
 import {fold, relative} from './core/format.js';
@@ -143,7 +144,7 @@ export function createShell({navigate, commands, goBack = () => false, canGoBack
         return pill(`${name}: ${live ? 'LIVE' : ext.connected ? 'đã nối' : 'chưa nối'}`, live ? 'live' : 'warn',
           () => navigate('system', 'live'), {live, title: `${name} · ${channel.position?.available ? 'đã nhận diện video riêng' : 'chờ nguồn riêng'}`});
       }),
-      pill(ai.deepseek_available ? 'DeepSeek sẵn sàng' : 'AI chưa sẵn sàng', ai.deepseek_available ? 'ok' : 'danger', () => navigate('system', 'setup')),
+      pill(ai.deepseek_available ? 'DeepSeek sẵn sàng' : aiStatus(ai).checking ? aiStatus(ai).text : 'AI chưa sẵn sàng', aiStatus(ai).kind, () => navigate('system', 'setup')),
       pill(captcha.running ? 'CAPTCHA đang quét' : captcha.key_rejected ? 'CAPTCHA: key lỗi' : 'CAPTCHA chưa chạy',
         captcha.running ? 'ok' : captcha.key_rejected ? 'danger' : 'warn', () => navigate('captcha')));
     navButtons.forEach(({badge, item, button}) => {

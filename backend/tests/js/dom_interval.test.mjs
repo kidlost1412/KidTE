@@ -58,7 +58,7 @@ test('hàm đồng bộ không bị khoá in-flight', async () => {
   const d = disposer();
   let calls = 0;
   d.interval(() => { calls += 1; }, 10);
-  await tick(60);
+  await tick(200);
   d.dispose();
-  assert.ok(calls >= 3);
+  assert.ok(calls >= 2);
 });

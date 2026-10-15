@@ -131,6 +131,7 @@ const MESSAGES = {
   saved_catalog_required: 'Chưa có danh mục sản phẩm đã quét. Mở phiên LIVE để tiện ích quét giỏ hàng trước.',
   video_extension_not_supported: 'Định dạng video chưa hỗ trợ. Dùng MP4, MOV, MKV, WebM, AVI hoặc M4V.',
   invalid_video_size: 'Kích thước video không hợp lệ. Video phải lớn hơn 0 và tối đa 100 GB.',
+  insufficient_disk_space: 'Ổ đĩa lưu video không đủ chỗ trống (cần phần video còn lại + 2 GB dự phòng). Hãy giải phóng ổ rồi thử lại.',
   upload_offset_mismatch: 'Điểm tiếp nối bị lệch. Chọn lại đúng video đó để tiếp tục tải.',
   upload_part_truncated_on_disk: 'Phần đã tải trên máy không còn nguyên vẹn. Hãy tải lại video này từ đầu.',
   upload_size_mismatch: 'Phần đã tải không khớp kích thước. Hãy tải lại từ đầu.',

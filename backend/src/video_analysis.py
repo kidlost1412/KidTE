@@ -27,12 +27,18 @@ from video_fingerprint import (
     read_pcm16,
     resample_mono,
     save_reference,
-    spectral_features,
+    spectral_features_wav,
 )
 from video_library import VIDEO_DIR, validate_timeline
 
 MAX_VIDEO_BYTES = 100 * 1024**3
 MAX_CHUNK_BYTES = 16 * 1024**2
+# Bien an toan khi nhan video: phan con lai cua video + 2 GiB. 2 GiB du cho
+# WAV 16 kHz mono trich ra luc phan tich (~115 MB/gio, ~17 gio) cung du lieu
+# app/Windows dang ghi, ma khong chan oan video lon (5% cua 100 GiB = 5 GiB
+# thi qua chat voi o dang con vua du).
+DISK_SAFETY_MARGIN_BYTES = 2 * 1024**3
+HASH_BLOCK_BYTES = 8 * 1024**2
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 _CUDA_DLL_HANDLES = gpu_runtime._CUDA_DLL_HANDLES
 
@@ -102,10 +108,8 @@ def _extract_audio(video, wav):
 
 
 def _build_fingerprint(wav, destination):
-    samples, rate = read_pcm16(wav)
-    samples, rate = resample_mono(samples, rate)
-    features = spectral_features(samples, rate)
-    duration = len(samples) / rate
+    # Doc WAV theo khoi: video LIVE nhieu gio khong con nap ca file vao RAM.
+    features, duration = spectral_features_wav(wav)
     save_reference(destination, features, duration, wav)
     return round(duration, 3), int(features.shape[0])
 
@@ -390,9 +394,26 @@ def _safe_probe(value):
 def _sha256(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
-        for block in iter(lambda: handle.read(4 * 1024 * 1024), b""):
+        for block in iter(lambda: handle.read(HASH_BLOCK_BYTES), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+class InsufficientDiskSpace(ValueError):
+    """O dich khong du cho cho phan video con lai + bien an toan."""
+
+    def __init__(self, needed, free):
+        super().__init__("insufficient_disk_space")
+        self.needed = int(needed)
+        self.free = int(free)
+
+
+def _ensure_disk_space(folder, remaining):
+    """Kiem o TRUOC khi nhan/tiep tuc upload de khong lam day o giua chung."""
+    needed = max(0, int(remaining)) + DISK_SAFETY_MARGIN_BYTES
+    free = shutil.disk_usage(str(folder)).free
+    if free < needed:
+        raise InsufficientDiskSpace(needed, free)
 
 
 class VideoAnalysisManager:
@@ -459,6 +480,7 @@ class VideoAnalysisManager:
         size = int(total_size)
         if size <= 0 or size > MAX_VIDEO_BYTES:
             raise ValueError("invalid_video_size")
+        _ensure_disk_space(self.root, size)
         job_id = uuid.uuid4().hex
         folder = self._dir(job_id)
         folder.mkdir(parents=True)
@@ -506,7 +528,11 @@ class VideoAnalysisManager:
                 continue
             ung_vien.append(row)
         ung_vien.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
-        return ung_vien[0] if ung_vien else None
+        if not ung_vien:
+            return None
+        job = ung_vien[0]
+        _ensure_disk_space(self.root, size - int(job.get("uploaded_size") or 0))
+        return job
 
     def append_chunk(self, job_id, offset, stream, length):
         """Ghi mot chunk tai dung offset da commit.

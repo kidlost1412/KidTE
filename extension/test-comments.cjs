@@ -550,9 +550,74 @@ require("./comments.js");
     assert.equal(turnsSent.length, 1);
     assert.deepEqual(ids(), []);
 
+    // E1: queue mode — lỗi GỬI kiểu TikTok chặn (captcha) kích hoạt tạm dừng; khi đang
+    // tạm dừng không gọi queue/next; lỗi mạng backend không tạm dừng; gửi ok thì reset.
+    global.KidTEMessageDelivery = {
+      async sendTurn(result, hooks) {
+        await hooks.send(result.messages[0], {turn_id: result.turn_id});
+        turnsSent.push(result);
+        return {ok: true, sent: 1};
+      }
+    };
+    d3.setRuntimeForTest({sendPausedUntil: 0, sendFailStreak: 0});
+    feed('p1');
+    sendChatFailure = 'Vui lòng hoàn tất xác minh captcha';
+    nextScript = [turn('p1')];
+    calls.length = 0;
+    await run();
+    sendChatFailure = '';
+    assert.ok(d3.getState().sendPausedUntil > Date.now(), 'bị chặn khi gửi qua queue -> tạm dừng');
+    assert.match(storage.liveReAiStatus.message, /TẠM DỪNG GỬI/);
+    assert.deepEqual(ids(), ['p1'], 'gửi lỗi thì giữ hàng');
+    calls.length = 0;
+    nextScript = [turn('p1')];
+    await run();
+    assert.equal(calls.some(c => c[0] === 'next'), false, 'đang tạm dừng: không gọi queue/next');
+    // Hết tạm dừng: lỗi mạng backend (queue/next, control) KHÔNG tính là bị chặn.
+    d3.setRuntimeForTest({sendPausedUntil: 0, sendFailStreak: 0});
+    for (let i = 0; i < 4; i += 1) {
+      nextScript = [i % 2 ? {ok: false, error: 'delivery_control_inactive'} : new Error('net down')];
+      await run();
+    }
+    assert.equal(d3.getState().sendPausedUntil, 0, 'lỗi mạng backend không tạm dừng');
+    assert.equal(d3.getState().sendFailStreak, 0);
+    // Gửi lỗi một lần (không phải captcha) rồi gửi ok -> streak reset.
+    sendChatFailure = 'HTTP 500';
+    nextScript = [turn('p1')];
+    await run();
+    sendChatFailure = '';
+    assert.equal(d3.getState().sendFailStreak, 1);
+    assert.equal(d3.getState().sendPausedUntil, 0, 'một lỗi thường chưa tạm dừng');
+    nextScript = [turn('p1')];
+    await run();
+    assert.equal(d3.getState().sendFailStreak, 0, 'gửi ok -> reset');
+    assert.deepEqual(ids(), []);
+
     chrome.runtime.sendMessage = before;
     d3.setRuntimeForTest({queueApi: false, protocolV2: false});
     delete global.KidTEMessageDelivery;
+
+    // E2: tab không điều khiển/quan sát, AI tắt -> không gửi heartbeat; có tab_id.
+    {
+      const beats = [];
+      const prior = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = async m => {
+        if (m.type === 'LIVE_RE_HEARTBEAT') { beats.push(m.payload); return {ok: true}; }
+        return prior(m);
+      };
+      d3.setRuntimeForTest({isController: false, isObserver: false, enabled: false, heartbeatEverSent: false});
+      await d3.sendHeartbeat();
+      assert.equal(beats.length, 0, 'tab không điều khiển không gửi heartbeat');
+      d3.setRuntimeForTest({isController: true, enabled: true});
+      await d3.sendHeartbeat();
+      assert.equal(beats.length, 1);
+      assert.ok(beats[0].tab_id && beats[0].tab_id === d3.getState().heartbeatTabId);
+      d3.setRuntimeForTest({isController: false, enabled: false});
+      await d3.sendHeartbeat();
+      assert.equal(beats.length, 2, 'tab từng điều khiển vẫn báo tắt AI ngay');
+      assert.equal(beats[1].ai_enabled, false);
+      chrome.runtime.sendMessage = prior;
+    }
   }
 
   // F02: privacy_purge from the heartbeat removes matching local rows, keeps others, then acks.

@@ -496,7 +496,24 @@ function noteSendFailure(detail) {
     } catch {}
   }
 
+  // E2: định danh tab (sessionStorage, mỗi tab một giá trị) để backend phân biệt
+  // heartbeat của tab điều khiển với tab TikTok Shop khác.
+  const heartbeatTabId = (() => {
+    const fresh = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try {
+      let id = sessionStorage.getItem("kidteTabId");
+      if (!id) { id = fresh(); sessionStorage.setItem("kidteTabId", id); }
+      return id;
+    } catch { return fresh(); }
+  })();
+  let heartbeatEverSent = false;
+
   async function sendHeartbeat() {
+    // Chỉ tab điều khiển/quan sát (hoặc đang bật AI có phòng) mới gửi; tab đã từng
+    // gửi thì gửi tiếp để việc tắt AI tới backend ngay.
+    const shouldSend = isController || isObserver || (enabled && !!lastRoomId);
+    if (!shouldSend && !heartbeatEverSent) return;
+    heartbeatEverSent = true;
     try {
       const result = await chrome.runtime.sendMessage({
         type: "LIVE_RE_HEARTBEAT",
@@ -505,6 +522,7 @@ function noteSendFailure(detail) {
           ai_enabled: enabled,
           ai_ready: aiReady,
           session_id: lastRoomId,
+          tab_id: heartbeatTabId,
           host: currentHost(),
           observer: isObserver,
           reply_queue: pending.length,
@@ -588,7 +606,36 @@ function noteSendFailure(detail) {
   // Gửi một lượt trả lời protocol 2 tới `target` (comment gốc). `row` là hàng cục bộ
   // để ghi first_sent_at_ms. Dùng chung cho đường gửi cục bộ và đường queue/next.
   async function sendProtocol2Turn(result, target, row) {
-    const outcome = await globalThis.KidTEMessageDelivery.sendTurn(result, {
+    // E1: chỉ lỗi của lệnh GỬI lên TikTok (send_chat) mới tính vào tạm dừng; lỗi
+    // backend (control/claim/delivery_control_inactive/mạng 8793) thì không.
+    let sendError = null;
+    let outcome;
+    try {
+      outcome = await deliverProtocol2Turn(result, target, row, (error) => { sendError = error; });
+    } catch (error) {
+      if (sendError) {
+        const detail = clean(sendError?.message || sendError, 300);
+        if (noteSendFailure(detail)) {
+          await setStatus(
+            `⚠ TẠM DỪNG GỬI — ${sendPauseReason}. Thử lại sau ${Math.round(sendPauseRemainingMs() / 1000)}s. ` +
+            `Mở tab TikTok giải captcha nếu có. (${detail})`,
+            false,
+            { sendPaused: true, sendPauseReason, sendPausedUntilMs: sendPausedUntil, sendFailStreak }
+          );
+        }
+      }
+      throw error;
+    }
+    if (outcome?.sent) noteSendOk();
+    if (outcome?.stopped) {
+      await setStatus('Dữ kiện đã đổi trước khi gửi; backend soạn lại lượt trả lời',true);
+      return;
+    }
+    await setStatus('Đã gửi đủ các tin của lượt trả lời',true);
+  }
+
+  async function deliverProtocol2Turn(result, target, row, onSendError) {
+    return globalThis.KidTEMessageDelivery.sendTurn(result, {
       active: async () => {
         const snapshot = await apiRequest('snapshot');
         const role = await chrome.runtime.sendMessage({type:'LIVE_RE_GET_STATE'});
@@ -600,7 +647,11 @@ function noteSendFailure(detail) {
         // TikTok có thể đã đăng câu dù receipt về trễ (backend đối soát qua echo).
         sentEchoes.set(echoKey(message.content), Date.now());
         return apiRequest('send_chat',{content:message.content, at_uid:target.user_id,
-        expected_room_id:result.room_id,delivery:{...identity,interaction_id:result.interaction_id,reply_id:result.turn_id}});
+        expected_room_id:result.room_id,delivery:{...identity,interaction_id:result.interaction_id,reply_id:result.turn_id}})
+          .then((receipt) => {
+            if (!receipt?.ok) onSendError(new Error(receipt?.error || 'Kết quả gửi chưa rõ'));
+            return receipt;
+          }, (error) => { onSendError(error); throw error; });
       },
       ack: payload => chrome.runtime.sendMessage({type:'LIVE_RE_MESSAGE_ACK',payload:{...payload,
         interaction_id:result.interaction_id,reply_id:result.turn_id}}),
@@ -613,11 +664,6 @@ function noteSendFailure(detail) {
         await persistAiQueue();
       }
     });
-    if (outcome?.stopped) {
-      await setStatus('Dữ kiện đã đổi trước khi gửi; backend soạn lại lượt trả lời',true);
-      return;
-    }
-    await setStatus('Đã gửi đủ các tin của lượt trả lời',true);
   }
 
   // Bản sao hàng chờ backend BẬT: comment bỏ ở tiện ích mà không gửi phải huỷ ở backend,
@@ -637,6 +683,8 @@ function noteSendFailure(detail) {
   // (không có việc). Lỗi mạng / delivery_control_inactive ném lỗi: KHÔNG gửi cục bộ
   // thay thế (tránh gửi đôi), giữ hàng và thử lại ở nhịp sau.
   async function processBackendNext() {
+    // Đang tạm dừng vì TikTok chặn: không xin việc, để backend khỏi soạn câu phí.
+    if (sendPauseRemainingMs() > 0) return 'idle';
     const snapshotResult = await apiRequest("snapshot");
     const roomId = snapshotResult.snapshot?.room_id;
     if (!roomId) return 'idle';
@@ -889,6 +937,8 @@ function noteSendFailure(detail) {
             await setStatus("AI đang lấy việc từ hàng chờ backend", true);
             outcome = await processBackendNext();
           } catch (error) {
+            // Vừa bị chặn khi gửi: quay lại đầu vòng để hiện trạng thái và hẹn giờ thử lại.
+            if (sendPauseRemainingMs() > 0) continue;
             await setStatus(`Lỗi AI: ${clean(error?.message || error, 180)}`, false);
             break;
           } finally {
@@ -1255,6 +1305,9 @@ function noteSendFailure(detail) {
         if (patch.protocolV2 !== undefined) protocolV2 = patch.protocolV2;
         if (patch.lastSendAt !== undefined) lastSendAt = patch.lastSendAt;
         if (patch.roomId !== undefined) lastRoomId = patch.roomId;
+        if (patch.heartbeatEverSent !== undefined) heartbeatEverSent = patch.heartbeatEverSent;
+        if (patch.sendPausedUntil !== undefined) sendPausedUntil = patch.sendPausedUntil;
+        if (patch.sendFailStreak !== undefined) sendFailStreak = patch.sendFailStreak;
       },
       // Cho phép test kiểm chống trùng theo phạm vi phòng.
       getSeenSize: () => seen.size,
@@ -1266,7 +1319,7 @@ function noteSendFailure(detail) {
         enabled, busy, installed, aiReady, liveRunning, collectedRows, isObserver,
         hostIdentities: [...hostIdentities], roomHost: currentHost(), sentEchoCount: sentEchoes.size,
         observeQueued: observeQueue.length, observeRetried, observePersistErrors,
-        observeDropped, aiDropped
+        observeDropped, aiDropped, sendPausedUntil, sendFailStreak, heartbeatTabId
       })
     };
   }

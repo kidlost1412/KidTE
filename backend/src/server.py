@@ -1065,12 +1065,27 @@ class ReplyEngine:
             "send_pause_reason": clean(payload.get("send_pause_reason"), 160),
             "session_id": clean(payload.get("session_id"), 100),
             "host": _clean_host(payload.get("host")),
+            "tab_id": clean(payload.get("tab_id"), 64),
             "received_at": time.time(),
         }
-        self.platform_heartbeats[platform] = allowed
-        if platform == "tiktok":
-            self.extension_heartbeat = allowed
+        previous = self.platform_heartbeats.get(platform) or {}
+        # E2: mọi tab shop.tiktok.com đều có thể gửi heartbeat. Tab KHÔNG điều khiển
+        # (session rỗng / chưa sẵn sàng) không được đè heartbeat còn mới của tab điều
+        # khiển — nếu không claim/queue/next trả delivery_control_inactive. Cùng tab
+        # (tab_id trùng) luôn cập nhật, để tắt AI có hiệu lực ngay.
+        weak = not allowed["session_id"] or not allowed["ai_ready"]
+        # Hai heartbeat cùng không có tab_id (tiện ích cũ) coi như cùng tab: giữ hành vi cũ.
+        same_tab = allowed["tab_id"] == (previous.get("tab_id") or "")
+        previous_fresh = time.time() - float(previous.get("received_at") or 0) < 30
+        ignored = (weak and not same_tab and previous_fresh
+                   and bool(previous.get("session_id")) and previous.get("ai_ready") is True)
         response = {"ok": True, "received_at": allowed["received_at"]}
+        if ignored:
+            response["ignored"] = "not_controller"
+        else:
+            self.platform_heartbeats[platform] = allowed
+            if platform == "tiktok":
+                self.extension_heartbeat = allowed
         try:
             purge = self.privacy.pending_purges(platform)
         except Exception:

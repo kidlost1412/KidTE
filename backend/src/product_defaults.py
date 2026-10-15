@@ -14,6 +14,8 @@ from knowledge_package import apply_package, content_hash, read_source, validate
 from product_ingest import FIELD_ORDER, _webp_800, normalize_image
 from workspace import _atomic_json, _serialized_write
 
+_COMPONENT_FIELDS = {"profile_id", "name", "source_revision", "quantity", "package"}
+
 _ALLOWED = (set(FIELD_ORDER) - {"gia_goc_duyet", "live_promotion"}) | {
     "san_pham_id",
     "is_combo",
@@ -26,6 +28,26 @@ _ALLOWED = (set(FIELD_ORDER) - {"gia_goc_duyet", "live_promotion"}) | {
     "featured_image_url",
     "reference_only",
 }
+
+
+def _sanitize_incoming(row, existing_ids):
+    """Hồ sơ nạp từ bộ: bỏ giá/khuyến mãi/trường lạ và vào ở trạng thái chờ duyệt.
+
+    Hồ sơ trùng mã đã có trên máy không nhận cờ duyệt từ bộ (bỏ khoá), nên cờ
+    duyệt chủ shop đặt trước đó được giữ nguyên khi gộp.
+    """
+    out = {k: copy.deepcopy(v) for k, v in row.items() if k in _ALLOWED}
+    if isinstance(out.get("combo_components"), list):
+        out["combo_components"] = [
+            {k: v for k, v in c.items() if k in _COMPONENT_FIELDS}
+            for c in out["combo_components"]
+            if isinstance(c, dict)
+        ]
+    if out["san_pham_id"] in existing_ids:
+        out.pop("approved_for_live", None)
+    else:
+        out["approved_for_live"] = False
+    return out
 
 
 def audit(records):
@@ -178,18 +200,7 @@ class DefaultProfiles:
             row = {k: copy.deepcopy(v) for k, v in r.items() if k in _ALLOWED}
             if "combo_components" in row:
                 row["combo_components"] = [
-                    {
-                        k: v
-                        for k, v in c.items()
-                        if k
-                        in {
-                            "profile_id",
-                            "name",
-                            "source_revision",
-                            "quantity",
-                            "package",
-                        }
-                    }
+                    {k: v for k, v in c.items() if k in _COMPONENT_FIELDS}
                     for c in row["combo_components"]
                 ]
             row["reference_only"] = rid not in selected
@@ -253,6 +264,14 @@ class DefaultProfiles:
             self.engine.knowledge.reload()
             return {"ok": True, "mode": mode}
         bundle = self._bundle(str(payload.get("source") or "").strip())
+        existing_ids = {
+            r.get("san_pham_id") for r in self.engine.knowledge.all_records()
+        }
+        for g in bundle["content"]["nhom_san_pham"]:
+            g["san_pham"] = [
+                _sanitize_incoming(r, existing_ids) for r in g.get("san_pham", [])
+            ]
+        bundle["content_sha256"] = content_hash(bundle["content"])
         rows = [
             r for g in bundle["content"]["nhom_san_pham"] for r in g.get("san_pham", [])
         ]
@@ -306,6 +325,9 @@ class DefaultProfiles:
         return {
             "ok": True,
             "mode": mode,
-            "products": sum(r.get("approved_for_live") is True for r in rows),
+            "products": sum(r.get("reference_only") is not True for r in rows),
+            "pending_approval": sum(
+                r.get("approved_for_live") is False for r in rows
+            ),
             "images": len(photos),
         }

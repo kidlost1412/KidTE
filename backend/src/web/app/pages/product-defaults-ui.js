@@ -1,7 +1,7 @@
 import {h, clear} from '../core/dom.js';
 import {request, friendlyError} from '../core/api.js';
 import {btn, field, input, notice} from '../ui/kit.js';
-import {openModal, toast} from '../ui/overlays.js';
+import {openModal, toast, confirmDialog} from '../ui/overlays.js';
 import {invalidateCatalog} from './video/data.js';
 
 export function defaultProfilesPanel(ctx, {onDone, initial, firstRun=false}={}) {
@@ -10,11 +10,12 @@ export function defaultProfilesPanel(ctx, {onDone, initial, firstRun=false}={}) 
   let busy=false;
   async function choose(mode) {
     if(busy)return;
+    if(mode==='default'&&!await confirmDialog({title:'Dùng bộ hồ sơ mặc định?',text:'Hồ sơ mới vào ở trạng thái CHỜ DUYỆT, không mang giá hay khuyến mãi. Hồ sơ trùng mã đã có trên máy được gộp, giữ nguyên trạng thái duyệt của anh.',confirm:'Dùng bộ này'}))return;
     busy=true;
     for(const b of node.querySelectorAll('button')) b.disabled=true;
     try {
       const out=await request('/api/ingest/defaults/choose',{method:'POST',body:{mode,source:source.value}});
-      invalidateCatalog();toast(mode==='default'?`Đã nạp ${out.products} hồ sơ mặc định kèm ảnh. Gắn hồ sơ vào sản phẩm đang bán để sử dụng.`:'Đã chọn tự thêm hồ sơ sản phẩm.','ok');
+      invalidateCatalog();toast(mode==='default'?`Đã nạp ${out.products} hồ sơ mặc định kèm ảnh. Hồ sơ mới cần anh duyệt từng cái trước khi lên LIVE.`:'Đã chọn tự thêm hồ sơ sản phẩm.','ok');
       onDone?.();if(firstRun)ctx.navigate('catalog','profiles');else load();
     }catch(e){toast(friendlyError(e),'danger');}
     finally{busy=false;for(const b of node.querySelectorAll('button'))b.disabled=false;}
@@ -49,5 +50,5 @@ export async function offerDefaultProfiles(ctx) {
     let modal;
     const body=defaultProfilesPanel(ctx,{firstRun:true,initial:status,onDone:()=>modal.close()});
     modal=openModal({title:'Hồ sơ sản phẩm cho máy mới',description:'Chọn bộ hồ sơ đã chốt hoặc tự thêm sản phẩm của anh.',body});
-  }catch(_){}
+  }catch(e){console.warn('Không mở được bộ hồ sơ mặc định',e);toast(friendlyError(e),'warn');}
 }

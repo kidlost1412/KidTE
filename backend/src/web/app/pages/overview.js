@@ -6,6 +6,7 @@ import {number, relative, clock} from '../core/format.js';
 import {btn, chip, empty, pageHead, personAvatar, bag, productAvatar, skeletonRows} from '../ui/kit.js';
 import {CONVERSATION_STATUS, RESOURCE_NAME, lookup} from '../labels.js';
 import {liveChannelCards} from '../ui/live-status.js';
+import {liveWizard} from './live-wizard.js';
 
 function kpi(label, value, hint, iconName, onClick, tone) {
   return h(onClick ? 'button' : 'div', {class: 'kpi' + (onClick ? ' link' : ''), type: onClick ? 'button' : null, onClick},
@@ -46,6 +47,7 @@ function queuePanel(q) {
 export default {
   mount(ctx) {
     const d = disposer();
+    const wizard = liveWizard(ctx);
     const heroSlot = h('div', {class: 'live-overview'});
     const kpiSlot = h('div', {class: 'kpis'});
     const queueSlot = h('div');
@@ -54,7 +56,7 @@ export default {
     const page = h('div', {class: 'page'},
       pageHead('Trung tâm LIVE', 'Hai nguồn phát độc lập. Một nơi quản lý khách hàng, kiến thức và vận hành.',
         [btn('Mở hộp thư', {kind: 'primary', icon: 'message', onClick: () => ctx.navigate('inbox')})]),
-      heroSlot, kpiSlot, queueSlot,
+      wizard.el, heroSlot, kpiSlot, queueSlot,
       h('div', {class: 'overview-grid'},
         h('section', {class: 'card'}, h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h2', {}, 'Việc cần làm trong Hộp thư'), h('div', {class: 'sub'}, 'Khách hỏi mà chưa ai trả lời và chưa được dạy AI — mới nhất trước')),
           btn('Mở hàng “Cần xử lý”', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => ctx.navigate('inbox', 'todo')})), pendingSlot),
@@ -71,11 +73,12 @@ export default {
 
     function render(dash, force = false) {
       if (!dash) { clear(heroSlot, h('div', {class: 'skeleton', style: {height: '188px', borderRadius: '20px'}}), h('div', {class: 'skeleton', style: {height: '188px', borderRadius: '20px'}})); return; }
+      wizard.update(dash);
       if (!channelGrid.isConnected) clear(heroSlot,h('div',{class:'col gap-4'},channelGrid,servicesSlot));
       channelGrid.update(dash.live_channels,videoNames);
       // Source positions change on every poll. Patch only their text; retain
       // action elements and focus while the rest of the dashboard is unchanged.
-      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.privacy, dash.recent_activity, dash.ai && dash.ai.deepseek_available, settings && settings.selected_audio_device, Object.keys(videoNames).length]);
+      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.privacy, dash.recent_activity, dash.readiness && dash.readiness.summary, dash.live_control, dash.ai && dash.ai.deepseek_available, settings && settings.selected_audio_device, Object.keys(videoNames).length]);
       if (!force && key === lastKey) return;
       lastKey = key;
       const ext = dash.extension || {};

@@ -294,3 +294,32 @@
 @media (max-width: 720px) {
   .prod-row .prod-side { max-width: 130px; }
 }
+
+/* Trợ lý chuẩn bị LIVE (pages/live-wizard.js) */
+.live-wizard { margin-bottom: var(--s-4); }
+.live-wizard .card-head { flex-wrap: wrap; gap: var(--s-2); }
+.wz-wrap { display: flex; flex-direction: column; gap: var(--s-3); padding: 0 var(--s-4) var(--s-4); }
+.wz-h { font-size: var(--fs-sm); font-weight: 700; margin: 0; }
+.wz-gh { display: flex; align-items: baseline; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-1); }
+.wz-group { display: flex; flex-direction: column; }
+.wz-step { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px var(--s-2); border-bottom: 1px solid var(--divider); border-radius: var(--r-sm); }
+.wz-step:last-child { border-bottom: 0; }
+.wz-step.current { background: var(--brand-soft); border-bottom-color: transparent; padding: var(--s-3); }
+.wz-step.faded { opacity: .62; }
+.wz-ck { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text-3); }
+.wz-ck.ok { background: var(--ok-soft); color: var(--ok-text); }
+.wz-ck.warn { background: var(--warn-soft); color: var(--warn-text); }
+.wz-ck.danger { background: var(--danger-soft); color: var(--danger-text); }
+.wz-ck.info { background: var(--info-soft); color: var(--info-text); }
+.wz-ck svg { width: 15px; height: 15px; }
+.wz-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wz-act { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; justify-content: flex-end; }
+.wz-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.wz-toggles { border-top: 1px solid var(--divider); padding-top: var(--s-3); display: flex; flex-direction: column; gap: var(--s-2); }
+.wz-tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s-2); }
+.wz-tg { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: var(--s-2) var(--s-3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.wz-tg.pending { border-style: dashed; border-color: var(--warn); }
+@media (max-width: 720px) {
+  .wz-step { grid-template-columns: 28px minmax(0, 1fr); }
+  .wz-act { grid-column: 2; justify-content: flex-start; }
+}

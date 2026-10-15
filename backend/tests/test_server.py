@@ -188,6 +188,27 @@ class StandaloneServerTests(unittest.TestCase):
         self.assertEqual(self.engine.live_channels()['tiktok']['extension']['host']['unique_id'], 'Shop_ABC')
         self.assertNotIn('junk', self.engine.platform_heartbeats['tiktok']['host'])
 
+    def test_empty_heartbeat_from_other_tab_does_not_override_controller(self):
+        hb = self.engine.platform_heartbeats
+        self.engine.heartbeat({'platform': 'tiktok', 'session_id': 'room-1', 'ai_ready': True,
+                               'ai_enabled': True, 'live_running': True, 'tab_id': 'tab-ctrl'})
+        result = self.engine.heartbeat({'platform': 'tiktok', 'session_id': '', 'ai_ready': False,
+                                        'tab_id': 'tab-other'})
+        self.assertEqual(result.get('ignored'), 'not_controller')
+        self.assertEqual(hb['tiktok']['session_id'], 'room-1')
+        self.assertEqual(self.engine.extension_heartbeat['tab_id'], 'tab-ctrl')
+        # Cùng tab tắt AI: cập nhật ngay.
+        self.engine.heartbeat({'platform': 'tiktok', 'session_id': 'room-1', 'ai_ready': False,
+                               'ai_enabled': False, 'tab_id': 'tab-ctrl'})
+        self.assertFalse(hb['tiktok']['ai_enabled'])
+        self.assertFalse(hb['tiktok']['ai_ready'])
+        # Heartbeat cũ đã quá hạn: tab khác được ghi đè.
+        self.engine.heartbeat({'platform': 'tiktok', 'session_id': 'room-1', 'ai_ready': True,
+                               'tab_id': 'tab-ctrl'})
+        hb['tiktok']['received_at'] -= 31
+        self.engine.heartbeat({'platform': 'tiktok', 'session_id': '', 'tab_id': 'tab-other'})
+        self.assertEqual(hb['tiktok']['tab_id'], 'tab-other')
+
     def test_message_claim_requires_current_enabled_room_and_receipt_hash(self):
         answer = self.engine.handle(comment('TC01 dùng sao', 'claim-api'))
         turn = self.engine.delivery_store.get(answer['reply_id'])

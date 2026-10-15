@@ -436,7 +436,7 @@ async function runTikTokLiveApi(request) {
     const tried = [];
     if (!items.length) {
       const candidates = clientMethodNames().filter((name) =>
-        /product/i.test(name) && /list/i.test(name) && READ_METHOD_RE.test(name) &&
+        /product/i.test(name) && /list/i.test(name) && /live/i.test(name) && READ_METHOD_RE.test(name) &&
         !WRITE_METHOD_RE.test(name.replace(READ_METHOD_RE, "")) && name !== "ListLiveProduct"
       );
       for (const name of candidates.slice(0, 6)) {

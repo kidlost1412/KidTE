@@ -382,7 +382,11 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
     let readCalled = 0;
     client.GetLiveProductList = async () => { readCalled += 1; return { code: 0, data: { secret_token: "TOKEN-XYZ" } }; };
     client.UpdateProductList = async () => { writeCalls.push("UpdateProductList"); return { code: 0 }; };
+    client.ListShopProduct = async () => ({ code: 0, data: { products: [{ product_id: "shop-all" }] } });
+    client.SearchProductList = async () => ({ code: 0, data: { products: [{ product_id: "shop-all" }] } });
     const fail = await runTikTokLiveApi({ action: "snapshot" });
+    assert.ok(!JSON.stringify(fail).includes("shop-all"), "shop-wide product methods must not be used");
+    delete client.ListShopProduct; delete client.SearchProductList;
     assert.equal(fail.ok, false);
     assert.equal(readCalled, 1);
     assert.match(fail.error, /Chẩn đoán/);

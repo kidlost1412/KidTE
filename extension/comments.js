@@ -1201,7 +1201,17 @@ function noteSendFailure(detail) {
   }, 10000);
 
   // Làm mới giỏ định kỳ cả khi AI tắt hoặc chưa LIVE (giỏ prelive).
+  // Khi AI tắt chỉ tab dashboard giỏ LIVE đang hiển thị mới tự làm mới,
+  // để nhiều tab shop.tiktok.com không cùng gọi API và ghi đè giỏ lẫn nhau.
+  function shouldPeriodicSync() {
+    if (enabled && aiReady) return true;
+    const path = String(globalThis.location?.pathname || "");
+    const visible = globalThis.document?.visibilityState === "visible";
+    return path.startsWith("/streamer/live/product/dashboard") && visible;
+  }
+
   setInterval(() => {
+    if (!shouldPeriodicSync()) return;
     syncCatalog(false).catch((error) => {
       if (enabled) setStatus(`Lỗi làm mới danh mục: ${clean(error?.message || error, 180)}`, false);
     });
@@ -1233,6 +1243,7 @@ function noteSendFailure(detail) {
       getObserveQueue: () => observeQueue.slice(),
       applyPrivacyPurge,
       sendHeartbeat,
+      shouldPeriodicSync,
       setRuntimeForTest: (patch = {}) => {
         if (patch.enabled !== undefined) enabled = patch.enabled;
         if (patch.aiReady !== undefined) aiReady = patch.aiReady;

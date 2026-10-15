@@ -602,6 +602,20 @@ require("./comments.js");
     assert.equal(storage.liveReAiEnabled, false, "AI must not turn on without room_id");
     assert.match(storage.liveReAiStatus.message, /Chưa LIVE/);
     snapshotContext = { room_id: "r1", pin_id: "p1", products: [] };
+    // AI tắt: tab trang khác không làm mới định kỳ; tab dashboard đang hiện thì có.
+    debug.setRuntimeForTest({ enabled: false, aiReady: false });
+    global.location = { pathname: "/workbench/orders" };
+    global.document = { visibilityState: "visible" };
+    assert.equal(debug.shouldPeriodicSync(), false);
+    global.location = { pathname: "/streamer/live/product/dashboard" };
+    global.document = { visibilityState: "hidden" };
+    assert.equal(debug.shouldPeriodicSync(), false);
+    global.document = { visibilityState: "visible" };
+    assert.equal(debug.shouldPeriodicSync(), true);
+    debug.setRuntimeForTest({ enabled: true, aiReady: true });
+    global.location = { pathname: "/workbench/orders" };
+    assert.equal(debug.shouldPeriodicSync(), true);
+    delete global.location; delete global.document;
   }
 
   console.log("LIVE_RE_COMMENTS_TEST_OK");

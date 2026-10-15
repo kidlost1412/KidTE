@@ -336,23 +336,6 @@ class LiveCatalogStore:
         incoming_room = clean(snapshot.get("room_id"), 160)
         phase = "live" if incoming_room else (clean(snapshot.get("phase"), 20) or "prelive")
         owner_key = self._owner_key(snapshot.get("host") or snapshot.get("owner"))
-        with self._lock:
-            current = dict(getattr(self, "_snapshot", {}) or {})
-        current_owner = clean(current.get("owner_key"), 200)
-        if owner_key and current_owner and owner_key != current_owner and products:
-            logging.getLogger("kid-te.core").warning(
-                "catalog owner changed (%s -> %s); replacing catalog", current_owner[:12], owner_key[:12])
-        if (not incoming_room and current.get("room_id") and current.get("products")
-                and (not owner_key or not current_owner or owner_key == current_owner)
-                and self._age_seconds(current.get("synced_at")) < self.LIVE_ACTIVE_SECONDS):
-            # Giỏ prelive không được đè catalog của phiên LIVE còn hoạt động.
-            kept = dict(self.snapshot)
-            kept["skipped"] = "live_active"
-            return kept
-        if not products:
-            with self._lock:
-                if self.snapshot.get("products") and (not incoming_room or self.snapshot.get("room_id") == incoming_room):
-                    return dict(self.snapshot)
         compact = {
             "schema_version": 1,
             "synced_at": now_iso(),
@@ -374,6 +357,22 @@ class LiveCatalogStore:
             "raw_api_data": snapshot.get("raw_api_data") or {},
         }
         with self._lock:
+            # Quyết định bỏ qua và ghi nằm cùng một khoá (tránh 2 sync đè sai).
+            current = dict(getattr(self, "_snapshot", {}) or {})
+            current_owner = clean(current.get("owner_key"), 200)
+            if owner_key and current_owner and owner_key != current_owner and products:
+                logging.getLogger("kid-te.core").warning(
+                    "catalog owner changed (%s -> %s); replacing catalog", current_owner[:12], owner_key[:12])
+            if (not incoming_room and current.get("room_id") and current.get("products")
+                    and (not owner_key or not current_owner or owner_key == current_owner)
+                    and self._age_seconds(current.get("synced_at")) < self.LIVE_ACTIVE_SECONDS):
+                # Giỏ prelive không được đè catalog của phiên LIVE còn hoạt động.
+                kept = dict(self.snapshot)
+                kept["skipped"] = "live_active"
+                return kept
+            if not products and self.snapshot.get("products") and (
+                    not incoming_room or self.snapshot.get("room_id") == incoming_room):
+                return dict(self.snapshot)
             # Chỉ chạm đĩa khi nội dung thật sự đổi: trước đây mỗi bình luận
             # ghi lại ~22KB, cộng 125KB raw mỗi lần extension thử cài lại.
             changed = self._fingerprint(compact) != self._fingerprint(self._snapshot)

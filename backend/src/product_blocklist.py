@@ -81,6 +81,7 @@ def set_removed(product, removed=True):
         temporary = REMOVED_PATH.with_suffix(".json.tmp")
         temporary.write_text(json.dumps({"schema_version": 1, "products": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(REMOVED_PATH)
+        _cache.pop(REMOVED_PATH, None)
 
 
 def _rules():

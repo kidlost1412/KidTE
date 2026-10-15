@@ -10,7 +10,7 @@ export function defaultProfilesPanel(ctx, {onDone, initial, firstRun=false}={}) 
   let busy=false;
   async function choose(mode) {
     if(busy)return;
-    if(mode==='default'&&!await confirmDialog({title:'Dùng bộ hồ sơ mặc định?',text:'Hồ sơ mới vào ở trạng thái CHỜ DUYỆT, không mang giá hay khuyến mãi. Hồ sơ trùng mã đã có trên máy được gộp, giữ nguyên trạng thái duyệt của anh.',confirm:'Dùng bộ này'}))return;
+    if(mode==='default'&&!await confirmDialog({title:'Dùng bộ hồ sơ mặc định?',text:'Hồ sơ mới vào ở trạng thái CHỜ DUYỆT, không mang giá hay khuyến mãi. Hồ sơ trùng mã đã có trên máy được giữ nguyên, không bị thay.',confirm:'Dùng bộ này'}))return;
     busy=true;
     for(const b of node.querySelectorAll('button')) b.disabled=true;
     try {

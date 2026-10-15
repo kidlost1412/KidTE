@@ -231,9 +231,15 @@ class IncomingBundleGuardTests(DefaultTests):
     def test_owner_approved_profile_not_downgraded(self):
         self.write_profiles()
         self.k.reload()
+        before = next(r for r in self.k.all_records() if r["san_pham_id"] == "A")
         incoming = {**self.source, "approved_for_live": False,
-                    "gia_goc_duyet": "other price"}
-        self.service.choose({"mode": "default", "source": self._bundle_file([incoming])})
+                    "gia_goc_duyet": "other price", "quy_cach_dong_goi": "1L",
+                    "huong_dan_su_dung": ["99ml / 16L"], "cong_dung": ["Rễ"]}
+        out = self.service.choose(
+            {"mode": "default", "source": self._bundle_file([incoming])}
+        )
         rec = next(r for r in self.k.all_records() if r["san_pham_id"] == "A")
+        self.assertEqual(rec, before)
         self.assertTrue(rec["approved_for_live"])
         self.assertEqual(rec["gia_goc_duyet"], "secret price")
+        self.assertEqual(out["skipped_existing"], 1)

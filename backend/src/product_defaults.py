@@ -30,12 +30,8 @@ _ALLOWED = (set(FIELD_ORDER) - {"gia_goc_duyet", "live_promotion"}) | {
 }
 
 
-def _sanitize_incoming(row, existing_ids):
-    """Hồ sơ nạp từ bộ: bỏ giá/khuyến mãi/trường lạ và vào ở trạng thái chờ duyệt.
-
-    Hồ sơ trùng mã đã có trên máy không nhận cờ duyệt từ bộ (bỏ khoá), nên cờ
-    duyệt chủ shop đặt trước đó được giữ nguyên khi gộp.
-    """
+def _sanitize_incoming(row):
+    """Hồ sơ nạp từ bộ: bỏ giá/khuyến mãi/trường lạ và vào ở trạng thái chờ duyệt."""
     out = {k: copy.deepcopy(v) for k, v in row.items() if k in _ALLOWED}
     if isinstance(out.get("combo_components"), list):
         out["combo_components"] = [
@@ -43,10 +39,7 @@ def _sanitize_incoming(row, existing_ids):
             for c in out["combo_components"]
             if isinstance(c, dict)
         ]
-    if out["san_pham_id"] in existing_ids:
-        out.pop("approved_for_live", None)
-    else:
-        out["approved_for_live"] = False
+    out["approved_for_live"] = False
     return out
 
 
@@ -264,14 +257,12 @@ class DefaultProfiles:
             self.engine.knowledge.reload()
             return {"ok": True, "mode": mode}
         bundle = self._bundle(str(payload.get("source") or "").strip())
+        # Hồ sơ trùng mã đã có trên máy: dữ liệu chủ shop thắng, không ghi đè gì.
         existing_ids = {
             r.get("san_pham_id") for r in self.engine.knowledge.all_records()
-        }
+        } | set(getattr(self.engine.knowledge, "hidden_ids", set)())
         for g in bundle["content"]["nhom_san_pham"]:
-            g["san_pham"] = [
-                _sanitize_incoming(r, existing_ids) for r in g.get("san_pham", [])
-            ]
-        bundle["content_sha256"] = content_hash(bundle["content"])
+            g["san_pham"] = [_sanitize_incoming(r) for r in g.get("san_pham", [])]
         rows = [
             r for g in bundle["content"]["nhom_san_pham"] for r in g.get("san_pham", [])
         ]
@@ -284,6 +275,13 @@ class DefaultProfiles:
         errors = audit(rows)
         if errors:
             raise ValueError("Bộ combo chưa qua kiểm tra: " + errors[0]["error"])
+        skipped = sorted(ids & existing_ids)
+        for g in bundle["content"]["nhom_san_pham"]:
+            g["san_pham"] = [
+                r for r in g["san_pham"] if r["san_pham_id"] not in existing_ids
+            ]
+        bundle["content_sha256"] = content_hash(bundle["content"])
+        new_rows = [r for r in rows if r["san_pham_id"] not in existing_ids]
         photos = {}
         for rid, encoded in (bundle["content"].get("images") or {}).items():
             if (
@@ -293,6 +291,8 @@ class DefaultProfiles:
             ):
                 raise ValueError("Ảnh trong bộ hồ sơ không hợp lệ.")
             data = base64.b64decode(encoded, validate=True)
+            if rid in existing_ids:
+                continue
             photos[rid] = _webp_800(normalize_image(data, max_side=800))
         before = target.read_bytes() if target.exists() else None
         previous_photos = {}
@@ -325,9 +325,8 @@ class DefaultProfiles:
         return {
             "ok": True,
             "mode": mode,
-            "products": sum(r.get("reference_only") is not True for r in rows),
-            "pending_approval": sum(
-                r.get("approved_for_live") is False for r in rows
-            ),
+            "products": sum(r.get("reference_only") is not True for r in new_rows),
+            "pending_approval": len(new_rows),
+            "skipped_existing": len(skipped),
             "images": len(photos),
         }

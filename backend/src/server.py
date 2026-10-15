@@ -727,6 +727,103 @@ class ReplyEngine:
         except (OSError, ValueError, AttributeError):
             return False
 
+    _LIVE_CONTROL_LOCK = threading.Lock()
+
+    @staticmethod
+    def _live_control_path():
+        return ROOT / 'data' / 'machine' / 'live_control.json'
+
+    def _live_control_load(self):
+        cached = getattr(self, '_live_control_cache', None)
+        if cached is not None:
+            return cached
+        data = {}
+        try:
+            raw = json.loads(self._live_control_path().read_text('utf-8'))
+            if isinstance(raw, dict):
+                data = raw
+        except (OSError, ValueError):
+            pass
+        state = {}
+        for platform in ('tiktok', 'shopee'):
+            row = data.get(platform) if isinstance(data.get(platform), dict) else {}
+            item = {'seq': int(row.get('seq') or 0) if str(row.get('seq') or 0).isdigit() else 0,
+                    'ai_enabled': row.get('ai_enabled') if isinstance(row.get('ai_enabled'), bool) else None,
+                    'applied': row.get('applied') is True,
+                    'updated_at': row.get('updated_at') if isinstance(row.get('updated_at'), (int, float)) else None}
+            if platform == 'tiktok':
+                item['auto_pin'] = row.get('auto_pin') if isinstance(row.get('auto_pin'), bool) else None
+            state[platform] = item
+        self._live_control_cache = state
+        return state
+
+    def live_control(self):
+        """Lệnh bật/tắt AI/tự ghim từ app (tiện ích áp một lần theo seq)."""
+        state = self._live_control_load()
+        result = {}
+        for platform, row in state.items():
+            result[platform] = {key: value for key, value in row.items() if key != 'seq'}
+        result['queue_mode'] = bool(self.backend_queue_mode())
+        return result
+
+    def set_live_control(self, payload):
+        platform = payload.get('platform')
+        if platform not in ('tiktok', 'shopee'):
+            raise ValueError('invalid_platform')
+        changes = {}
+        if 'ai_enabled' in payload:
+            if not isinstance(payload['ai_enabled'], bool):
+                raise ValueError('ai_enabled_invalid')
+            changes['ai_enabled'] = payload['ai_enabled']
+        if 'auto_pin' in payload:
+            if platform != 'tiktok' or not isinstance(payload['auto_pin'], bool):
+                raise ValueError('auto_pin_invalid')
+            changes['auto_pin'] = payload['auto_pin']
+        if not changes:
+            raise ValueError('live_control_empty')
+        with self._LIVE_CONTROL_LOCK:
+            state = {key: dict(value) for key, value in self._live_control_load().items()}
+            row = state[platform]
+            row.update(changes)
+            row['seq'] = int(row.get('seq') or 0) + 1
+            row['applied'] = False
+            row['updated_at'] = time.time()
+            path = self._live_control_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_json(path, state)
+            self._live_control_cache = state
+        return {'ok': True, 'live_control': self.live_control()}
+
+    def _live_control_heartbeat(self, platform, payload):
+        """Đánh dấu applied khi tiện ích báo control_applied_seq khớp; trả lệnh cho tiện ích."""
+        state = self._live_control_load()
+        row = state.get(platform)
+        if not row or not row.get('seq'):
+            return None
+        acked = payload.get('control_applied_seq')
+        if isinstance(acked, int) and not isinstance(acked, bool) and acked == row['seq'] and not row['applied']:
+            with self._LIVE_CONTROL_LOCK:
+                state = {key: dict(value) for key, value in state.items()}
+                state[platform]['applied'] = True
+                try:
+                    atomic_json(self._live_control_path(), state)
+                except OSError:
+                    pass
+                self._live_control_cache = state
+                row = state[platform]
+        control = {'seq': row['seq'], 'ai_enabled': row.get('ai_enabled')}
+        if platform == 'tiktok':
+            control['auto_pin'] = row.get('auto_pin')
+        return control
+
+    def set_queue_mode(self, payload):
+        if not isinstance(payload.get('enabled'), bool):
+            raise ValueError('enabled_invalid')
+        path = ROOT / 'data' / 'machine' / 'queue_mode.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json(path, {'enabled': payload['enabled']})
+        return {'ok': True, 'live_control': self.live_control()}
+
     @staticmethod
     def delivery_capabilities():
         return {'delivery_store_version': 2, 'message_claim': True,
@@ -852,6 +949,7 @@ class ReplyEngine:
             "ai_queue": self._ai_queue_summary(),
             "restore_v2_enabled": self._restore_v2_flag(),
             "privacy": self._privacy_status(),
+            "live_control": self.live_control(),
         }
 
     def _privacy_status(self):
@@ -1121,6 +1219,12 @@ class ReplyEngine:
             purge = []
         if purge:
             response["privacy_purge"] = purge
+        try:
+            control = self._live_control_heartbeat(platform, payload)
+        except Exception:
+            control = None
+        if control:
+            response["control"] = control
         return response
 
     def delivery_operation(self, platform, operation, payload):
@@ -5068,6 +5172,7 @@ class Handler(BaseHTTPRequestHandler):
         if route in (("/api/mapping", "/api/video/position", "/api/plugins/action", "/api/backup",
                          "/api/diagnostics/fix", "/api/support/create", "/api/extension/setup",
                          "/api/mapping/undo", "/api/focus", "/api/shutdown", "/api/live/sources", "/api/live/reidentify",
+                         "/api/live/control", "/api/live/queue-mode",
                          "/api/mapping/auto-match", "/api/profiles/bulk-draft", "/api/profiles/approve",
                          "/api/knowledge/update", "/api/knowledge/undo",
                          "/api/knowledge/export",
@@ -5103,6 +5208,7 @@ class Handler(BaseHTTPRequestHandler):
                          "/api/extension/setup", "/api/knowledge/update",
                          "/api/knowledge/undo", "/api/knowledge/export",
                          "/api/focus", "/api/shutdown", "/api/live/sources", "/api/live/reidentify",
+                         "/api/live/control", "/api/live/queue-mode",
                          "/api/audio/test", "/api/backup/restore", "/api/privacy/forget", "/api/privacy/purge-ack",
                          "/api/backup/v2", "/api/backup/v2/delete/preview", "/api/backup/v2/delete", "/api/backup/restore/reenable-ai", "/api/backup/indexeddb",
                          *local_video_routes} and not workspace_route and not trash_route and not video_draft_route and not dose_test_route and not duplicate_route and not conversation_example_route and not video_job_draft_route and not video_job_publish_route and not product_image_route:
@@ -5299,6 +5405,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.engine.sync_shopee_catalog(payload)
             elif route == "/api/live/sources":
                 result = self.engine.save_live_sources(payload)
+            elif route == "/api/live/control":
+                result = self.engine.set_live_control(payload)
+            elif route == "/api/live/queue-mode":
+                result = self.engine.set_queue_mode(payload)
             elif route == '/api/live/reidentify':
                 result = self.engine.live_sources.request_reidentify(payload.get('platform'))
                 self.engine.set_video_position({'platform': payload.get('platform'), 'available': False})

@@ -508,6 +508,33 @@ function noteSendFailure(detail) {
   })();
   let heartbeatEverSent = false;
 
+  // Lệnh bật/tắt từ app Kid TE (Trung tâm LIVE) đi kèm heartbeat. Áp đúng MỘT lần
+  // theo seq, và áp bằng đúng đường của popup: đặt liveReAiEnabled (onChanged ->
+  // applyEnabled giữ mọi chặn an toàn: room_id, tab điều khiển, tạm dừng gửi) và
+  // LIVE_RE_PAUSE/RESUME như nút "Tạm dừng" ghim. Người dùng đổi trong popup sau
+  // đó không bị ép lại vì seq đã áp được nhớ trong liveReControlSeq.
+  async function applyAppControl(control) {
+    const seq = Number(control?.seq);
+    if (!Number.isInteger(seq) || seq <= 0) return false;
+    const saved = await chrome.storage.local.get("liveReControlSeq");
+    if (seq <= Number(saved?.liveReControlSeq || 0)) return false;
+    if (typeof control.ai_enabled === "boolean") {
+      await chrome.storage.local.set({ liveReAiEnabled: control.ai_enabled });
+    }
+    if (typeof control.auto_pin === "boolean") {
+      const current = await chrome.runtime.sendMessage({ type: "LIVE_RE_GET_STATE" }).catch(() => null);
+      const pinState = current?.state || {};
+      if (control.auto_pin === false && pinState.running === true) {
+        await chrome.runtime.sendMessage({ type: "LIVE_RE_PAUSE" });
+      } else if (control.auto_pin === true && pinState.running !== true && Number(pinState.startedAtMs || 0) > 0) {
+        // Chỉ tiếp tục phiên ghim đã có; chưa có phiên thì để tự bắt đầu theo phòng LIVE.
+        await chrome.runtime.sendMessage({ type: "LIVE_RE_RESUME" });
+      }
+    }
+    await chrome.storage.local.set({ liveReControlSeq: seq });
+    return true;
+  }
+
   async function sendHeartbeat() {
     // Chỉ tab điều khiển/quan sát (hoặc đang bật AI có phòng) mới gửi; tab đã từng
     // gửi thì gửi tiếp để việc tắt AI tới backend ngay.
@@ -515,6 +542,7 @@ function noteSendFailure(detail) {
     if (!shouldSend && !heartbeatEverSent) return;
     heartbeatEverSent = true;
     try {
+      const appliedSeq = Number((await chrome.storage.local.get("liveReControlSeq"))?.liveReControlSeq || 0);
       const result = await chrome.runtime.sendMessage({
         type: "LIVE_RE_HEARTBEAT",
         payload: {
@@ -528,13 +556,15 @@ function noteSendFailure(detail) {
           reply_queue: pending.length,
           observe_queue: observeQueue.length,
           send_paused_until_ms: sendPausedUntil,
-          send_pause_reason: sendPauseReason
+          send_pause_reason: sendPauseReason,
+          ...(appliedSeq > 0 ? { control_applied_seq: appliedSeq } : {})
         }
       });
       if (!result?.ok) throw new Error(result?.error || "backend từ chối heartbeat");
       if (Array.isArray(result.privacy_purge) && result.privacy_purge.length) {
         await applyPrivacyPurge(result.privacy_purge);
       }
+      if (result.control) await applyAppControl(result.control).catch(() => false);
       // Phong im khong co batch observe de flush van la trang thai binh thuong.
       // Lam moi dong bo thu theo heartbeat, neu khong content.js se coi ban
       // ghi cu hon 20 giay la "mat ket noi backend" du backend van song.
@@ -1293,6 +1323,7 @@ function noteSendFailure(detail) {
       getObserveQueue: () => observeQueue.slice(),
       applyPrivacyPurge,
       sendHeartbeat,
+      applyAppControl,
       shouldPeriodicSync,
       setRuntimeForTest: (patch = {}) => {
         if (patch.enabled !== undefined) enabled = patch.enabled;

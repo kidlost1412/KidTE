@@ -7,6 +7,7 @@ const pause = () => new Promise(r => setTimeout(r, 10));
 (async () => {
   let tick, clock = 100000, fail = false, paused = false, owner = true, pauseOnHide = false, revisionOnHide = false;
   const storage = {}, calls = [];
+  let appControl = null;
   const location = {href:'https://live.shopee.vn/pc/preview?session=123'};
   const position = {ok:true, available:true, video_id:'v1', position_s:1, margin:0.2, age_s:1};
   const timelines = Object.fromEntries(['v1','v2'].map(id=>[id,{title:id,cycle_ms:10000,events:[{at_ms:0,product:'p'}],products:{p:{short_name:'TC01'}}}]));
@@ -20,7 +21,7 @@ const pause = () => new Promise(r => setTimeout(r, 10));
       return {ok:true,controller:owner,position,config,paused};
     }
     if (m.resource==='timelines') return {ok:true,timelines};
-    if (m.resource==='heartbeat') return {ok:true};
+    if (m.resource==='heartbeat') return {ok:true,...(appControl?{control:appControl}:{})};
     if (m.resource==='sync') return {ok:true,videos:records};
     if (m.request?.action==='catalog') return {ok:true,product_count:2,products:[]};
     if (m.request?.action==='state') return {ok:true,available:true,product_id:position.video_id==='v1'?'1':'2',shop_id:'10'};
@@ -76,6 +77,14 @@ const pause = () => new Promise(r => setTimeout(r, 10));
   owner=false; position.video_id='v1'; await tick();
   assert.doesNotMatch(storage.shopeeStatus.label,/Tab theo dõi/);
   assert.equal(calls.filter(x=>x.request?.action==='show').length,sends+1);
+  // Lệnh từ app: seq mới đặt shopeeAiRequested một lần; seq cũ/lặp không ép lại.
+  owner=true; appControl={seq:5,ai_enabled:true}; clock+=3000; await tick();
+  assert.equal(storage.shopeeAiRequested,true); assert.equal(storage.shopeeControlSeq,5);
+  storage.shopeeAiRequested=false; clock+=3000; await tick();
+  assert.equal(storage.shopeeAiRequested,false,'người dùng tắt trong popup không bị ép lại');
+  assert.equal(calls.filter(x=>x.resource==='heartbeat').at(-1).payload.control_applied_seq,5);
+  assert.equal(await context.KidTEShopeeApplyControl({seq:4,ai_enabled:true}),false);
+  appControl=null;
   owner=true; location.href='https://live.shopee.vn/pc/preview?session=456'; clock+=3000; await tick();
   assert.equal(calls.filter(x=>x.resource==='sync').at(-1).payload.session_id,'456');
   assert.match(storage.shopeeStatus.label,/Chuẩn bị LIVE/);

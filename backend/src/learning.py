@@ -587,7 +587,8 @@ class LearningStore:
         """Provenance tag for a customer key; '' when no privacy service is wired."""
         if not customer_key or self.privacy is None:
             return ""
-        return self.privacy.key_hmac(customer_key)
+        safe = getattr(self.privacy, "safe_key_hmac", None)
+        return safe(customer_key) if callable(safe) else self.privacy.key_hmac(customer_key)
 
     def create_run(self, kind, *, ref_id="", payload=None, trigger="manual", customer_key_hmac=""):
         run_id = uuid.uuid4().hex

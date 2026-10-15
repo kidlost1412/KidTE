@@ -576,6 +576,71 @@ def _record_recovery(app_root: Path, message: str) -> None:
         pass
 
 
+def _recover_store(app_root: Path, store) -> None:
+    """``store.recover()`` không được làm sập launcher khi một gói mất thư mục.
+
+    Gói tuỳ chọn → bỏ khỏi active (app chạy không có tính năng đó, trang Cập
+    nhật thấy cần cài lại). Gói runtime/app/core → lùi về previous; không có
+    previous → để active trống (baseline/installer core như luồng hiện có),
+    chỉ khi schema dữ liệu cho phép. Còn lại → LauncherError rõ ràng.
+    """
+    from component_store import PackageRepairError
+
+    rolled_back = False
+    for _ in range(12):
+        try:
+            store.recover()
+            return
+        except PackageRepairError as exc:
+            component = getattr(exc, "component", "")
+            if component in getattr(store, "OPTIONAL_COMPONENTS", ()):
+                try:
+                    removed = store.drop_missing_optional(component)
+                except Exception as err:  # noqa: BLE001
+                    raise LauncherError(
+                        f"Gói {component} bị thiếu và không gỡ được khỏi cấu hình ({err}). "
+                        "Hãy cài lại Kid TE.") from exc
+                _record_recovery(app_root, f"optional package missing, disabled until reinstalled: "
+                                 f"{', '.join(removed) or component} ({exc})")
+                continue
+            if not rolled_back:
+                rolled_back = True
+                try:
+                    store.rollback()
+                    _record_recovery(app_root, f"core package missing ({exc}); rolled back to previous generation")
+                    continue
+                except Exception as err:  # noqa: BLE001 - fall through to baseline
+                    _record_recovery(app_root, f"core package missing ({exc}); no usable previous: {err}")
+            _fallback_to_baseline(app_root, store, exc)
+            return
+    raise LauncherError("Không phục hồi được cấu hình gói cài đặt. Hãy cài lại Kid TE.")
+
+
+def _fallback_to_baseline(app_root: Path, store, exc) -> None:
+    try:
+        active = store._read_mapping(store.active_path)
+    except Exception:  # noqa: BLE001
+        active = None
+    component = _core_component(active)
+    if component is not None and not _baseline_compatible(component):
+        raise LauncherError(
+            f"Thiếu gói lõi của Kid TE ({exc}) và dữ liệu không cho phép chạy bản gốc. "
+            "Hãy tải và cài lại Kid TE (dữ liệu của bạn được giữ nguyên).") from exc
+    if not (app_root / "KidTE.exe").is_file():
+        raise LauncherError(
+            f"Thiếu gói lõi của Kid TE ({exc}). Hãy tải và cài lại Kid TE "
+            "(dữ liệu của bạn được giữ nguyên).") from exc
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for path in (store.active_path, store.journal_path):
+        if path.exists():
+            try:
+                os.replace(path, path.with_name(f"{path.name}.broken-{stamp}"))
+            except OSError as err:
+                raise LauncherError(f"Thiếu gói lõi của Kid TE ({exc}); không thể chuyển về bản gốc: {err}. "
+                                    "Hãy cài lại Kid TE.") from exc
+    _record_recovery(app_root, f"core package missing ({exc}); starting installer baseline")
+
+
 def _sha256(path: Path) -> str:
     import hashlib
 
@@ -869,7 +934,7 @@ class Launcher:
         except OSError:
             pass
         store = self._store(app_root)
-        store.recover()
+        _recover_store(app_root, store)
         try:
             _prepare_installer_core(app_root, store)
         except (OSError, RuntimeError, ValueError) as exc:
@@ -887,7 +952,7 @@ class Launcher:
             # Validation may reject a damaged pending archive before the switch,
             # or a filesystem error may interrupt the switch. Recover the journal
             # before starting the old generation; never execute the rejected one.
-            store.recover()
+            _recover_store(app_root, store)
             store.cancel_pending()
             active = store.load_active()
             _record_recovery(app_root, f"pending update rejected before startup: {exc}")

@@ -74,7 +74,7 @@ export default {
       channelGrid.update(dash.live_channels,videoNames);
       // Source positions change on every poll. Patch only their text; retain
       // action elements and focus while the rest of the dashboard is unchanged.
-      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.recent_activity, dash.ai && dash.ai.deepseek_available, settings && settings.selected_audio_device, Object.keys(videoNames).length]);
+      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.privacy, dash.recent_activity, dash.ai && dash.ai.deepseek_available, settings && settings.selected_audio_device, Object.keys(videoNames).length]);
       if (!force && key === lastKey) return;
       lastKey = key;
       const ext = dash.extension || {};
@@ -93,7 +93,8 @@ export default {
           checkItem(dash.ai && dash.ai.deepseek_available ? 'ok' : 'danger', 'DeepSeek', dash.ai && dash.ai.deepseek_available ? 'Sẵn sàng cho cả hai sàn; bật trả lời trong từng tiện ích' : 'Chưa kết nối AI', btn('Cài đặt', {size:'sm', onClick:()=>ctx.navigate('system','setup')})),
           checkItem(catalog.total ? 'ok' : 'warn', 'Giỏ TikTok', `${number(catalog.total)} sản phẩm · ${number(catalog.mapped)} có hồ sơ`, btn('Xem giỏ', {size:'sm', onClick:()=>ctx.navigate('catalog')})),
           checkItem(dash.live_channels?.shopee?.catalog?.products_count ? 'ok' : 'warn', 'Giỏ Shopee', `${number(dash.live_channels?.shopee?.catalog?.products_count || 0)} sản phẩm · ánh xạ theo kịch bản Shopee`, btn('Nguồn LIVE', {size:'sm', onClick:()=>ctx.navigate('system','live')})),
-          checkItem(dash.backup && !dash.backup.overdue ? 'ok' : 'warn', 'Sao lưu dùng chung', dash.backup ? `Gần nhất ${relative(dash.backup.latest)}` : 'Chưa có bản sao lưu', btn('Xem', {size:'sm',onClick:()=>ctx.navigate('system','backups')}))));
+          checkItem(dash.backup && !dash.backup.overdue ? 'ok' : 'warn', 'Sao lưu dùng chung', dash.backup ? `Gần nhất ${relative(dash.backup.latest)}` : 'Chưa có bản sao lưu', btn('Xem', {size:'sm',onClick:()=>ctx.navigate('system','backups')})),
+          privacyWarning(dash.privacy) ? checkItem('danger', 'Bộ nhớ khách', privacyWarning(dash.privacy)) : null));
 
       clear(queueSlot, queuePanel(dash.ai_queue));
 
@@ -141,3 +142,8 @@ export default {
     return {unmount: () => d.dispose()};
   },
 };
+
+export function privacyWarning(privacy) {
+  if (!privacy || privacy.memory_available !== false) return '';
+  return privacy.warning || 'Bộ nhớ khách tạm tắt: khoá quyền riêng tư không đọc được.';
+}

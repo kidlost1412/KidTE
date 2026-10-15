@@ -932,6 +932,60 @@ class ComponentStore:
                 return old
             raise ComponentStoreError("unknown transaction journal state")
 
+    OPTIONAL_COMPONENTS = frozenset({"captcha-solver", "video-sync", "media-tools",
+                                     "video-analysis-cpu", "gpu-cuda12"})
+
+    def _strip_component(self, mapping, component_id: str) -> list[str]:
+        """Remove ``component_id`` (and optional dependents left without a provider)."""
+        components = mapping.get("components") if isinstance(mapping, dict) else None
+        if not isinstance(components, dict) or component_id not in components:
+            return []
+        removed = [component_id]
+        components.pop(component_id)
+        changed = True
+        while changed:
+            changed = False
+            records = {cid: row.get("package") for cid, row in components.items()
+                       if isinstance(row, dict) and isinstance(row.get("package"), dict)}
+            for cid, record in list(records.items()):
+                if cid not in self.OPTIONAL_COMPONENTS:
+                    continue
+                if any(provided(records, dep) is None for dep in (record.get("dependencies") or {})):
+                    components.pop(cid)
+                    removed.append(cid)
+                    changed = True
+                    break
+        return removed
+
+    def drop_missing_optional(self, component_id: str) -> list[str]:
+        """Bỏ một gói TUỲ CHỌN mất thư mục khỏi active (và khỏi old_active của
+        journal) để app vẫn khởi động được, chỉ thiếu tính năng đó. Trả về
+        danh sách gói đã bỏ; ném lỗi nếu không phải gói tuỳ chọn hoặc thư mục
+        thật ra vẫn còn."""
+        if component_id not in self.OPTIONAL_COMPONENTS:
+            raise ComponentStoreError(f"{component_id} is not optional")
+        with self._locked():
+            removed = []
+            active = self._read_mapping(self.active_path)
+            for mapping, path in ((active, self.active_path),):
+                if mapping is None:
+                    continue
+                row = mapping["components"].get(component_id) if isinstance(mapping.get("components"), dict) else None
+                if not isinstance(row, dict):
+                    continue
+                full = self.app_root / Path(*PurePosixPath(str(row.get("path"))).parts)
+                if full.is_dir():
+                    raise ComponentStoreError(f"{component_id} package directory exists")
+                removed += self._strip_component(mapping, component_id)
+                _atomic_json(path, mapping, self._checkpoint)
+            journal = self._read_mapping(self.journal_path)
+            if journal is not None and isinstance(journal.get("old_active"), dict):
+                gone = self._strip_component(journal["old_active"], component_id)
+                if gone:
+                    removed += gone
+                    _atomic_json(self.journal_path, journal, self._checkpoint)
+            return sorted(set(removed))
+
     # ------------------------------------------------------------------
     # Local garbage collection (Chrome / VS Code style): after a generation is
     # confirmed healthy keep exactly the active generation plus one rollback.

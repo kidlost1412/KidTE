@@ -94,6 +94,34 @@ _DU_KIEN_SAN_PHAM = re.compile(
     re.IGNORECASE)
 
 
+class StoreReadError(ValueError):
+    """Tệp dữ liệu tồn tại nhưng không đọc/parse được — KHÔNG được coi là rỗng
+    (coi là rỗng rồi ghi lại sẽ xoá sạch dữ liệu thật)."""
+
+
+def _read_json_strict(path, default, *, attempts=4, delay=0.15):
+    """Đọc JSON: tệp không tồn tại → ``default``; tồn tại mà lỗi → thử lại
+    ngắn (AV trên Windows hay giữ tệp), vẫn lỗi → chép bản hỏng sang
+    ``.corrupt-<ts>`` (nếu là lỗi JSON) rồi ném ``StoreReadError``."""
+    path = Path(path)
+    last = None
+    for i in range(attempts):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return default
+        except (OSError, ValueError) as exc:
+            last = exc
+            if i + 1 < attempts:
+                time.sleep(delay)
+    if isinstance(last, ValueError):
+        try:
+            shutil.copy2(path, path.with_name(path.name + ".corrupt-" + time.strftime("%Y%m%d-%H%M%S")))
+        except OSError:
+            pass
+    raise StoreReadError(f"store_unreadable:{path.name}: {last}") from last
+
+
 class WorkspaceStore:
     """Resource-oriented facade used only by the same-origin local UI."""
 
@@ -503,7 +531,8 @@ class WorkspaceStore:
                 else "tiktok")
         except Exception:
             return ""
-        return self.privacy.key_hmac(key) if strength >= 2 else ""
+        safe = getattr(self.privacy, "safe_key_hmac", None) or self.privacy.key_hmac
+        return safe(key) if strength >= 2 else ""
 
     def forget_customer(self, key_hmac, *, exclude_legacy=True, identifiers=()):
         """F02: delete corrections/examples attributed to ``key_hmac``; hide legacy ones that mention the customer."""
@@ -2041,10 +2070,8 @@ class WorkspaceStore:
                 "snapshot_id": snapshot_id, "undo_available": True}
 
     def _read_overrides(self):
-        raw = {"schema_version": 1, "updated_at": _now(), "overrides": {}}
-        if self.override_path.exists():
-            try: raw = json.loads(self.override_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError): pass
+        raw = _read_json_strict(self.override_path,
+                                {"schema_version": 1, "updated_at": _now(), "overrides": {}})
         if not isinstance(raw, dict):
             raw = {"schema_version": 1, "overrides": {}}
         if not isinstance(raw.get("overrides"), dict):
@@ -2194,10 +2221,8 @@ class WorkspaceStore:
                 }
             else:
                 clean_changes[key] = _safe_text(value, 4000)
-        raw = {"schema_version": 1, "updated_at": _now(), "overrides": {}}
-        if self.override_path.exists():
-            try: raw = json.loads(self.override_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError): pass
+        raw = _read_json_strict(self.override_path,
+                                {"schema_version": 1, "updated_at": _now(), "overrides": {}})
         previous_raw = copy.deepcopy(raw)
         overrides = raw.get("overrides") if isinstance(raw.get("overrides"), dict) else {}
         overrides[record_id] = {**(overrides.get(record_id) or {}), **clean_changes,
@@ -2649,12 +2674,7 @@ class WorkspaceStore:
         return {"ok": True, "purged": len(eligible)}
 
     def _set_profile_hidden(self, record_id, hidden):
-        raw = {"schema_version": 1, "updated_at": _now(), "overrides": {}}
-        if self.override_path.exists():
-            try:
-                raw = json.loads(self.override_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                pass
+        raw = self._read_overrides()
         previous = copy.deepcopy(raw)
         overrides = raw.get("overrides") if isinstance(raw.get("overrides"), dict) else {}
         values = dict(overrides.get(record_id) or {})

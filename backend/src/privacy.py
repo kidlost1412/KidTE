@@ -56,6 +56,10 @@ def normalize_key(customer_key):
     return " ".join(str(customer_key or "").split()).casefold()
 
 
+class PrivacyUnavailableError(ValueError):
+    """Khoá quyền riêng tư có trên đĩa nhưng không đọc được — cần người dùng xử lý."""
+
+
 class PrivacyService:
     def __init__(self, db_path, key_path, *, clock=time.time, exclude_legacy_learning_on_forget=True):
         self.db_path = Path(db_path)
@@ -63,7 +67,17 @@ class PrivacyService:
         self.clock = clock
         self.exclude_legacy_learning_on_forget = bool(exclude_legacy_learning_on_forget)
         self._lock = threading.RLock()
-        self._secret = self._load_secret()
+        self.unavailable_reason = ""
+        try:
+            self._secret = self._load_secret()
+        except PrivacyUnavailableError as exc:
+            # Không làm sập toàn app: tính năng quyền riêng tư báo lỗi rõ ràng,
+            # bộ nhớ khách hàng coi mọi khách là "đã xoá" (fail-closed).
+            self._secret = None
+            self.unavailable_reason = str(exc)
+            import logging
+            logging.getLogger("kidte.privacy").warning(
+                "Bộ nhớ khách tạm tắt: khoá quyền riêng tư không đọc được (%s)", exc)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(self.db_path, timeout=5, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
@@ -86,26 +100,71 @@ class PrivacyService:
                 );
             """)
 
-    def _load_secret(self):
-        try:
-            data = self.key_path.read_bytes()
-            if len(data) >= 32:
-                return data[:32]
-        except OSError:
-            pass
+    def _load_secret(self, *, attempts=4, delay=0.15):
+        """Khoá HMAC máy. CHỈ sinh khoá mới khi tệp chưa tồn tại; tệp có mà
+        đọc lỗi/ngắn → thử lại ngắn rồi ném ``PrivacyUnavailableError`` (sinh
+        khoá mới sẽ làm mọi tombstone cũ mất hiệu lực → khách đã xoá hiện lại)."""
+        last = None
+        for i in range(attempts):
+            try:
+                data = self.key_path.read_bytes()
+            except FileNotFoundError:
+                if i == 0:
+                    return self._create_secret()
+                last = FileNotFoundError(str(self.key_path))
+            except OSError as exc:
+                last = exc
+            else:
+                if len(data) >= 32:
+                    return data[:32]
+                last = ValueError(f"privacy_key_too_short:{len(data)}")
+            if i + 1 < attempts:
+                time.sleep(delay)
+        raise PrivacyUnavailableError(f"privacy_key_unreadable: {last}")
+
+    def _create_secret(self):
         self.key_path.parent.mkdir(parents=True, exist_ok=True)
         data = secrets.token_bytes(32)
         tmp = self.key_path.with_name(self.key_path.name + ".tmp")
         tmp.write_bytes(data)
-        os.replace(tmp, self.key_path)
+        try:
+            # Không ghi đè nếu tiến trình khác vừa tạo khoá.
+            os.link(tmp, self.key_path)
+        except FileExistsError:
+            tmp.unlink(missing_ok=True)
+            return self._load_secret()
+        except OSError:
+            os.replace(tmp, self.key_path)
+        else:
+            tmp.unlink(missing_ok=True)
         return data
 
+    @property
+    def memory_available(self):
+        """False khi khoá HMAC không dùng được: bộ nhớ khách phải tắt hẳn."""
+        return self._secret is not None
+
+    def safe_key_hmac(self, customer_key):
+        try:
+            return self.key_hmac(customer_key)
+        except PrivacyUnavailableError:
+            return ""
+
+    def _require_secret(self):
+        if self._secret is None:
+            raise PrivacyUnavailableError(self.unavailable_reason or "privacy_key_unavailable")
+        return self._secret
+
     def key_hmac(self, customer_key):
-        return hmac.new(self._secret, normalize_key(customer_key).encode("utf-8"),
+        return hmac.new(self._require_secret(), normalize_key(customer_key).encode("utf-8"),
                         hashlib.sha256).hexdigest()
 
     def is_forgotten(self, customer_key):
         if not customer_key:
+            return False
+        if self._secret is None:
+            # Không biết → KHÔNG huỷ trả lời. Bộ nhớ khách tắt hẳn qua
+            # ``memory_available`` nên không "nhớ lại" ai.
             return False
         digest = self.key_hmac(customer_key)
         with self._lock:

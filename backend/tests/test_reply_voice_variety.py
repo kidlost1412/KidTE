@@ -84,3 +84,9 @@ def test_voice_and_voucher_defaults_have_no_copyable_sample():
     assert "289k" not in learning.DEFAULT_VOICE
     plugin = load_processor(ROOT / "plugins" / "chinh-sach-gia" / "processor.py", "price-variety")
     assert "289k" not in plugin.DEFAULT_VOUCHER_PITCH and "{gia}" in plugin.DEFAULT_VOUCHER_PITCH
+
+
+def test_ngram_check_ignores_prices_product_names_and_fillers():
+    recents = ["Đạm Cá Amino giá gốc 289k, phun chiều mát là đẹp", "Dạ anh ơi bên em có liền nha anh"]
+    assert not reply_variety.repeats_recent("Bón Đạm Cá Amino giá gốc 289k cho sầu riêng ổn lắm", recents[:1])
+    assert not reply_variety.repeats_recent("Thử hỏi bên em có liền nha anh, mua sớm", recents[1:])

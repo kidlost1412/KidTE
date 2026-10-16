@@ -286,6 +286,7 @@ class GeminiProvider:
             if isinstance(candidate.get("groundingMetadata"), dict):
                 meta = candidate["groundingMetadata"]
                 break
+        self.last_finish_reason = str(((payload.get("candidates") or [{}])[0] or {}).get("finishReason") or "")
         return text, meta
 
     def _call(self, body_for, post):

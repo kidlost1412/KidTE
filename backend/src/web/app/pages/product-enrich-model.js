@@ -17,6 +17,7 @@ export function proposalRows(proposal) {
     old: valueText(item.old) || '(đang trống)',
     value: valueText(item.value),
     sources: (item.sources || []).filter(s => s && /^https?:\/\//.test(s.url || '')).map(s => ({url: s.url, title: s.title || s.url})),
+    general: !!item.general_sources,   // nguồn chung của cả câu trả lời, không gắn riêng mục này
     checked: true,
   })).filter(row => row.value && row.sources.length);
 }
@@ -32,6 +33,13 @@ export function droppedText(proposal) {
   const keys = Object.keys(dropped);
   if (!keys.length) return '';
   return `Không điền ${keys.length} mục vì Google không có nguồn rõ ràng.`;
+}
+
+/** Chẩn đoán lần gọi gần nhất -> một dòng (khi kết quả rỗng). */
+export function diagnosticText(proposal) {
+  const d = proposal && proposal.diagnostic;
+  if (!d) return '';
+  return `Chẩn đoán: model ${d.model || '?'} · ${d.chunks || 0} nguồn Google · ${d.supports || 0} đoạn trích · ${d.queries || 0} lượt tìm · kết thúc: ${d.finish_reason || '?'}`;
 }
 
 /** Trạng thái chạy hàng loạt -> một dòng dễ hiểu. */

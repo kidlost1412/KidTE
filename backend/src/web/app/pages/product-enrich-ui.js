@@ -43,7 +43,9 @@ export async function openProfileEnrich(id, {name = '', start = true, onApplied}
     const rows = em.proposalRows(proposal);
     const dropped = em.droppedText(proposal);
     if (!rows.length) {
-      clear(body, notice('warn', 'Không có gì để bổ sung', (proposal && proposal.message) || 'Google không tìm thấy thông tin có nguồn cho các mục còn thiếu.'));
+      const diag = em.diagnosticText(proposal);
+      clear(body, notice('warn', 'Không có gì để bổ sung', (proposal && proposal.message) || 'Google không tìm thấy thông tin có nguồn cho các mục còn thiếu.'),
+        diag ? h('div', {class: 'fs-xs muted'}, diag) : null);
       clear(foot, h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => modal.close()}));
       return;
     }
@@ -57,7 +59,7 @@ export async function openProfileEnrich(id, {name = '', start = true, onApplied}
           h('strong', {}, row.label)),
         h('div', {class: 'fs-xs muted', style: {marginTop: '6px'}}, 'Hiện tại: ' + row.old),
         h('div', {style: {whiteSpace: 'pre-wrap', marginTop: '4px', padding: '8px', borderRadius: '8px', background: 'var(--surface-2)'}}, row.value),
-        h('div', {class: 'fs-xs', style: {marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '8px'}}, 'Nguồn:',
+        h('div', {class: 'fs-xs', style: {marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '8px'}}, row.general ? 'Nguồn chung (Google không chỉ rõ trang nào cho mục này — kiểm tra kỹ):' : 'Nguồn:',
           row.sources.map(s => h('a', {href: s.url, target: '_blank', rel: 'noopener noreferrer'}, s.title))))),
       dropped ? h('div', {class: 'fs-xs muted'}, dropped) : null);
     clear(foot, h('span', {class: 'grow'}), btn('Để sau', {kind: 'ghost', onClick: () => modal.close()}), approve);

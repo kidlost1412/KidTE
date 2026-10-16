@@ -65,12 +65,40 @@ def test_proposal_has_sources_and_drops_unsourced_price_and_existing():
     assert fields["huong_dan_su_dung"]["old"] is None
 
 
-def test_field_without_grounding_source_is_dropped():
+def test_unmatched_field_gets_general_sources_and_no_grounding_drops_all():
     meta = _meta(RAW, cited=("Abamectin",))
     out = build_proposal(PROFILE, RAW, meta)
-    assert set(out["fields"]) == {"thanh_phan_dang_ky"}
-    assert out["dropped"]["cong_dung"] == "không có nguồn"
-    assert build_proposal(PROFILE, RAW, {})["fields"] == {}
+    assert out["fields"]["thanh_phan_dang_ky"]["general_sources"] is False
+    assert out["fields"]["cong_dung"]["general_sources"] is True          # có grounding, không gán được
+    assert len(out["fields"]["cong_dung"]["sources"]) == 2
+    empty = build_proposal(PROFILE, RAW, {})
+    assert empty["fields"] == {} and empty["dropped"]["cong_dung"] == "không có nguồn"
+    assert empty["diagnostic"]["chunks"] == 0
+
+
+CELL_RAW = "Đây là kết quả:\n```json\n" + json.dumps({
+    "cong_dung": {"gia_tri": ["Trừ nhện đỏ"], "nguon": ["https://www.nsx.example.vn/san-pham"]},
+    "huong_dan_su_dung": {"gia_tri": ["Pha 10 ml/bình 16 lít"], "nguon": ["ppd.example.gov.vn"]},
+    "luu_y": {"gia_tri": "Đeo găng tay", "nguon": ["khac.example.com"]},
+    "thanh_phan_dang_ky": {"gia_tri": "không tìm thấy", "nguon": []},
+}, ensure_ascii=False) + "\n```\nHết."
+
+
+def test_misaligned_supports_fall_back_to_domain_match_and_fenced_json():
+    redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
+    meta = {"groundingChunks": [{"web": {"uri": redirect + "AAA", "title": "nsx.example.vn"}},
+                                {"web": {"uri": redirect + "BBB", "title": "ppd.example.gov.vn"}}],
+            "groundingSupports": [{"segment": {"startIndex": 99999, "endIndex": 100050, "text": "chữ không có"},
+                                   "groundingChunkIndices": [0]}]}
+    out = build_proposal(PROFILE, CELL_RAW, meta)
+    f = out["fields"]
+    assert f["cong_dung"]["value"] == ["Trừ nhện đỏ"]
+    assert [s["title"] for s in f["cong_dung"]["sources"]] == ["nsx.example.vn"]
+    assert f["cong_dung"]["general_sources"] is False
+    assert [s["title"] for s in f["huong_dan_su_dung"]["sources"]] == ["ppd.example.gov.vn"]
+    assert f["luu_y"]["general_sources"] is True                          # tên miền không khớp chunk nào
+    assert "thanh_phan_dang_ky" not in f
+    assert out["diagnostic"] == {"chunks": 2, "supports": 1, "queries": 0}
 
 
 def test_missing_fields():

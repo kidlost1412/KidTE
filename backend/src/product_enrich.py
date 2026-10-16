@@ -69,9 +69,11 @@ def build_user_text(profile, fields):
         "thoi_gian_cach_ly": '"số ngày cách ly trước thu hoạch nếu là thuốc BVTV, không có thì \\"không tìm thấy\\""',
     }
     wanted = list(fields) + (["thoi_gian_cach_ly"] if "luu_y" in fields else [])
-    lines = "\n".join(f'  "{k}": {schema[k]}' for k in wanted)
+    lines = ",\n".join(f'  "{k}": {{"gia_tri": {schema[k]}, "nguon": ["tên miền hoặc URL trang đã dùng"]}}'
+                       for k in wanted)
     return (f"Sản phẩm cần tra: {json.dumps(known, ensure_ascii=False)}\n\n"
-            f"Tìm trên Google và điền các trường sau (trường nào không có nguồn thì ghi \"không tìm thấy\"):\n"
+            f"Tìm trên Google và điền các trường sau. Mỗi trường gồm \"gia_tri\" và \"nguon\" (tên miền/URL các "
+            f"trang đã dùng); không có nguồn thì gia_tri ghi \"không tìm thấy\":\n"
             f"{{\n{lines}\n}}\nChỉ trả JSON đúng các khoá trên.")
 
 
@@ -174,30 +176,77 @@ def build_proposal(profile, raw, meta, fields=None):
     except ExtractionInvalid as exc:
         raise EnrichError("Gemini trả về kết quả không đúng dạng. Thử lại sau.") from exc
     keys = list(fields) + (["thoi_gian_cach_ly"] if "luu_y" in fields else [])
-    sources = sources_by_field(str(raw), meta, keys)
+    by_support = sources_by_field(str(raw), meta, keys)
+    chunks = []
+    for chunk in _chunks(meta):
+        if chunk and chunk not in chunks:
+            chunks.append(chunk)
+    cells = {key: _cell(data.get(key)) for key in keys}
+
+    def sources_for(key):
+        """1) gán theo groundingSupports; 2) khớp tên miền model ghi trong "nguon"; 3) có grounding: nguồn chung."""
+        if not chunks:
+            return [], False
+        if by_support.get(key):
+            return list(by_support[key]), False
+        hosts = {_host(c) for c in cells[key][1]} - {""}
+        matched = [c for c in chunks if any(_host_match(h, c) for h in hosts)]
+        if matched:
+            return matched[:MAX_SOURCES_PER_FIELD], False
+        return chunks[:MAX_SOURCES_PER_FIELD], True
+
     out, dropped = {}, {}
     for key in fields:
-        value = _normalize(key, data.get(key))
-        src = list(sources.get(key) or [])
+        value = _normalize(key, cells[key][0])
+        src, general = sources_for(key) if value is not None else ([], False)
         if key == "luu_y":
-            cach_ly = _normalize("luu_y", data.get("thoi_gian_cach_ly"))
-            cach_ly_src = sources.get("thoi_gian_cach_ly") or []
-            if cach_ly and cach_ly_src:
+            cach_ly = _normalize("luu_y", cells["thoi_gian_cach_ly"][0])
+            if cach_ly:
+                cach_src, cach_general = sources_for("thoi_gian_cach_ly")
                 line = (cach_ly if "cách ly" in cach_ly.lower() else "Thời gian cách ly: " + cach_ly).rstrip(".") + "."
-                if value and src:
+                if value is not None:
                     value = value.rstrip(".") + ". " + line
-                    src = (src + [s for s in cach_ly_src if s not in src])[:MAX_SOURCES_PER_FIELD]
+                    src = (src + [s for s in cach_src if s not in src])[:MAX_SOURCES_PER_FIELD]
+                    general = general and cach_general
                 else:
-                    value, src = line, list(cach_ly_src)
+                    value, src, general = line, cach_src, cach_general
         if value is None:
             dropped[key] = "không tìm thấy"
             continue
         if not src:
             dropped[key] = "không có nguồn"
             continue
-        out[key] = {"label": FIELD_LABELS[key], "old": profile.get(key), "value": value, "sources": src}
+        out[key] = {"label": FIELD_LABELS[key], "old": profile.get(key), "value": value, "sources": src,
+                    "general_sources": general}
     return {"fields": out, "dropped": dropped,
-            "queries": [str(q) for q in (meta or {}).get("webSearchQueries") or []][:10]}
+            "queries": [str(q) for q in (meta or {}).get("webSearchQueries") or []][:10],
+            "diagnostic": {"chunks": len(chunks), "supports": len((meta or {}).get("groundingSupports") or []),
+                           "queries": len((meta or {}).get("webSearchQueries") or [])}}
+
+
+def _cell(item):
+    """Ô {"gia_tri", "nguon"} hoặc giá trị trần -> (giá trị, [nguồn model tự ghi])."""
+    if isinstance(item, dict) and ("gia_tri" in item or "value" in item):
+        claimed = item.get("nguon", item.get("sources")) or []
+        claimed = [claimed] if isinstance(claimed, str) else claimed if isinstance(claimed, list) else []
+        return item.get("gia_tri", item.get("value")), [str(c) for c in claimed]
+    return item, []
+
+
+def _host(text):
+    text = str(text or "").strip().lower()
+    text = re.sub(r"^[a-z]+://", "", text).split("/")[0].split("?")[0]
+    text = text[4:] if text.startswith("www.") else text
+    return text if "." in text else ""
+
+
+def _host_match(host, chunk):
+    """Tên miền model ghi khớp chunk (title của Google thường là tên miền; uri là link chuyển hướng)."""
+    for other in (_host(chunk.get("title")), _host(chunk.get("url"))):
+        if other and (host == other or host.endswith("." + other) or other.endswith("." + host)):
+            return True
+    return False
+
 
 
 # ------------------------------------------------------------------ dịch vụ
@@ -264,8 +313,13 @@ class ProductEnrich:
                 raise EnrichError(str(exc)) from exc
             proposal = {"profile_id": profile_id, **build_proposal(profile, raw, meta, fields),
                         "model": provider.last_model}
+            # Chẩn đoán gọn lần gọi này (không có khoá) để UI không im lặng khi kết quả rỗng.
+            proposal["diagnostic"] = {**proposal.get("diagnostic", {}), "model": provider.last_model,
+                                      "finish_reason": getattr(provider, "last_finish_reason", "")}
             if not proposal["fields"]:
-                proposal["message"] = "Google không tìm thấy thông tin có nguồn rõ ràng cho các trường còn thiếu."
+                proposal["message"] = ("Gemini không trả nguồn nào từ Google — xem chẩn đoán bên dưới."
+                                       if not proposal["diagnostic"].get("chunks") else
+                                       "Google không tìm thấy thông tin cho các trường còn thiếu.")
         proposal["created_at"] = self._clock()
         self._save(profile_id, proposal)
         return proposal

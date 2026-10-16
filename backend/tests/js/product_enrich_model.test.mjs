@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {valueText, proposalRows, chosenFields, droppedText, batchText} from '../../src/web/app/pages/product-enrich-model.js';
+import {valueText, proposalRows, chosenFields, droppedText, batchText, diagnosticText} from '../../src/web/app/pages/product-enrich-model.js';
+
+test('general flag and diagnostic text', () => {
+  const rows = proposalRows({fields: {luu_y: {value: 'x', general_sources: true, sources: [{url: 'https://a.vn', title: 'a.vn'}]}}});
+  assert.equal(rows[0].general, true);
+  assert.match(diagnosticText({diagnostic: {model: 'gemini-x', chunks: 0, supports: 0, finish_reason: 'STOP'}}), /gemini-x · 0 nguồn Google.*STOP/);
+  assert.equal(diagnosticText({}), '');
+});
 
 test('value text formats lists and pairs', () => {
   assert.equal(valueText(['a', 'b']), 'a\nb');

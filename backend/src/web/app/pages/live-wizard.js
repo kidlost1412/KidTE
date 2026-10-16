@@ -8,11 +8,11 @@ import {toast, confirmDialog} from '../ui/overlays.js';
 import {LIVE_REASONS} from '../ui/live-status.js';
 import {readinessOf, loadMode, saveMode, pickMode, actionView, quickToggles, toggleRequest, STATE_VIEW,
   loadPlatform, savePlatform, choosePlatforms, applyPlatforms, nextStep, stages, stageRows, phaseOf,
-  summaryLine, liveStrip, PLATFORM_CHOICES} from './live-wizard-model.js';
+  summaryLine, liveStrip, PLATFORM_CHOICES, modeView, stageChips, toggleView} from './live-wizard-model.js';
 
 const store = () => { try { return globalThis.localStorage; } catch (_) { return null; } };
 
-export function liveWizard(ctx) {
+export function liveWizard(ctx, {withCards = false} = {}) {
   const root = h('section', {class: 'card live-wizard', 'aria-label': 'Trợ lý chuẩn bị LIVE'});
   let mode = loadMode(store());
   let pchoice = loadPlatform(store());
@@ -71,20 +71,23 @@ export function liveWizard(ctx) {
         detailOf(step) ? h('span', {class: 'muted'}, ' · ' + detailOf(step)) : null,
         step.required ? null : h('span', {class: 'muted'}, ' · tuỳ chọn'),
         m === 'new' && step.state !== 'done' && step.why ? h('div', {class: 'wz-why'}, step.why) : null),
-      a ? btn(a.label, {size: 'sm', kind: 'ghost', icon: a.kind === 'navigate' ? 'arrowRight' : a.kind === 'toggle' ? 'zap' : 'play',
+      a ? btn(a.label, {size: m === 'new' && step.state !== 'done' ? '' : 'sm', kind: m === 'new' && step.state !== 'done' ? 'soft' : 'ghost', icon: a.kind === 'navigate' ? 'arrowRight' : a.kind === 'toggle' ? 'zap' : 'play',
         disabled: !!busy, onClick: () => doAction(step)}) : null);
   }
 
   function nextCard(step, m) {
     const v = STATE_VIEW[step.state] || STATE_VIEW.todo;
     const a = actionView(step);
-    return h('div', {class: 'wz-next ' + v.tone},
+    if (m === 'pro') return h('div', {class: 'wz-next sm ' + v.tone},
+      h('span', {class: 'wz-dot ' + v.tone}), h('span', {class: 'wz-kicker'}, 'Tiếp theo'), h('strong', {class: 'wz-next-title'}, step.title),
+      a ? btn(a.label, {size: 'sm', kind: 'primary', disabled: !!busy, onClick: () => doAction(step)}) : null);
+    return h('div', {class: 'wz-next lg ' + v.tone},
       h('div', {class: 'wz-next-body'},
         h('div', {class: 'wz-kicker'}, 'Việc tiếp theo · ' + v.label),
         h('strong', {class: 'wz-next-title'}, step.title),
         h('div', {class: 'fs-sm soft'}, m === 'new' ? step.why : (detailOf(step) || step.why)),
         m === 'new' && detailOf(step) ? h('div', {class: 'fs-xs muted'}, detailOf(step)) : null),
-      a ? btn(a.label, {kind: 'primary', icon: a.kind === 'navigate' ? 'arrowRight' : a.kind === 'toggle' ? 'zap' : 'play',
+      a ? btn(a.label, {kind: 'primary', size: 'lg', icon: a.kind === 'navigate' ? 'arrowRight' : a.kind === 'toggle' ? 'zap' : 'play',
         disabled: !!busy, onClick: () => doAction(step)}) : null);
   }
 
@@ -100,13 +103,19 @@ export function liveWizard(ctx) {
       done.length ? h('div', {class: 'wz-done' + (expanded ? ' open' : '')}, expanded ? done.map(s => row(s, m)) : null) : null);
   }
 
-  function stageBar(list, active) {
-    return h('div', {class: 'wz-stages', role: 'tablist'}, list.map(st => h('button', {
+  function stageBar(list, active, steps, m) {
+    const tab = st => h('button', {
       type: 'button', role: 'tab', class: 'wz-stage ' + st.tone + (active === st.id ? ' active' : ''),
       'aria-selected': String(active === st.id),
       onClick: () => { openStage = active === st.id ? '' : st.id; draw(true); }},
     h('span', {class: 'wz-dot ' + st.tone}), h('span', {class: 'wz-stage-t'}, st.title),
-    h('span', {class: 'wz-stage-n'}, `${st.done}/${st.total}`))));
+    h('span', {class: 'wz-stage-n'}, `${st.done}/${st.total}`));
+    if (!modeView(m).stepChips) return h('div', {class: 'wz-stages', role: 'tablist'}, list.map(tab));
+    // Đã quen: bước chưa xong là chip nhỏ ngay dưới chặng; bấm chip = làm bước đó.
+    return h('div', {class: 'wz-stages', role: 'tablist'}, list.map(st => h('div', {class: 'wz-stage-col'}, tab(st),
+      h('div', {class: 'wz-schips'}, stageChips(steps, st.id).map(c => h('button', {type: 'button', class: 'wz-chip ' + c.tone,
+        title: c.step.title + (detailOf(c.step) ? ' · ' + detailOf(c.step) : ''), disabled: !!busy || !actionView(c.step),
+        onClick: () => doAction(c.step)}, h('span', {class: 'wz-dot ' + c.tone}), c.label))))));
   }
 
   function liveBlock(use) {
@@ -119,9 +128,20 @@ export function liveWizard(ctx) {
       x.queue != null ? h('span', {class: 'wz-pill'}, `Hàng chờ ${x.queue}`) : null)));
   }
 
-  function togglesBlock(use) {
+  function togglesBlock(use, m) {
     const items = quickToggles(dash, use);
     if (!items.length) return null;
+    if (modeView(m).toggleChips) {
+      // Đã quen: hàng chip nhỏ — tên + chấm trạng thái, bấm để bật/tắt (vẫn hỏi lại khi cần).
+      return h('div', {class: 'wz-toggles compact'}, h('h3', {class: 'wz-h'}, 'Bật/tắt nhanh'),
+        h('div', {class: 'wz-tchips'}, items.map(t => {
+          const v = toggleView(t, m);
+          return h('button', {type: 'button', class: 'wz-chip tg ' + v.tone + (t.pending ? ' pending' : ''), title: v.title + (t.mode === 'info' ? ' — ' + t.howTo : ''),
+            'aria-pressed': String(!!t.on), disabled: !!busy,
+            onClick: () => t.mode === 'info' ? toast(t.howTo, 'info', {duration: 8000}) : flip(t.id, !t.on)},
+          h('span', {class: 'wz-dot ' + v.tone}), v.label);
+        })));
+    }
     return h('div', {class: 'wz-toggles'}, h('h3', {class: 'wz-h'}, 'Bật/tắt nhanh'),
       h('div', {class: 'wz-tgrid'}, items.map(t => h('div', {class: 'wz-tg' + (t.pending ? ' pending' : ''), title: t.note || ''},
         t.mode === 'info'
@@ -155,12 +175,17 @@ export function liveWizard(ctx) {
       h('div', {class: 'wz-ctrls'},
         segmented(PLATFORM_CHOICES, pchoice, id => { pchoice = id; savePlatform(store(), id); draw(true); }, {label: 'Hôm nay LIVE'}),
         segmented([['new', 'Người mới'], ['pro', 'Đã quen']], m, id => { mode = id; saveMode(store(), id); draw(true); }, {label: 'Chế độ trợ lý'})));
-    const body = [stageBar(st, active)];
-    if (phase === 'live') body.push(liveBlock(use));
-    if (phase === 'ready') body.push(h('div', {class: 'wz-ready'}, icon('check'), ' Sẵn sàng LIVE ✓', h('span', {class: 'muted'}, ' · bấm phát trên sàn là Kid TE tự nhận phòng')));
+    const view = modeView(m);
+    const body = [];
+    if (view.guide) body.push(h('p', {class: 'wz-guide'}, icon('info'), ' ', view.guide));
+    body.push(stageBar(st, active, steps, m));
+    // Trạng thái đang LIVE từng sàn (video, thời điểm, AI, tự ghim) chỉ hiện ở thẻ nguồn bên cạnh
+    // (liveChannelCards) để không lặp hai nơi; liveBlock chỉ dùng khi trợ lý đứng một mình.
+    if (phase === 'live' && !withCards) body.push(liveBlock(use));
+    if (phase === 'ready') body.push(h('div', {class: 'wz-ready'}, icon('check'), ' Sẵn sàng LIVE ✓', view.notes ? h('span', {class: 'muted'}, ' · bấm phát trên sàn là Kid TE tự nhận phòng') : null));
     if (nxt) body.push(nextCard(nxt, m));
-    if (active) body.push(stagePanel(steps, active, m, nxt ? nxt.id : ''));
-    body.push(togglesBlock(use));
+    if (active && (m === 'new' || openStage)) body.push(stagePanel(steps, active, m, nxt ? nxt.id : ''));
+    body.push(togglesBlock(use, m));
     clear(root, head, h('div', {class: 'wz-wrap'}, body));
   }
 

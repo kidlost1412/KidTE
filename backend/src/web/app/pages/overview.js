@@ -47,16 +47,17 @@ function queuePanel(q) {
 export default {
   mount(ctx) {
     const d = disposer();
-    const wizard = liveWizard(ctx);
+    const wizard = liveWizard(ctx, {withCards: true});
     const heroSlot = h('div', {class: 'live-overview'});
     const kpiSlot = h('div', {class: 'kpis'});
     const queueSlot = h('div');
     const pendingSlot = h('div', {}, skeletonRows(4, 50));
     const activitySlot = h('div');
-    const page = h('div', {class: 'page'},
+    const page = h('div', {class: 'page page-live'},
       pageHead('Trung tâm LIVE', 'Hai nguồn phát độc lập. Một nơi quản lý khách hàng, kiến thức và vận hành.',
         [btn('Mở hộp thư', {kind: 'primary', icon: 'message', onClick: () => ctx.navigate('inbox')})]),
-      wizard.el, heroSlot, kpiSlot, queueSlot,
+      // Màn rộng: trợ lý + công tắc bên trái, thẻ nguồn xếp dọc bên phải (pages.css .live-top).
+      h('div', {class: 'live-top'}, wizard.el, heroSlot), kpiSlot, queueSlot,
       h('div', {class: 'overview-grid'},
         h('section', {class: 'card'}, h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h2', {}, 'Việc cần làm trong Hộp thư'), h('div', {class: 'sub'}, 'Khách hỏi mà chưa ai trả lời và chưa được dạy AI — mới nhất trước')),
           btn('Mở hàng “Cần xử lý”', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => ctx.navigate('inbox', 'todo')})), pendingSlot),

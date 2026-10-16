@@ -1,12 +1,15 @@
 """Trợ lý chuẩn bị LIVE: hàm thuần, chỉ đọc dict dashboard_state đã có.
 
-build_readiness(dash, extra) -> {ok, steps:[...], summary:{done,total,blocking}}
+build_readiness(dash, extra) -> {ok, steps:[...], platforms:{tiktok, shopee}, summary:{done,total,blocking}}
 extra: {video_library: {count, ready} | None, whisper_ready: bool | None}
+Mỗi bước có "platform": "tiktok" | "shopee" | None (dùng chung). Bước của sàn không dùng
+(theo nhận diện tự động) thành "na"; trang có thể chọn lại sàn rồi tính lại (live-wizard-model.js).
 Không I/O; dashboard_state đã gom sẵn dữ liệu.
 """
 
 PLUGIN_SYNC = "dong-bo-video"
 STATES = ("done", "todo", "blocked", "error", "optional", "na")
+SHOPEE_MODES = ("obs",)
 
 
 def _d(value):
@@ -32,9 +35,35 @@ def _toggle(target, on, label=""):
     return {"kind": "toggle", "target": target, "on": bool(on), "label": label}
 
 
-def _step(sid, group, title, why, state, detail="", required=True, action=None):
+def _step(sid, group, title, why, state, detail="", required=True, action=None, platform=None):
     return {"id": sid, "group": group, "title": title, "why": why, "state": state,
-            "detail": detail, "required": bool(required), "action": action}
+            "detail": detail, "required": bool(required), "action": action, "platform": platform}
+
+
+def platform_info(dash):
+    """Sàn đang dùng: nhận diện bật hoặc tiện ích đã kết nối/đang LIVE."""
+    dash = _d(dash)
+    channels = _d(dash.get("live_channels"))
+    tiktok, shopee = _d(channels.get("tiktok")), _d(channels.get("shopee"))
+    tk_ext = {**_d(tiktok.get("extension")), **_d(dash.get("extension"))}
+    sp_ext = _d(shopee.get("extension"))
+    tk_conn, sp_conn = bool(tk_ext.get("connected")), bool(sp_ext.get("connected"))
+    tk_live = tk_conn and bool(tk_ext.get("live_running"))
+    sp_live = bool(sp_ext.get("live_running")) and sp_ext.get("connected") is not False
+    tk_on = _d(tiktok.get("settings")).get("enabled") is True
+    sp_on = _d(shopee.get("settings")).get("enabled") is True
+    out = {"tiktok": {"active": tk_on or tk_conn or tk_live, "connected": tk_conn, "live": tk_live},
+           "shopee": {"active": sp_on or sp_conn or sp_live, "connected": sp_conn, "live": sp_live}}
+    if not out["tiktok"]["active"] and not out["shopee"]["active"]:
+        out["tiktok"]["active"] = True   # máy mới: mặc định hướng dẫn TikTok
+    return out
+
+
+def summarize(steps):
+    counted = [s for s in steps if s["state"] != "na"]
+    return {"done": sum(1 for s in counted if s["state"] == "done"), "total": len(counted),
+            "blocking": sum(1 for s in counted if s["required"] and s["group"] != "live"
+                            and s["state"] in ("todo", "blocked", "error"))}
 
 
 def build_readiness(dash, extra=None):
@@ -44,14 +73,18 @@ def build_readiness(dash, extra=None):
     catalog = _d(dash.get("catalog"))
     channels = _d(dash.get("live_channels"))
     tiktok, shopee = _d(channels.get("tiktok")), _d(channels.get("shopee"))
-    shopee_on = bool(shopee) and _d(shopee.get("settings")).get("enabled") is not False
+    plats = platform_info(dash)
+    tk_use, sp_use = plats["tiktok"]["active"], plats["shopee"]["active"]
     captcha = _d(dash.get("captcha"))
     review = _d(dash.get("video_review"))
     library = _d(extra.get("video_library"))
     plugins = _d(dash.get("plugins")).get("plugins") or []
     sync = next((p for p in plugins if isinstance(p, dict) and p.get("id") == PLUGIN_SYNC), None)
     sync_running = bool(sync) and _d(sync.get("runtime")).get("state") == "running"
-    connected = bool(ext.get("connected"))
+    connected = plats["tiktok"]["connected"]
+    sh_beat = _d(shopee.get("extension"))
+    sh_ext = plats["shopee"]["connected"]
+    tk_live, sp_live = plats["tiktok"]["live"], plats["shopee"]["live"]
     steps = []
     add = steps.append
 
@@ -60,12 +93,10 @@ def build_readiness(dash, extra=None):
               "Tiện ích là tay chân của Kid TE trên trang LIVE: đọc bình luận, trả lời, ghim.",
               "done" if connected else "todo",
               "Đã kết nối" if connected else "Chưa thấy tiện ích TikTok gửi tín hiệu",
-              action=_post("/api/extension/setup", {}, "Cài tiện ích")))
-    sh_ext = bool(_d(shopee.get("extension")).get("connected"))
-    add(_step("A2", "once", "Nối Chrome cho Shopee", "Chỉ cần nếu bạn bán trên Shopee LIVE.",
-              "na" if not shopee_on else ("done" if sh_ext else "todo"),
-              "Đang tắt Shopee" if not shopee_on else ("Đã kết nối" if sh_ext else "Chưa thấy tiện ích Shopee"),
-              required=shopee_on, action=_post("/api/extension/setup", {"platform": "shopee"}, "Cài tiện ích Shopee")))
+              action=_post("/api/extension/setup", {}, "Cài tiện ích"), platform="tiktok"))
+    add(_step("A2", "once", "Nối Chrome cho Shopee", "Tiện ích Shopee đọc bình luận và trả lời trên Shopee LIVE.",
+              "done" if sh_ext else "todo", "Đã kết nối" if sh_ext else "Chưa thấy tiện ích Shopee",
+              action=_post("/api/extension/setup", {"platform": "shopee"}, "Cài tiện ích Shopee"), platform="shopee"))
     ai_ok = bool(ai.get("deepseek_available"))
     add(_step("A3", "once", "Nhập khóa AI (DeepSeek)", "Không có khóa thì AI không trả lời được khách.",
               "done" if ai_ok else "todo",
@@ -80,11 +111,17 @@ def build_readiness(dash, extra=None):
               "Mở LIVE Manager trên Chrome rồi bấm “Quét giỏ” trong tiện ích.",
               "done" if total else ("todo" if connected else "blocked"),
               f"{total} sản phẩm trong giỏ" if total else ("Chưa có giỏ hàng" if connected else "Cần nối tiện ích trước"),
-              action=_nav("catalog", "products")))
+              action=_nav("catalog", "products"), platform="tiktok"))
+    sp_total = _int(_d(shopee.get("catalog")).get("products_count"))
+    add(_step("A5S", "once", "Lấy giỏ hàng từ Shopee", "Tiện ích Shopee đọc giỏ của phòng LIVE.",
+              "done" if sp_total else ("todo" if sh_ext else "blocked"),
+              f"{sp_total} sản phẩm trong giỏ" if sp_total else ("Chưa có giỏ hàng" if sh_ext else "Cần nối tiện ích Shopee trước"),
+              action=_nav("catalog", "products"), platform="shopee"))
     unmapped = _int(catalog.get("unmapped"))
+    any_cart = total or sp_total
     add(_step("A6", "once", "Gắn hồ sơ cho từng sản phẩm", "Sản phẩm chưa gắn hồ sơ thì AI không được tư vấn.",
-              "blocked" if not total or not approved else ("done" if not unmapped else "todo"),
-              (f"Còn {unmapped} sản phẩm chưa gắn" if unmapped else "Đã gắn đủ") if total and approved
+              "blocked" if not any_cart or not approved else ("done" if not unmapped else "todo"),
+              (f"Còn {unmapped} sản phẩm chưa gắn" if unmapped else "Đã gắn đủ") if any_cart and approved
               else "Cần giỏ hàng và hồ sơ trước",
               action=_post("/api/mapping/auto-match", {}, "Tự khớp")))
     whisper = extra.get("whisper_ready")
@@ -99,8 +136,8 @@ def build_readiness(dash, extra=None):
         cstate, cdetail = "done", "Đang chạy"
     else:
         cstate, cdetail = "optional", "Đang chạy" if captcha.get("running") else "Chưa bật"
-    add(_step("A8", "once", "Chống CAPTCHA (khuyên dùng)", "Tự giải ô xác minh để LIVE không bị ngắt.",
-              cstate, cdetail, required=False, action=_nav("captcha")))
+    add(_step("A8", "once", "Chống CAPTCHA (khuyên dùng)", "Tự giải ô xác minh để TikTok LIVE không bị ngắt.",
+              cstate, cdetail, required=False, action=_nav("captcha"), platform="tiktok"))
 
     # B: trước mỗi phiên
     count, ready = _int(library.get("count")), _int(library.get("ready"))
@@ -114,19 +151,21 @@ def build_readiness(dash, extra=None):
               "blocked" if not count else ("done" if ready and not pending else "todo"),
               f"{pending} video chờ duyệt" if pending else f"{ready} video đã có lịch ghim",
               action=_nav("video", "review", job) if job else _nav("video", "library")))
-    sources = []
     tset = _d(tiktok.get("settings"))
-    if tset:
-        sources.append(("TikTok", tset.get("enabled") is not False and bool(
-            tset.get("device_id") if tset.get("mode") == "device" else tset.get("process_name"))))
+    tk_src = tset.get("enabled") is not False and bool(
+        (tset.get("device_id") if tset.get("mode") == "device" else tset.get("process_name"))
+        or _d(tiktok.get("position")).get("available"))
+    add(_step("B3", "session", "Chọn nguồn phát TikTok", "Để Kid TE biết video TikTok đang chạy tới đâu.",
+              "done" if tk_src else "todo", "Đã chọn" if tk_src else "Chưa chọn",
+              action=_nav("system", "live"), platform="tiktok"))
     sset = _d(shopee.get("settings"))
-    if shopee_on and sset:
-        sources.append(("Shopee", bool(sset.get("input_name") or sset.get("bindings"))))
-    src_ok = bool(sources) and all(ok for _, ok in sources)
-    add(_step("B3", "session", "Chọn nguồn phát", "Để Kid TE biết video đang chạy tới đâu.",
-              "done" if src_ok else "todo",
-              " · ".join(f"{n}: {'đã chọn' if ok else 'chưa chọn'}" for n, ok in sources) or "Chưa đặt nguồn",
-              action=_nav("system", "live")))
+    sp_src = sset.get("enabled") is True and str(sset.get("mode") or "obs") in SHOPEE_MODES and bool(
+        _d(shopee.get("position")).get("available") or sset.get("input_name") or sset.get("bindings")
+        or sset.get("password_configured"))
+    add(_step("B3S", "session", "Chọn nguồn phát Shopee (OBS)", "Để Kid TE biết video Shopee đang chạy tới đâu.",
+              "done" if sp_src else "todo",
+              "Đã chọn" if sp_src else ("Nhận diện Shopee đang tắt" if sset.get("enabled") is not True else "Chưa chọn"),
+              action=_nav("system", "live"), platform="shopee"))
     add(_step("B4", "session", "Bật đồng bộ video", "Cần để biết đang tới sản phẩm nào mà ghim đúng.",
               "done" if sync_running else ("error" if not sync else "todo"),
               "Đang chạy" if sync_running else ("Không thấy dịch vụ đồng bộ video" if not sync else "Đang tắt"),
@@ -138,41 +177,49 @@ def build_readiness(dash, extra=None):
               "Đã sao lưu gần đây" if fresh else "Đã lâu chưa sao lưu",
               required=False, action=None if fresh else _post("/api/backup", {}, "Sao lưu ngay")))
 
-    # C: trong phiên (không tính vào số việc bắt buộc)
-    live = connected and bool(ext.get("live_running"))
-    add(_step("C1", "live", "Mở LIVE trên TikTok/Shopee", "Bắt đầu phát trên sàn, tiện ích sẽ tự nhận phòng.",
-              "done" if live else "todo", "Đang LIVE" if live else "Chưa thấy phiên LIVE", required=False))
-    positions = [(_d(ch.get("position")).get("available"), _d(ch.get("health")).get("reason"))
-                 for ch in (tiktok, shopee if shopee_on else {}) if ch]
-    found = any(p for p, _ in positions)
-    reason = "" if found else next((r for p, r in positions if r), "")
+    # C: trong phiên (không tính vào số việc bắt buộc). Xét theo từng sàn đang dùng.
+    use = [("TikTok", tiktok, tk_live, tk_use), ("Shopee", shopee, sp_live, sp_use)]
+    live_names = [n for n, _, lv, _ in use if lv]
+    live = bool(live_names)
+    add(_step("C1", "live", "Mở LIVE trên sàn", "Bắt đầu phát trên sàn, tiện ích sẽ tự nhận phòng.",
+              "done" if live else "todo",
+              ("Đang LIVE: " + ", ".join(live_names)) if live else "Chưa thấy phiên LIVE", required=False))
+    watch = [(n, ch) for n, ch, lv, u in use if lv or (u and not live)]
+    pos = [(n, bool(_d(ch.get("position")).get("available")), _d(ch.get("health")).get("reason")) for n, ch in watch]
+    found_names = [n for n, ok, _ in pos if ok]
+    found = bool(found_names)
+    reason = "" if found else next((r for _, _, r in pos if r), "")
     add(_step("C2", "live", "Video đã nhận diện", "Kid TE nghe/đọc nguồn phát để biết video đang ở đâu.",
-              "done" if found else ("todo" if live else "blocked"), reason, required=False,
+              "done" if found else ("todo" if live else "blocked"),
+              ("Đã khớp: " + ", ".join(found_names)) if found else reason, required=False,
               action=None if found else _post("/api/live/reidentify", {}, "Nghe lại")))
-    # Tự ghim thật = đồng hồ ghim của tiện ích TikTok (pin_running trong heartbeat);
-    # tiện ích cũ chưa gửi trường này thì suy như trước từ vị trí video.
+    # Tự ghim: TikTok theo đồng hồ ghim của tiện ích (pin_running); tiện ích cũ thì suy từ vị trí video.
+    # Shopee: pin_running có thể null -> suy từ đang LIVE + có vị trí video.
+    tk_found = bool(_d(tiktok.get("position")).get("available"))
+    sp_found = bool(_d(shopee.get("position")).get("available"))
     pin_flag = ext.get("pin_running") if connected else None
-    pinning = (pin_flag is True and found) if isinstance(pin_flag, bool) else (found and live)
+    tk_pin = (pin_flag is True and tk_found) if isinstance(pin_flag, bool) else (tk_found and tk_live)
+    sp_flag = sh_beat.get("pin_running")
+    sp_pin = (sp_flag is True and sp_found) if isinstance(sp_flag, bool) else (sp_found and sp_live)
+    pin_names = [n for n, ok in (("TikTok", tk_pin), ("Shopee", sp_pin)) if ok]
     add(_step("C3", "live", "Tự ghim đang chạy", "Tiện ích tự ghim theo lịch khi phòng đang LIVE.",
-              "done" if pinning else "optional",
-              "Đang theo lịch ghim" if pinning else
-              ("Tự ghim đang tạm dừng" if pin_flag is False else "Sẽ chạy khi đang LIVE và nhận được video"),
+              "done" if pin_names else "optional",
+              ("Đang theo lịch ghim: " + ", ".join(pin_names)) if pin_names else
+              ("Tự ghim đang tạm dừng" if pin_flag is False or sp_flag is False else "Sẽ chạy khi đang LIVE và nhận được video"),
               required=False))
-    # AI thật của từng sàn: heartbeat TikTok (dash.extension) và Shopee (live_channels.shopee.extension).
-    sh_beat = _d(shopee.get("extension")) if shopee_on else {}
     ai_tk = bool(ext.get("ai_enabled")) and bool(ext.get("ai_ready"))
-    ai_sp = bool(sh_beat.get("connected")) and bool(sh_beat.get("ai_enabled")) and bool(sh_beat.get("ai_ready"))
-    ai_on = ai_tk or ai_sp
-    ai_detail = ("AI đang trả lời" + (" (TikTok, Shopee)" if ai_tk and ai_sp else " (TikTok)" if ai_tk else " (Shopee)")
-                 if ai_on else "AI đang tắt")
+    ai_sp = sh_beat.get("connected") is not False and bool(sh_beat.get("ai_enabled")) and bool(sh_beat.get("ai_ready"))
+    ai_names = [n for n, ok in (("TikTok", ai_tk), ("Shopee", ai_sp)) if ok]
     add(_step("C4", "live", "Bật AI trả lời", "AI trả lời bình luận khách khi được bật.",
-              "done" if ai_on else ("todo" if connected or sh_ext else "blocked"),
-              ai_detail, required=False))
+              "done" if ai_names else ("todo" if connected or sh_ext else "blocked"),
+              f"AI đang trả lời ({', '.join(ai_names)})" if ai_names else "AI đang tắt", required=False))
     add(_step("C5", "live", "Theo dõi khách hỏi", "Xem câu chưa trả lời và duyệt câu AI đã gửi.",
               "optional", "", required=False, action=_nav("inbox", "todo")))
 
-    counted = [s for s in steps if s["state"] != "na"]
-    done = sum(1 for s in counted if s["state"] == "done")
-    blocking = sum(1 for s in steps if s["required"] and s["group"] != "live"
-                   and s["state"] in ("todo", "blocked", "error"))
-    return {"ok": True, "steps": steps, "summary": {"done": done, "total": len(counted), "blocking": blocking}}
+    for s in steps:
+        pf = s["platform"]
+        if pf and not plats[pf]["active"]:
+            # Giữ trạng thái thật để trang đổi lựa chọn sàn mà không cần hỏi lại máy chủ.
+            s["real"] = {"state": s["state"], "required": s["required"], "detail": s["detail"]}
+            s["state"], s["required"], s["detail"] = "na", False, "Không dùng sàn này"
+    return {"ok": True, "steps": steps, "platforms": plats, "summary": summarize(steps)}

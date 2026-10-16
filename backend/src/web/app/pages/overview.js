@@ -73,7 +73,7 @@ export default {
 
     function render(dash, force = false) {
       if (!dash) { clear(heroSlot, h('div', {class: 'skeleton', style: {height: '188px', borderRadius: '20px'}}), h('div', {class: 'skeleton', style: {height: '188px', borderRadius: '20px'}})); return; }
-      wizard.update(dash);
+      wizard.update(dash, videoNames);
       if (!channelGrid.isConnected) clear(heroSlot,h('div',{class:'col gap-4'},channelGrid,servicesSlot));
       channelGrid.update(dash.live_channels,videoNames);
       // Source positions change on every poll. Patch only their text; retain

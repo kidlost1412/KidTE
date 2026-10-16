@@ -16,8 +16,8 @@ export const STATE_VIEW = {
   na: {label: 'Không cần', tone: 'neutral', icon: 'check'},
 };
 // Nhãn ngắn cho hàng chip chế độ "Đã quen".
-export const SHORT = {A1: 'Tiện ích', A2: 'Tiện ích Shopee', A3: 'AI', A4: 'Hồ sơ', A5: 'Giỏ', A6: 'Gắn hồ sơ',
-  A7: 'Whisper', A8: 'Captcha', B1: 'Video', B2: 'Lịch ghim', B3: 'Nguồn', B4: 'Đồng bộ', B5: 'Sao lưu',
+export const SHORT = {A1: 'Tiện ích', A2: 'Tiện ích Shopee', A3: 'AI', A4: 'Hồ sơ', A5: 'Giỏ TikTok', A5S: 'Giỏ Shopee', A6: 'Gắn hồ sơ',
+  A7: 'Whisper', A8: 'Captcha', B1: 'Video', B2: 'Lịch ghim', B3: 'Nguồn TikTok', B3S: 'Nguồn Shopee', B4: 'Đồng bộ', B5: 'Sao lưu',
   C1: 'LIVE', C2: 'Nhận diện', C3: 'Tự ghim', C4: 'AI trả lời', C5: 'Theo dõi'};
 const OPEN = new Set(['todo', 'blocked', 'error']);
 
@@ -113,7 +113,7 @@ export function toggleRequest(id, on, ctx = {}) {
 }
 
 // Khối Bật/tắt nhanh. dash.live_control vắng (backend cũ) => AI/Tự ghim chỉ hiển thị + "Cách bật".
-export function quickToggles(dash) {
+export function quickToggles(dash, use = null) {
   const d = dash || {};
   const ext = d.extension || {};
   const ch = d.live_channels || {};
@@ -158,5 +158,112 @@ export function quickToggles(dash) {
     out.push({id: 'queue-mode', label: 'Chế độ hàng chờ', on: !!lc.queue_mode,
       note: lc.queue_mode ? 'Trả lời qua hàng chờ, kiểm dữ kiện lúc gửi' : 'Trả lời trực tiếp'});
   }
-  return out;
+  const PF = {'src-tiktok': 'tiktok', 'ai-tiktok': 'tiktok', 'pin-tiktok': 'tiktok', 'captcha': 'tiktok', 'src-shopee': 'shopee', 'ai-shopee': 'shopee'};
+  return use ? out.filter(t => !PF[t.id] || use.includes(PF[t.id])) : out;
+}
+
+// ---- v2: theo sàn, chặng, việc tiếp theo, chế độ đang LIVE ----
+export const PLATFORM_KEY = 'kt-wizard-platform';
+export const PLATFORM_CHOICES = [['auto', 'Tự nhận'], ['tiktok', 'TikTok'], ['shopee', 'Shopee'], ['both', 'Cả hai']];
+export const PLATFORM_LABEL = {tiktok: 'TikTok', shopee: 'Shopee'};
+
+export function loadPlatform(storage) {
+  try { const v = storage && storage.getItem(PLATFORM_KEY); return PLATFORM_CHOICES.some(c => c[0] === v) ? v : 'auto'; } catch (_) { return 'auto'; }
+}
+export function savePlatform(storage, v) {
+  try { storage && storage.setItem(PLATFORM_KEY, v); } catch (_) { /* bỏ qua */ }
+}
+
+// Sàn tự nhận từ backend (readiness.platforms); thiếu dữ liệu => TikTok.
+export function autoPlatforms(r) {
+  const p = (r && r.platforms) || {};
+  const out = ['tiktok', 'shopee'].filter(k => p[k] && p[k].active);
+  return out.length ? out : ['tiktok'];
+}
+export function choosePlatforms(choice, r) {
+  if (choice === 'tiktok' || choice === 'shopee') return [choice];
+  if (choice === 'both') return ['tiktok', 'shopee'];
+  return autoPlatforms(r);
+}
+
+export function summarize(steps) {
+  const counted = steps.filter(s => s.state !== 'na');
+  return {done: counted.filter(s => s.state === 'done').length, total: counted.length,
+    blocking: counted.filter(s => s.required && s.group !== 'live' && OPEN.has(s.state)).length};
+}
+
+// Áp lựa chọn sàn: bước của sàn không dùng -> na; sàn được chọn lại -> khôi phục trạng thái thật.
+export function applyPlatforms(r, use) {
+  const steps = ((r && r.steps) || []).map(s => {
+    if (!s.platform) return s;
+    if (!use.includes(s.platform)) return {...s, state: 'na', required: false, detail: 'Không dùng sàn này'};
+    return s.real ? {...s, ...s.real} : s;
+  });
+  return {steps, summary: summarize(steps)};
+}
+
+// Việc tiếp theo: bước bắt buộc (ngoài "Trong khi LIVE") đầu tiên chưa xong, lỗi trước.
+export function nextStep(steps) {
+  const list = orderSteps(steps).filter(s => s.group !== 'live' && s.required);
+  return list.find(s => s.state === 'error') || list.find(s => s.state === 'todo')
+    || list.find(s => s.state === 'blocked') || null;
+}
+
+const STAGE_SHORT = {once: 'Chuẩn bị', session: 'Trước phiên', live: 'Trong phiên'};
+export function stages(steps) {
+  return GROUPS.map(g => {
+    const all = (steps || []).filter(s => s.group === g.id && s.state !== 'na');
+    const done = all.filter(s => s.state === 'done').length;
+    const req = all.filter(s => s.required && OPEN.has(s.state));
+    const tone = all.some(s => s.state === 'error') ? 'danger' : req.length ? 'warn' : done === all.length ? 'ok' : 'info';
+    return {id: g.id, title: STAGE_SHORT[g.id], done, total: all.length, tone};
+  });
+}
+
+// Một chặng: hàng chưa xong (hiện từng dòng) + số bước đã xong (gộp một dòng).
+export function stageRows(steps, group, exclude = '') {
+  const items = orderSteps(steps).filter(s => s.group === group && s.state !== 'na' && s.id !== exclude);
+  return {open: items.filter(s => s.state !== 'done'), done: items.filter(s => s.state === 'done')};
+}
+
+// prep | ready | live
+export function phaseOf(r, use, summary) {
+  const p = (r && r.platforms) || {};
+  if (use.some(k => p[k] && p[k].live)) return 'live';
+  const s = summary || summarize((r && r.steps) || []);
+  return s.blocking === 0 ? 'ready' : 'prep';
+}
+
+export function summaryLine(summary, phase) {
+  const s = summary || {};
+  if (phase === 'live') return `Đang LIVE · chuẩn bị ${s.done || 0}/${s.total || 0}`;
+  if (!s.blocking) return `Sẵn sàng LIVE ✓ · ${s.done || 0}/${s.total || 0} bước`;
+  return `Còn ${s.blocking} việc bắt buộc · đã xong ${s.done || 0}/${s.total || 0}`;
+}
+
+const clock = sec => {
+  const n = Math.max(0, Math.floor(Number(sec) || 0));
+  const h = Math.floor(n / 3600), m = Math.floor(n / 60) % 60, s = n % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+};
+
+// Dải trạng thái đang LIVE theo từng sàn (chỉ dùng dữ liệu dashboard có sẵn).
+export function liveStrip(dash, use, names = {}) {
+  const d = dash || {};
+  const ch = d.live_channels || {};
+  const q = d.ai_queue && typeof d.ai_queue === 'object' ? d.ai_queue : null;
+  return use.map(pf => {
+    const c = ch[pf] || {};
+    const ext = pf === 'tiktok' ? {...(c.extension || {}), ...(d.extension || {})} : (c.extension || {});
+    const pos = c.position || {};
+    const live = !!(ext.live_running && ext.connected !== false);
+    const found = pos.available === true;
+    const pin = typeof ext.pin_running === 'boolean' ? ext.pin_running : found && live;
+    return {platform: pf, label: PLATFORM_LABEL[pf], live,
+      video: found ? (names[pos.video_id] || pos.video_id || 'Đã khớp') : 'Chờ nhận diện video',
+      time: found && pos.position_s != null ? clock(pos.position_s) : '',
+      match: found ? (pos.match_label || '') : '',
+      ai: !!(ext.ai_enabled && ext.ai_ready), pin: !!pin,
+      queue: q ? Number(q.pending) || 0 : null};
+  });
 }

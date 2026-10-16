@@ -3,20 +3,25 @@
 import {h, clear} from '../core/dom.js';
 import {icon} from '../core/icons.js';
 import {request, friendlyError} from '../core/api.js';
-import {btn, chip, notice, toggle, segmented} from '../ui/kit.js';
+import {btn, toggle, segmented} from '../ui/kit.js';
 import {toast, confirmDialog} from '../ui/overlays.js';
 import {LIVE_REASONS} from '../ui/live-status.js';
-import {readinessOf, loadMode, saveMode, pickMode, groupSteps, currentStep, bannerModel, chipRow,
-  actionView, quickToggles, toggleRequest, STATE_VIEW} from './live-wizard-model.js';
+import {readinessOf, loadMode, saveMode, pickMode, actionView, quickToggles, toggleRequest, STATE_VIEW,
+  loadPlatform, savePlatform, choosePlatforms, applyPlatforms, nextStep, stages, stageRows, phaseOf,
+  summaryLine, liveStrip, PLATFORM_CHOICES} from './live-wizard-model.js';
 
 const store = () => { try { return globalThis.localStorage; } catch (_) { return null; } };
 
 export function liveWizard(ctx) {
   const root = h('section', {class: 'card live-wizard', 'aria-label': 'Trợ lý chuẩn bị LIVE'});
   let mode = loadMode(store());
+  let pchoice = loadPlatform(store());
   let dash = null;
   let busy = '';
   let lastKey = '';
+  let openStage = null;          // null = tự chọn; '' = gộp hết; 'once' | 'session' | 'live'
+  const doneOpen = new Set();
+  let names = {};
 
   async function run(id, fn) {
     if (busy) return;
@@ -41,9 +46,9 @@ export function liveWizard(ctx) {
     if (a.kind === 'toggle') flip(a.target, a.on);
   }
 
+  let isLive = false;
   async function flip(id, on) {
-    const live = !!(dash && dash.extension && dash.extension.connected && dash.extension.live_running);
-    const req = toggleRequest(id, on, {live});
+    const req = toggleRequest(id, on, {live: isLive});
     if (!req) return;
     if (req.confirm && !(await confirmDialog(req.confirm))) { draw(true); return; }
     run(id, async () => {
@@ -54,67 +59,110 @@ export function liveWizard(ctx) {
     });
   }
 
-  function stepRow(step, current, faded) {
+  const detailOf = s => s.id === 'C2' && s.detail ? (LIVE_REASONS[s.detail] || s.detail) : s.detail;
+
+  function row(step, m) {
     const v = STATE_VIEW[step.state] || STATE_VIEW.todo;
     const a = actionView(step);
-    const detail = step.id === 'C2' && step.detail ? (LIVE_REASONS[step.detail] || step.detail) : step.detail;
-    const actionBtn = a ? btn(a.label, {size: current ? '' : 'sm', kind: current ? 'primary' : 'ghost',
-      icon: a.kind === 'navigate' ? 'arrowRight' : a.kind === 'toggle' ? 'zap' : 'play', disabled: !!busy,
-      onClick: () => doAction(step)}) : null;
-    return h('div', {class: 'wz-step ' + step.state + (current ? ' current' : '') + (faded ? ' faded' : '')},
-      h('span', {class: 'wz-ck ' + v.tone}, icon(v.icon)),
-      h('div', {class: 'wz-body'},
-        h('div', {class: 'wz-title'}, h('strong', {}, step.title), step.required ? null : h('span', {class: 'fs-xs muted'}, ' · không bắt buộc')),
-        current || step.state === 'error' ? h('div', {class: 'fs-sm soft'}, step.why) : null,
-        detail ? h('div', {class: 'fs-xs muted'}, detail) : null),
-      h('div', {class: 'wz-act'}, chip(v.label, v.tone, {size: 'sm'}), actionBtn));
+    return h('div', {class: 'wz-row ' + step.state},
+      h('span', {class: 'wz-dot ' + v.tone, title: v.label}),
+      h('div', {class: 'wz-line'},
+        h('strong', {}, step.title),
+        detailOf(step) ? h('span', {class: 'muted'}, ' · ' + detailOf(step)) : null,
+        step.required ? null : h('span', {class: 'muted'}, ' · tuỳ chọn'),
+        m === 'new' && step.state !== 'done' && step.why ? h('div', {class: 'wz-why'}, step.why) : null),
+      a ? btn(a.label, {size: 'sm', kind: 'ghost', icon: a.kind === 'navigate' ? 'arrowRight' : a.kind === 'toggle' ? 'zap' : 'play',
+        disabled: !!busy, onClick: () => doAction(step)}) : null);
   }
 
-  function togglesBlock() {
-    const items = quickToggles(dash);
+  function nextCard(step, m) {
+    const v = STATE_VIEW[step.state] || STATE_VIEW.todo;
+    const a = actionView(step);
+    return h('div', {class: 'wz-next ' + v.tone},
+      h('div', {class: 'wz-next-body'},
+        h('div', {class: 'wz-kicker'}, 'Việc tiếp theo · ' + v.label),
+        h('strong', {class: 'wz-next-title'}, step.title),
+        h('div', {class: 'fs-sm soft'}, m === 'new' ? step.why : (detailOf(step) || step.why)),
+        m === 'new' && detailOf(step) ? h('div', {class: 'fs-xs muted'}, detailOf(step)) : null),
+      a ? btn(a.label, {kind: 'primary', icon: a.kind === 'navigate' ? 'arrowRight' : a.kind === 'toggle' ? 'zap' : 'play',
+        disabled: !!busy, onClick: () => doAction(step)}) : null);
+  }
+
+  function stagePanel(steps, g, m, exclude) {
+    const {open, done} = stageRows(steps, g, exclude);
+    if (!open.length && !done.length) return null;
+    const expanded = doneOpen.has(g);
+    return h('div', {class: 'wz-panel'},
+      open.map(s => row(s, m)),
+      done.length ? h('button', {type: 'button', class: 'wz-done-toggle', 'aria-expanded': String(expanded),
+        onClick: () => { expanded ? doneOpen.delete(g) : doneOpen.add(g); draw(true); }},
+        icon('check'), ` ${done.length} bước đã xong `, h('span', {class: 'wz-caret'}, expanded ? '▾' : '▸')) : null,
+      done.length ? h('div', {class: 'wz-done' + (expanded ? ' open' : '')}, expanded ? done.map(s => row(s, m)) : null) : null);
+  }
+
+  function stageBar(list, active) {
+    return h('div', {class: 'wz-stages', role: 'tablist'}, list.map(st => h('button', {
+      type: 'button', role: 'tab', class: 'wz-stage ' + st.tone + (active === st.id ? ' active' : ''),
+      'aria-selected': String(active === st.id),
+      onClick: () => { openStage = active === st.id ? '' : st.id; draw(true); }},
+    h('span', {class: 'wz-dot ' + st.tone}), h('span', {class: 'wz-stage-t'}, st.title),
+    h('span', {class: 'wz-stage-n'}, `${st.done}/${st.total}`))));
+  }
+
+  function liveBlock(use) {
+    return h('div', {class: 'wz-live'}, liveStrip(dash, use, names).map(x => h('div', {class: 'wz-live-row' + (x.live ? ' on' : '')},
+      h('span', {class: 'wz-dot ' + (x.live ? 'danger pulse' : 'neutral')}),
+      h('strong', {}, x.label), h('span', {class: 'muted'}, x.live ? 'Đang LIVE' : 'Chưa LIVE'),
+      h('span', {class: 'wz-live-v', title: x.video}, icon('video'), ' ', x.video, x.time ? ' · ' + x.time : '', x.match ? ' · ' + x.match : ''),
+      h('span', {class: 'wz-pill ' + (x.ai ? 'ok' : '')}, 'AI ' + (x.ai ? 'bật' : 'tắt')),
+      h('span', {class: 'wz-pill ' + (x.pin ? 'ok' : '')}, 'Tự ghim ' + (x.pin ? 'chạy' : 'dừng')),
+      x.queue != null ? h('span', {class: 'wz-pill'}, `Hàng chờ ${x.queue}`) : null)));
+  }
+
+  function togglesBlock(use) {
+    const items = quickToggles(dash, use);
     if (!items.length) return null;
     return h('div', {class: 'wz-toggles'}, h('h3', {class: 'wz-h'}, 'Bật/tắt nhanh'),
-      h('div', {class: 'wz-tgrid'}, items.map(t => h('div', {class: 'wz-tg' + (t.pending ? ' pending' : '')},
+      h('div', {class: 'wz-tgrid'}, items.map(t => h('div', {class: 'wz-tg' + (t.pending ? ' pending' : ''), title: t.note || ''},
         t.mode === 'info'
-          ? h('div', {class: 'row', style: {gap: '8px'}}, chip(t.on ? 'Đang bật' : 'Đang tắt', t.on ? 'ok' : 'neutral', {dot: true}), h('strong', {class: 'fs-sm'}, t.label))
+          ? h('div', {class: 'wz-tg-info'}, h('span', {class: 'wz-dot ' + (t.on ? 'ok' : 'neutral')}), h('strong', {}, t.label),
+            btn('', {size: 'sm', kind: 'ghost', icon: 'help', title: 'Cách bật', onClick: () => toast(t.howTo, 'info', {duration: 8000})}))
           : toggle(t.label, !!t.on, val => flip(t.id, val), {disabled: !!busy}),
-        h('div', {class: 'fs-xs muted'}, t.note || ''),
-        t.howTo ? btn('Cách bật', {size: 'sm', kind: 'ghost', icon: 'help', onClick: () => toast(t.howTo, 'info', {duration: 8000})}) : null))));
+        h('div', {class: 'wz-tg-note'}, h('span', {class: 'wz-dot ' + (t.error ? 'danger' : t.pending ? 'warn' : t.on ? 'ok' : 'neutral')}), t.note || '')))));
   }
 
   function draw(force = false) {
     const r = readinessOf(dash);
-    const toggles = quickToggles(dash);
-    const key = JSON.stringify([r, toggles, mode, busy]);
+    const use = r ? choosePlatforms(pchoice, r) : [];
+    const strip = r ? liveStrip(dash, use, names) : null;
+    const key = JSON.stringify([r, quickToggles(dash, use), strip, mode, pchoice, busy, openStage, [...doneOpen]]);
     if (!force && key === lastKey) return;
     lastKey = key;
     if (!r) { clear(root); root.hidden = true; return; }
     root.hidden = false;
-    const m = pickMode(mode, r.summary);
-    const cur = currentStep(r.steps);
-    const b = bannerModel(r.summary);
-    const head = h('header', {class: 'card-head'},
-      h('div', {class: 'grow'}, h('h2', {}, 'Trợ lý chuẩn bị LIVE'), h('div', {class: 'sub'}, m === 'new' ? 'Làm lần lượt từ trên xuống, mỗi bước một nút.' : 'Chỉ hiện việc còn thiếu.')),
-      segmented([['new', 'Người mới'], ['pro', 'Đã quen']], m, id => { mode = id; saveMode(store(), id); draw(true); }, {label: 'Chế độ trợ lý'}));
-    const body = [notice(b.tone, b.title, b.text)];
-    if (m === 'pro') {
-      body.push(h('div', {class: 'wz-chips'}, chipRow(r.steps).map(c => chip(c.label, c.tone, {dot: true, size: 'sm', title: STATE_VIEW[c.state]?.label}))));
-    }
-    let passed = false;
-    for (const g of groupSteps(r.steps, m)) {
-      if (!g.items.length) continue;
-      body.push(h('div', {class: 'wz-group'},
-        h('div', {class: 'wz-gh'}, h('h3', {class: 'wz-h'}, g.title), h('span', {class: 'fs-xs muted'}, `${g.done}/${g.total} · ${g.sub}`)),
-        g.items.map(s => {
-          const isCur = cur && s.id === cur.id;
-          const row = stepRow(s, isCur, m === 'new' && passed && s.state !== 'done');
-          if (isCur) passed = true;
-          return row;
-        })));
-    }
-    body.push(togglesBlock());
+    const {steps, summary} = applyPlatforms(r, use);
+    const m = pickMode(mode, summary);
+    const phase = phaseOf(r, use, summary);
+    isLive = phase === 'live';
+    const nxt = phase === 'prep' ? nextStep(steps) : null;
+    const st = stages(steps);
+    // Mặc định: Người mới mở chặng của việc tiếp theo; Đã quen và lúc LIVE thì gộp hết.
+    const active = openStage !== null ? openStage : (m === 'new' && nxt ? nxt.group : '');
+    root.className = 'card live-wizard phase-' + phase + ' mode-' + m;
+    const head = h('header', {class: 'wz-head'},
+      h('div', {class: 'wz-title'}, h('h2', {}, phase === 'live' ? 'Đang LIVE' : 'Trợ lý LIVE'),
+        h('span', {class: 'wz-sum ' + (phase === 'prep' ? 'warn' : 'ok')}, summaryLine(summary, phase))),
+      h('div', {class: 'wz-ctrls'},
+        segmented(PLATFORM_CHOICES, pchoice, id => { pchoice = id; savePlatform(store(), id); draw(true); }, {label: 'Hôm nay LIVE'}),
+        segmented([['new', 'Người mới'], ['pro', 'Đã quen']], m, id => { mode = id; saveMode(store(), id); draw(true); }, {label: 'Chế độ trợ lý'})));
+    const body = [stageBar(st, active)];
+    if (phase === 'live') body.push(liveBlock(use));
+    if (phase === 'ready') body.push(h('div', {class: 'wz-ready'}, icon('check'), ' Sẵn sàng LIVE ✓', h('span', {class: 'muted'}, ' · bấm phát trên sàn là Kid TE tự nhận phòng')));
+    if (nxt) body.push(nextCard(nxt, m));
+    if (active) body.push(stagePanel(steps, active, m, nxt ? nxt.id : ''));
+    body.push(togglesBlock(use));
     clear(root, head, h('div', {class: 'wz-wrap'}, body));
   }
 
-  return {el: root, update(next) { dash = next; draw(); }};
+  return {el: root, update(next, videoNames) { dash = next; if (videoNames) names = videoNames; draw(); }};
 }

@@ -123,3 +123,77 @@ test('quickToggles: control_error shows real state + reason; queue toggle; pin f
   assert.deepEqual(r.body, {enabled: false});
   assert.ok(r.confirm && /chưa LIVE/.test(r.confirm.text));
 });
+
+// ---- v2 ----
+import {loadPlatform, savePlatform, choosePlatforms, applyPlatforms, nextStep, stages, stageRows, phaseOf,
+  summaryLine, liveStrip, PLATFORM_KEY} from '../../src/web/app/pages/live-wizard-model.js';
+
+const realShopee = () => ({
+  platforms: {tiktok: {active: false, connected: false, live: false}, shopee: {active: true, connected: true, live: true}},
+  steps: [
+    S('A1', 'once', 'na', {platform: 'tiktok', required: false, real: {state: 'todo', required: true, detail: 'x'}}),
+    S('A2', 'once', 'done', {platform: 'shopee'}), S('A3', 'once', 'done'),
+    S('B3', 'session', 'na', {platform: 'tiktok', required: false, real: {state: 'todo', required: true, detail: ''}}),
+    S('B3S', 'session', 'done', {platform: 'shopee'}), S('B4', 'session', 'done'),
+    S('C1', 'live', 'done', {required: false, detail: 'Đang LIVE: Shopee'})],
+});
+
+test('platform choice: auto from backend, stored override, throwing storage', () => {
+  const r = realShopee();
+  assert.deepEqual(choosePlatforms('auto', r), ['shopee']);
+  assert.deepEqual(choosePlatforms('both', r), ['tiktok', 'shopee']);
+  assert.deepEqual(choosePlatforms('auto', {}), ['tiktok']);
+  const bad = {getItem() { throw new Error('x'); }, setItem() { throw new Error('x'); }};
+  assert.equal(loadPlatform(bad), 'auto');
+  assert.doesNotThrow(() => savePlatform(bad, 'both'));
+  const mem = {v: {}, getItem(k) { return this.v[k] ?? null; }, setItem(k, v) { this.v[k] = v; }};
+  savePlatform(mem, 'shopee');
+  assert.equal(mem.v[PLATFORM_KEY], 'shopee');
+  assert.equal(loadPlatform(mem), 'shopee');
+});
+
+test('applyPlatforms: Shopee only is ready; choosing both restores TikTok steps as required', () => {
+  const r = realShopee();
+  const only = applyPlatforms(r, ['shopee']);
+  assert.equal(only.summary.blocking, 0);
+  assert.equal(nextStep(only.steps), null);
+  assert.equal(phaseOf(r, ['shopee'], only.summary), 'live');
+  const both = applyPlatforms(r, ['tiktok', 'shopee']);
+  assert.equal(both.summary.blocking, 2);
+  assert.equal(nextStep(both.steps).id, 'A1');
+  const tk = applyPlatforms(r, ['tiktok']);
+  assert.equal(tk.steps.find(s => s.id === 'A2').state, 'na');
+  assert.equal(phaseOf(r, ['tiktok'], tk.summary), 'prep');
+  assert.match(summaryLine(tk.summary, 'prep'), /Còn 2 việc bắt buộc/);
+});
+
+test('ready phase, stages and collapsed done rows', () => {
+  const r = {platforms: {tiktok: {active: true}}, steps: [S('A1', 'once', 'done'), S('A3', 'once', 'done'),
+    S('A8', 'once', 'optional', {required: false}), S('B4', 'session', 'done'), S('C1', 'live', 'todo', {required: false})]};
+  const {summary, steps} = applyPlatforms(r, ['tiktok']);
+  assert.equal(phaseOf(r, ['tiktok'], summary), 'ready');
+  assert.match(summaryLine(summary, 'ready'), /Sẵn sàng LIVE/);
+  const st = stages(steps);
+  assert.deepEqual(st.map(x => [x.id, x.done, x.total]), [['once', 2, 3], ['session', 1, 1], ['live', 0, 1]]);
+  assert.equal(st[1].tone, 'ok');
+  const rows = stageRows(steps, 'once');
+  assert.deepEqual(rows.open.map(s => s.id), ['A8']);
+  assert.deepEqual(rows.done.map(s => s.id), ['A1', 'A3']);
+  assert.deepEqual(stageRows(steps, 'once', 'A8').open, []);
+});
+
+test('nextStep prefers required error, skips live group and optional', () => {
+  const steps = [S('A3', 'once', 'todo'), S('B4', 'session', 'error'), S('C1', 'live', 'todo'), S('A8', 'once', 'error', {required: false})];
+  assert.equal(nextStep(steps).id, 'B4');
+});
+
+test('liveStrip per platform and quickToggles hide unused platform', () => {
+  const dash = {extension: {}, ai_queue: {pending: 3},
+    live_channels: {shopee: {position: {available: true, video_id: 'v1', position_s: 75, match_label: 'Khop ro'},
+      extension: {connected: true, live_running: true, ai_enabled: true, ai_ready: true, pin_running: null}}}};
+  const [x] = liveStrip(dash, ['shopee'], {v1: 'Video A'});
+  assert.deepEqual([x.label, x.live, x.video, x.time, x.ai, x.pin, x.queue], ['Shopee', true, 'Video A', '1:15', true, true, 3]);
+  const ids = quickToggles({...baseDash(), live_channels: {...baseDash().live_channels, shopee: {settings: {enabled: true}}}}, ['shopee']).map(t => t.id);
+  assert.ok(ids.includes('src-shopee') && ids.includes('sync'));
+  assert.ok(!ids.includes('src-tiktok') && !ids.includes('ai-tiktok') && !ids.includes('captcha'));
+});

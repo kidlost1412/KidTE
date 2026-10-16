@@ -267,3 +267,21 @@ export function liveStrip(dash, use, names = {}) {
       queue: q ? Number(q.pending) || 0 : null};
   });
 }
+// ---- Mức hiển thị theo chế độ: Người mới (giải thích đầy đủ) / Đã quen (gọn, chỉ chip) ----
+export const GUIDE_NEW = 'Làm lần lượt từ trái sang phải: Chuẩn bị → Trước phiên → Trong phiên. Bấm nút ở mỗi bước, Kid TE tự kiểm lại.';
+export function modeView(mode) {
+  const pro = mode === 'pro';
+  return {guide: pro ? null : GUIDE_NEW, why: !pro, notes: !pro, stepChips: pro, toggleChips: pro, nextSize: pro ? 'sm' : 'lg'};
+}
+
+// Đã quen: các bước chưa xong của từng chặng thành chip nhỏ bấm được (gắn vào thanh chặng).
+export function stageChips(steps, group) {
+  return stageRows(steps, group).open.filter(s => s.state !== 'blocked' || s.required)
+    .map(s => ({id: s.id, label: SHORT[s.id] || s.title, tone: (STATE_VIEW[s.state] || STATE_VIEW.todo).tone, step: s}));
+}
+
+// Công tắc dạng xem: Đã quen bỏ mô tả, chỉ tên + chấm trạng thái.
+export function toggleView(t, mode) {
+  const tone = t.error ? 'danger' : t.pending ? 'warn' : t.on ? 'ok' : 'neutral';
+  return {id: t.id, label: t.label, tone, note: modeView(mode).notes ? (t.note || '') : '', title: t.note || ''};
+}

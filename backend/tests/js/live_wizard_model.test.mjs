@@ -197,3 +197,31 @@ test('liveStrip per platform and quickToggles hide unused platform', () => {
   assert.ok(ids.includes('src-shopee') && ids.includes('sync'));
   assert.ok(!ids.includes('src-tiktok') && !ids.includes('ai-tiktok') && !ids.includes('captcha'));
 });
+test('modeView: Người mới có hướng dẫn + mô tả; Đã quen gọn, không giải thích', async () => {
+  const {modeView, GUIDE_NEW} = await import('../../src/web/app/pages/live-wizard-model.js');
+  const n = modeView('new'), p = modeView('pro');
+  assert.equal(n.guide, GUIDE_NEW);
+  assert.match(n.guide, /lần lượt từ trái sang phải/);
+  assert.equal(n.why, true); assert.equal(n.notes, true); assert.equal(n.stepChips, false); assert.equal(n.nextSize, 'lg');
+  assert.equal(p.guide, null); assert.equal(p.why, false); assert.equal(p.notes, false);
+  assert.equal(p.stepChips, true); assert.equal(p.toggleChips, true); assert.equal(p.nextSize, 'sm');
+});
+
+test('toggleView: Đã quen ẩn mô tả dưới công tắc nhưng giữ tooltip + tông', async () => {
+  const {toggleView} = await import('../../src/web/app/pages/live-wizard-model.js');
+  const t = {id: 'sync', label: 'Đồng bộ video', on: true, note: 'Biết video đang tới đâu'};
+  assert.equal(toggleView(t, 'new').note, 'Biết video đang tới đâu');
+  const pv = toggleView(t, 'pro');
+  assert.equal(pv.note, ''); assert.equal(pv.title, 'Biết video đang tới đâu'); assert.equal(pv.tone, 'ok');
+  assert.equal(toggleView({...t, pending: true}, 'pro').tone, 'warn');
+  assert.equal(toggleView({...t, error: 'x'}, 'pro').tone, 'danger');
+});
+
+test('stageChips: chỉ bước chưa xong của chặng, nhãn ngắn, bỏ bước chờ không bắt buộc', async () => {
+  const {stageChips} = await import('../../src/web/app/pages/live-wizard-model.js');
+  const steps = [S('A1', 'once', 'done'), S('A3', 'once', 'todo'), S('A7', 'once', 'blocked', {required: false}),
+    S('A8', 'once', 'error'), S('B1', 'session', 'todo'), S('A2', 'once', 'na')];
+  const c = stageChips(steps, 'once');
+  assert.deepEqual(c.map(x => x.id), ['A3', 'A8']);
+  assert.equal(c[0].label, 'AI'); assert.equal(c[1].tone, 'danger');
+});

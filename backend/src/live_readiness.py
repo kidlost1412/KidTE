@@ -52,11 +52,12 @@ def platform_info(dash):
     sp_live = bool(sp_ext.get("live_running")) and sp_ext.get("connected") is not False
     tk_on = _d(tiktok.get("settings")).get("enabled") is True
     sp_on = _d(shopee.get("settings")).get("enabled") is True
-    out = {"tiktok": {"active": tk_on or tk_conn or tk_live, "connected": tk_conn, "live": tk_live},
-           "shopee": {"active": sp_on or sp_conn or sp_live, "connected": sp_conn, "live": sp_live}}
-    if not out["tiktok"]["active"] and not out["shopee"]["active"]:
-        out["tiktok"]["active"] = True   # máy mới: mặc định hướng dẫn TikTok
-    return out
+    # Ưu tiên: sàn đang LIVE > sàn có tiện ích kết nối > sàn bật nhận diện > TikTok.
+    for tk, sp in ((tk_live, sp_live), (tk_conn, sp_conn), (tk_on, sp_on), (True, False)):
+        if tk or sp:
+            break
+    return {"tiktok": {"active": bool(tk), "connected": tk_conn, "live": tk_live, "enabled": tk_on},
+            "shopee": {"active": bool(sp), "connected": sp_conn, "live": sp_live, "enabled": sp_on}}
 
 
 def summarize(steps):
@@ -149,7 +150,9 @@ def build_readiness(dash, extra=None):
     job = str(review.get("first_job_id") or "")
     add(_step("B2", "session", "Kiểm lịch ghim", "Duyệt các mốc ghim AI gợi ý rồi bấm Phát hành.",
               "blocked" if not count else ("done" if ready and not pending else "todo"),
-              f"{pending} video chờ duyệt" if pending else f"{ready} video đã có lịch ghim",
+              (f"{pending} video mới chờ duyệt" if ready else f"{pending} video chờ duyệt") if pending
+              else f"{ready} video đã có lịch ghim",
+              required=not ready,
               action=_nav("video", "review", job) if job else _nav("video", "library")))
     tset = _d(tiktok.get("settings"))
     tk_src = tset.get("enabled") is not False and bool(
@@ -166,10 +169,17 @@ def build_readiness(dash, extra=None):
               "done" if sp_src else "todo",
               "Đã chọn" if sp_src else ("Nhận diện Shopee đang tắt" if sset.get("enabled") is not True else "Chưa chọn"),
               action=_nav("system", "live"), platform="shopee"))
-    add(_step("B4", "session", "Bật đồng bộ video", "Cần để biết đang tới sản phẩm nào mà ghim đúng.",
+    add(_step("B4", "session", "Bật đồng bộ video TikTok", "Cần để biết đang tới sản phẩm nào mà ghim đúng.",
               "done" if sync_running else ("error" if not sync else "todo"),
               "Đang chạy" if sync_running else ("Không thấy dịch vụ đồng bộ video" if not sync else "Đang tắt"),
-              action=_toggle("sync", not sync_running, "Tắt" if sync_running else "Bật") if sync else _nav("automation")))
+              action=_toggle("sync", not sync_running, "Tắt" if sync_running else "Bật") if sync else _nav("automation"),
+              platform="tiktok"))
+    sp_pos = _d(shopee.get("position"))
+    sp_sync = bool(sp_pos.get("available")) or sp_pos.get("state") == "locked"
+    add(_step("B4S", "session", "Đồng bộ video Shopee (OBS)", "Shopee tự đọc vị trí video từ OBS, chạy riêng.",
+              "done" if sp_sync or sp_src else "todo",
+              "Đang khớp video" if sp_sync else ("Nguồn OBS đã xác nhận" if sp_src else "Chưa đọc được OBS"),
+              action=_nav("system", "live"), platform="shopee"))
     backup = _d(dash.get("backup"))
     fresh = bool(backup) and not backup.get("overdue")
     add(_step("B5", "session", "Sao lưu nhanh", "Giữ an toàn dữ liệu trước khi LIVE.",

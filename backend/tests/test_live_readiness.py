@@ -17,7 +17,7 @@ def _ready_dash():
         "live_channels": {
             "tiktok": {"settings": {"enabled": True, "mode": "process", "process_name": "TikTok LIVE Studio.exe"},
                        "position": {"available": True}, "health": {}},
-            "shopee": {"settings": {"enabled": True, "input_name": "Media"}, "extension": {"connected": True}, "catalog": {"products_count": 3},
+            "shopee": {"settings": {"enabled": True, "input_name": "Media"}, "extension": {"connected": True, "live_running": True}, "catalog": {"products_count": 3},
                        "position": {"available": False}, "health": {"reason": "obs_not_streaming"}},
         },
     }
@@ -44,7 +44,7 @@ def test_empty_dash_everything_todo_or_blocked():
 def test_all_ready():
     out = build_readiness(_ready_dash(), EXTRA)
     steps = _by_id(out)
-    for sid in ("A1", "A2", "A3", "A4", "A5", "A5S", "A6", "A7", "A8", "B1", "B2", "B3", "B3S", "B4", "B5", "C1", "C2", "C3", "C4"):
+    for sid in ("A1", "A2", "A3", "A4", "A5", "A5S", "A6", "A7", "A8", "B1", "B2", "B3", "B3S", "B4", "B4S", "B5", "C1", "C2", "C3", "C4"):
         assert steps[sid]["state"] == "done", sid
     assert out["summary"]["blocking"] == 0
     assert steps["B4"]["action"] == {"kind": "toggle", "target": "sync", "on": False, "label": "Tắt"}
@@ -58,7 +58,7 @@ def test_shopee_disabled_is_na_and_not_blocking():
     a2 = _by_id(out)["A2"]
     assert a2["state"] == "na" and a2["required"] is False
     assert out["summary"]["blocking"] == 0
-    assert out["summary"]["total"] == len(out["steps"]) - 3   # A2, A5S, B3S
+    assert out["summary"]["total"] == len(out["steps"]) - 4   # A2, A5S, B3S, B4S
 
 
 def test_states_and_blocking_count():
@@ -159,8 +159,24 @@ def test_both_platforms_require_both():
     dash = _ready_dash()
     dash["live_channels"]["shopee"]["settings"] = {"enabled": True, "mode": "obs"}
     dash["live_channels"]["shopee"]["extension"] = {"connected": True, "live_running": True}
+    dash["live_channels"]["shopee"]["position"] = {"available": False}
     out = build_readiness(dash, EXTRA)
     s = _by_id(out)
     assert s["B3S"]["state"] == "todo" and s["B3"]["state"] == "done"
     assert s["C1"]["detail"] == "Đang LIVE: TikTok, Shopee"
-    assert out["summary"]["blocking"] == 1
+    assert s["B4S"]["state"] == "todo"
+    assert out["summary"]["blocking"] == 2
+
+def test_real_dash_tiktok_enabled_but_only_shopee_live():
+    dash = _real_shopee_dash()
+    dash["live_channels"]["tiktok"]["settings"] = {"enabled": True, "mode": "process", "process_name": "x.exe"}
+    dash["plugins"]["plugins"][0]["runtime"]["state"] = "stopped"
+    dash["video_review"] = {"pending_jobs": 1, "first_job_id": "j"}
+    out = build_readiness(dash, {"video_library": {"count": 6, "ready": 5}, "whisper_ready": True})
+    s = _by_id(out)
+    assert out["platforms"]["tiktok"]["active"] is False and out["platforms"]["shopee"]["active"] is True
+    assert s["A1"]["state"] == "na" and s["B4"]["state"] == "na"
+    assert s["B4S"]["state"] == "done"
+    assert s["B2"]["required"] is False and s["B2"]["detail"] == "1 video mới chờ duyệt"
+    assert s["C1"]["state"] == "done"
+    assert out["summary"]["blocking"] == 0

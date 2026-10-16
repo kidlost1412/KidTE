@@ -1546,6 +1546,62 @@ class ReplyEngine:
                    "started_at": self.started_at}
         return create_support_report(runtime)
 
+    def audio_report(self):
+        """Báo cáo thiết bị âm thanh + đánh dấu thiết bị đã lưu không còn trên máy."""
+        try:
+            from audio_capture import enumerate_report, is_forbidden_device
+            report = enumerate_report()
+        except Exception as exc:
+            report = {"devices": [], "error_code": "enumeration_failed", "error_detail": type(exc).__name__,
+                      "soundcard_ok": False}
+            is_forbidden_device = lambda _item: False
+        report["devices"] = [{"id": item["id"], "name": item["name"],
+                              "loopback": bool(item.get("loopback")),
+                              "disabled": is_forbidden_device(item),
+                              "reason": "Dock USB bị cấm để tránh lỗi giữa LIVE"
+                                        if is_forbidden_device(item) else ""}
+                             for item in report.get("devices") or []]
+        ids = {item["id"] for item in report["devices"]}
+        missing = []
+        saved = str(getattr(self, "audio_device_id", AUDIO_DEVICE_ID) or "")
+        if saved and saved != "auto" and not saved.isdigit() and saved not in ids:
+            missing.append({"source": "audio_device_id", "id": saved})
+        mode_device_invalid = False
+        try:
+            tiktok = (self.live_sources.read(public=True) or {}).get("tiktok") or {}
+        except Exception:
+            tiktok = {}
+        device_id = str(tiktok.get("device_id") or "")
+        if device_id and device_id not in ids:
+            missing.append({"source": "live_sources.tiktok", "id": device_id})
+        if tiktok.get("mode") == "device":
+            usable = {item["id"] for item in report["devices"] if item["loopback"] and not item["disabled"]}
+            mode_device_invalid = device_id not in usable
+        report["missing_saved_devices"] = missing
+        report["suggested_device"] = None
+        if mode_device_invalid:
+            name = report.get("default_speaker_name")
+            candidates = [item for item in report["devices"] if item["loopback"] and not item["disabled"]]
+            pick = next((item for item in candidates if name and item["name"] == name), None) or                 (candidates[0] if candidates else None)
+            if pick:
+                report["suggested_device"] = {"id": pick["id"], "name": pick["name"]}
+        self._log_audio_report(report)
+        return report
+
+    def _log_audio_report(self, report):
+        key = (report.get("error_code"), report.get("error_detail"))
+        if key == getattr(self, "_audio_report_key", ("ok", "")):
+            self._audio_report_key = key
+            return
+        self._audio_report_key = key
+        if key[0] != "ok":
+            services = report.get("audio_service") or {}
+            logging.getLogger("kid-te.audio").warning(json.dumps({
+                "event": "audio_enumeration_failed", "error_code": key[0], "error_detail": key[1],
+                "soundcard_ok": report.get("soundcard_ok"), "windows_build": report.get("windows_build"),
+                "audio_service": services, "device_count": len(report.get("devices") or [])},
+                ensure_ascii=False))
+
     def settings_state(self):
         lister = getattr(self.responder, "list_models", None)
         models, model_error = [], ""
@@ -1553,17 +1609,8 @@ class ReplyEngine:
             models = lister() if callable(lister) else [DEEPSEEK_MODEL]
         except Exception as exc:
             model_error = type(exc).__name__
-        devices = []
-        try:
-            from audio_capture import is_forbidden_device, list_devices
-            devices = [{"id": item["id"], "name": item["name"],
-                        "loopback": bool(item.get("loopback")),
-                        "disabled": is_forbidden_device(item),
-                        "reason": "Dock USB bị cấm để tránh lỗi giữa LIVE"
-                                  if is_forbidden_device(item) else ""}
-                       for item in list_devices()]
-        except Exception:
-            devices = []
+        report = self.audio_report()
+        devices = report["devices"]
         if self.gemini.configured and self.gemini.model_source == "fallback":
             threading.Thread(target=self.gemini.detect_model, daemon=True).start()   # dò nền, không chặn trang
         return {"ok": True, "models": models,
@@ -1575,7 +1622,7 @@ class ReplyEngine:
                 "gemini_model_effective": self.gemini.model, "gemini_model_source": self.gemini.model_source,
                 "tiktok_user_ids": ",".join(sorted(TIKTOK_HOST_USER_IDS)),
                 "tiktok_unique_ids": ",".join(sorted(TIKTOK_HOST_UNIQUE_IDS)),
-                "audio_devices": devices,
+                "audio_devices": devices, "audio_report": report,
                 "selected_audio_device": getattr(self, "audio_device_id", AUDIO_DEVICE_ID),
                 "knowledge_source": KNOWLEDGE_PACKAGE_SOURCE,
                 "knowledge_active_file": "shared/product_knowledge.json",
@@ -4771,6 +4818,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(403, {"ok": False, "error": "local_only"})
                 return
             self.send_json(200, self.engine.settings_state())
+        elif route == "/api/audio/rescan":
+            if not self.local_tool_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
+            self.send_json(200, {"ok": True, "audio_report": self.engine.audio_report()})
         elif route.startswith("/api/logs"):
             if not self.local_tool_request():
                 self.send_json(403, {"ok": False, "error": "local_only"})

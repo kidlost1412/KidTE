@@ -30,6 +30,23 @@ def fix(text, label="", **action):
     return {"text": text, "label": label, **action}
 
 
+def _installed_audio_components():
+    """video-sync / media-tools đang hoạt động (đọc generation đã ký, không ném lỗi)."""
+    root = os.environ.get("KIDTE_APP_ROOT", "").strip()
+    if not root:
+        return "không rõ (bản nguồn)"
+    try:
+        from component_store import ComponentStore
+        active = (ComponentStore(Path(root)).load_active() or {}).get("components", {})
+    except Exception as exc:
+        return f"không đọc được ({type(exc).__name__})"
+    parts = []
+    for name in ("video-sync", "media-tools"):
+        row = active.get(name)
+        parts.append(f"{name} {row.get('version', '?')}" if row else f"{name} chưa cài")
+    return ", ".join(parts)
+
+
 def _check(check_id, label, status, detail, *, fixable=False, fix=None, impact=""):
     row = {"id": check_id, "label": label, "status": status,
            "detail": detail, "fixable": bool(fixable), "impact": impact}
@@ -215,11 +232,20 @@ def run_setup_checks(*, include_audio=True, key_configured=None):
                          fix=fix("Tạo một bản sao lưu ngay.", "Sao lưu ngay", api="/api/backup")))
     if include_audio:
         try:
-            from audio_capture import is_forbidden_device, list_devices
-            devices = list_devices()
+            from audio_capture import enumerate_report, is_forbidden_device
+            report = enumerate_report()
+            devices = report["devices"]
             loopback = [item for item in devices if item.get("loopback") and not is_forbidden_device(item)]
-            checks.append(_check("audio", "Thiết bị âm thanh", "ok" if loopback else "warn",
-                                 f"{len(devices)} thiết bị; {len(loopback)} nguồn nghe được âm thanh máy",
+            services = ", ".join(f"{name}={state or '?'}" for name, state in
+                                 (report.get("audio_service") or {}).items())
+            detail = (f"{len(devices)} thiết bị; {len(loopback)} nguồn nghe được âm thanh máy · "
+                      f"mã {report['error_code']}"
+                      + (f" ({report['error_detail']})" if report.get("error_detail") else "")
+                      + f" · Windows build {report.get('windows_build') or '?'}"
+                      + f" · dịch vụ âm thanh: {services or '?'}"
+                      + f" · gói đã cài: {_installed_audio_components()}")
+            checks.append(_check("audio", "Thiết bị âm thanh",
+                                 "ok" if loopback and report["error_code"] == "ok" else "warn", detail,
                                  impact="Đồng bộ video không nghe được video đang phát",
                                  fix=fix("Cắm loa/tai nghe hoặc bật thiết bị phát âm thanh trong Windows, rồi "
                                          "chọn nguồn ở Cài đặt → Âm thanh.", "Mở Âm thanh",

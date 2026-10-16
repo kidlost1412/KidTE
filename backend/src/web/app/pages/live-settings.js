@@ -3,6 +3,7 @@ import {request, friendlyError} from '../core/api.js';
 import {btn, card, field, input, select, toggle, notice, errorBox} from '../ui/kit.js';
 import {toast} from '../ui/overlays.js';
 import {liveChannelCards} from '../ui/live-status.js';
+import {audioProblems} from './audio-report-model.js';
 
 export async function liveSettings(ctx, host, d) {
   let data, schedules, devices;
@@ -57,7 +58,11 @@ export async function liveSettings(ctx, host, d) {
       processName = input({value: settings.process_name});
       device = select([['', 'Chọn nguồn âm riêng'], ...(devices.audio_devices || []).filter(item => item.loopback && !item.disabled).map(item => [item.id, item.name])], settings.device_id);
       controls.push(notice('info', 'TikTok Studio → TikTok', 'Kid TE thu riêng âm thanh của TikTok Studio và các tiến trình con. Nếu Studio không xuất âm thanh thu được, chọn một thiết bị âm thanh dành riêng cho TikTok; không dùng đường loa đang trộn cả hai LIVE.'),
+        ...audioProblems(devices.audio_report, settings.mode).map(p => notice(p.kind, p.title, p.text)),
         field('Cách nhận diện', mode), field('Tên ứng dụng', processName), field('Thiết bị dự phòng được chọn riêng', device));
+      const suggested = devices.audio_report?.suggested_device;
+      if (suggested) controls.push(btn('Dùng loa mặc định: ' + suggested.name, {onClick: () => { mode.value = 'device'; if (![...device.options].some(o => o.value === suggested.id)) device.append(h('option', {value: suggested.id}, suggested.name)); device.value = suggested.id; toast('Đã điền loa mặc định — bấm Lưu nguồn TikTok để áp dụng.', 'ok'); }}));
+      controls.push(btn('Quét lại thiết bị', {onClick: async () => { try { await request('/api/audio/rescan'); liveSettings(ctx, host, d); } catch (error) { toast(friendlyError(error), 'danger'); } }}));
       controls.push(btn('Nghe lại video TikTok', {onClick: async event => {
         const button = event.currentTarget; button.disabled = true;
         try {

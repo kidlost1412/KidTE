@@ -9,6 +9,7 @@ thiết bị PHÁT ở chế độ thu.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from collections import deque
 
@@ -216,3 +217,100 @@ class RollingCapture:
                 return None
             data = np.fromiter(self._buffer, dtype=np.float32, count=len(self._buffer))
         return data[-self._need:]
+
+
+# ---------------------------------------------------------------- Chẩn đoán
+# Microsoft hỗ trợ process loopback (AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK)
+# từ Windows 10 build 19041 (20H1). process_audio.py ghi 20348 trong docstring vì
+# đó là máy thử đầu tiên; mốc tối thiểu chính thức là 19041.
+PROCESS_LOOPBACK_MIN_BUILD = 19041
+AUDIO_SERVICES = ("Audiosrv", "AudioEndpointBuilder")
+_MIC_CONSENT_KEY = (r"Software\Microsoft\Windows\CurrentVersion"
+                    r"\CapabilityAccessManager\ConsentStore\microphone")
+
+
+def _windows_build():
+    try:
+        return int(sys.getwindowsversion().build) if os.name == "nt" else None
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _service_state(name):
+    try:
+        import psutil
+        return str(psutil.win_service_get(name).status())
+    except Exception:
+        pass
+    try:
+        import subprocess
+        out = subprocess.run(["sc", "query", name], capture_output=True, text=True, timeout=5,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        for line in out.splitlines():
+            if "STATE" in line:
+                return "running" if "RUNNING" in line else "stopped" if "STOPPED" in line else line.split()[-1].lower()
+    except Exception:
+        pass
+    return None
+
+
+def _audio_services():
+    return {name: _service_state(name) for name in AUDIO_SERVICES}
+
+
+def _mic_privacy():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _MIC_CONSENT_KEY) as key:
+            return str(winreg.QueryValueEx(key, "Value")[0])
+    except Exception:
+        return None
+
+
+def _default_speaker_name():
+    if sc is None:
+        return None
+    try:
+        speaker = sc.default_speaker()
+        return getattr(speaker, "name", None) if speaker is not None else None
+    except Exception:
+        return None
+
+
+def _error_detail(exc):
+    code = getattr(exc, "hresult", None) or getattr(exc, "winerror", None)
+    if code is None and exc.args and isinstance(exc.args[0], int):
+        code = exc.args[0]
+    detail = type(exc).__name__
+    if isinstance(code, int):
+        detail += f" 0x{code & 0xFFFFFFFF:08x}"
+    return detail
+
+
+def enumerate_report():
+    """Liệt kê thiết bị kèm lý do cụ thể khi không thấy gì (không bao giờ ném lỗi)."""
+    build = _windows_build()
+    report = {"devices": [], "error_code": "ok", "error_detail": "",
+              "soundcard_ok": sc is not None, "windows_build": build,
+              "process_loopback_min_build": PROCESS_LOOPBACK_MIN_BUILD,
+              "process_loopback_supported": build is None or build >= PROCESS_LOOPBACK_MIN_BUILD,
+              "audio_service": _audio_services(), "default_speaker_name": None,
+              "mic_privacy": _mic_privacy()}
+    if sc is None:
+        report["error_code"] = "soundcard_unavailable"
+        report["error_detail"] = "soundcard import failed"
+        return report
+    report["default_speaker_name"] = _default_speaker_name()
+    try:
+        report["devices"] = list_devices()
+    except Exception as exc:
+        report["error_code"] = "enumeration_failed"
+        report["error_detail"] = _error_detail(exc)
+    stopped = [name for name, state in report["audio_service"].items()
+               if state is not None and state != "running"]
+    if stopped and not report["devices"]:
+        report["error_code"] = "audio_service_stopped"
+        report["error_detail"] = ",".join(stopped)
+    elif report["error_code"] == "ok" and not any(item.get("loopback") for item in report["devices"]):
+        report["error_code"] = "no_active_output"
+    return report

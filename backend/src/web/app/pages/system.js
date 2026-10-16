@@ -8,6 +8,7 @@ import {btn, chip, empty, errorBox, skeletonRows, pageHead, tabs, field, input, 
 import {toast, confirmDialog, promptDialog, openDrawer} from '../ui/overlays.js';
 import {applyTheme} from '../shell.js';
 import {RESOURCE_NAME} from '../labels.js';
+import {audioProblems, compactReport} from './audio-report-model.js';
 import {liveSettings} from './live-settings.js';
 import {kindLabel, kindNote, normalizeV2, passwordProblem, exportIndexedDb, startV2, selectionIds, deleteV2, restoreV2Visible, confirmProblem, restoreErrorText, restoreV2, reenableAi} from './backup-v2.js';
 import {updates} from './updates.js';
@@ -221,6 +222,7 @@ async function audio(ctx, host) {
   try { s = await request('/api/settings'); } catch (e) { clear(host, errorBox(friendlyError(e), () => audio(ctx, host))); return; }
   const channel = (await request('/api/live/sources')).channels.tiktok.settings;
   const devices = s.audio_devices || [];
+  const report = s.audio_report || {};
   const loopback = devices.filter(x => x.loopback);
   const inputs = devices.filter(x => !x.loopback);
   const row = dev => {
@@ -239,7 +241,19 @@ async function audio(ctx, host) {
   };
   clear(host, h('div', {class: 'col gap-4'},
     notice('info', 'Thiết bị âm thanh riêng cho TikTok', 'Mặc định Kid TE nghe riêng tiến trình TikTok Studio. Chỉ chọn thiết bị ở đây khi đường âm của nó dành riêng cho TikTok. Shopee đọc Media Source OBS ở trang Nguồn LIVE theo sàn.'),
-    card(`Nguồn âm máy đang phát (${loopback.length})`, h('div', {}, loopback.length ? loopback.map(row) : empty('Không tìm thấy thiết bị', 'Kiểm tra driver âm thanh.')), {sub: s.selected_audio_device === 'auto' ? 'Đang để tự động chọn' : ''}),
+    ...audioProblems(report, channel.mode).map(p => notice(p.kind, p.title, p.text)),
+    h('div', {class: 'row gap-2'},
+      btn('Quét lại thiết bị', {size: 'sm', icon: 'refresh', onClick: async e => {
+        const b = e.currentTarget; b.disabled = true;
+        try { await request('/api/audio/rescan'); audio(ctx, host); } catch (err) { toast(friendlyError(err), 'danger'); b.disabled = false; }
+      }}),
+      report.suggested_device ? btn('Dùng loa mặc định', {size: 'sm', kind: 'primary', onClick: async () => {
+        try { await request('/api/live/sources', {method: 'POST', body: {platform: 'tiktok', settings: {mode: 'device', device_id: report.suggested_device.id}}}); toast('Đã chọn ' + report.suggested_device.name + '.', 'ok'); audio(ctx, host); } catch (err) { toast(friendlyError(err), 'danger'); }
+      }}) : null,
+      btn('Sao chép báo cáo âm thanh', {size: 'sm', onClick: async () => {
+        try { await navigator.clipboard.writeText(JSON.stringify(compactReport(report), null, 2)); toast('Đã sao chép báo cáo âm thanh.', 'ok'); } catch (err) { toast(friendlyError(err), 'danger'); }
+      }})),
+    card(`Nguồn âm máy đang phát (${loopback.length})`, h('div', {}, loopback.length ? loopback.map(row) : empty('Không tìm thấy thiết bị', audioProblems(report)[0]?.title || 'Bấm "Quét lại thiết bị" sau khi cắm loa.')), {sub: s.selected_audio_device === 'auto' ? 'Đang để tự động chọn' : ''}),
     inputs.length ? card(`Nguồn thu vào (${inputs.length})`, h('div', {}, inputs.map(row)), {sub: 'Không dùng cho đồng bộ video'}) : null));
 }
 

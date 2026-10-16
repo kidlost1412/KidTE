@@ -33,6 +33,7 @@ from captcha_bridge import CaptchaBridge
 from documents import DocumentLibrary
 from ai_providers import DeepSeekTextProvider, GeminiProvider
 from product_ingest import ProductIngest
+from product_enrich import ProductEnrich
 from combo_profiles import ComboProfiles
 from product_defaults import DefaultProfiles
 from customer_memory import CustomerMemory
@@ -583,6 +584,7 @@ class ReplyEngine:
         # Thêm sản phẩm bằng AI: Gemini đọc ảnh/PDF, DeepSeek đọc chữ.
         self.gemini = GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL)
         self.ingest = ProductIngest(self, self.gemini, DeepSeekTextProvider(lambda: self.responder))
+        self.enrich = ProductEnrich(self, self.gemini)      # "Bổ sung bằng Google" (đề xuất, chủ shop duyệt)
         self.combo_profiles = ComboProfiles(self, self.ingest)
         self.product_defaults = DefaultProfiles(self, self.ingest)
         cache_root = Path(workspace_root) / "data" / "cache"
@@ -4833,6 +4835,17 @@ class Handler(BaseHTTPRequestHandler):
                 LOG_DIR, component=(query.get("component") or [""])[0],
                 severity=(query.get("severity") or [""])[0],
             ))
+        elif route.startswith("/api/profiles/") and route.endswith(("/enrich", "/enrich-batch")):
+            if not self.local_tool_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
+            tail = [unquote(p) for p in route[len("/api/profiles/"):].split("/") if p]
+            if tail == ["enrich-batch"]:
+                self.send_json(200, self.engine.enrich.batch_status())
+            elif len(tail) == 2 and tail[1] == "enrich":
+                self.send_json(200, self.engine.enrich.status(tail[0]))
+            else:
+                self.send_json(404, {"ok": False, "error": "not_found"})
         elif route.startswith("/api/ingest/"):
             if not self.local_tool_request():
                 self.send_json(403, {"ok": False, "error": "local_only"})
@@ -5167,6 +5180,41 @@ class Handler(BaseHTTPRequestHandler):
                 meta = self.engine.ingest.add_upload(unquote(query.get("name", "")), self.rfile.read(size))
                 self.send_json(200, {"ok": True, **meta})
             except ValueError as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:
+                report_problem("api_error", f"POST {route}", exc)
+                self.send_json(500, {"ok": False, "error": "internal_error"})
+            return
+        if route.startswith("/api/profiles/") and route.endswith(("/enrich", "/enrich/apply", "/enrich-batch",
+                                                                   "/enrich-batch/cancel")):
+            # "Bổ sung bằng Google": chỉ trang công cụ trên máy được gọi.
+            if not self.local_tool_request():
+                self.reject(403, "local_only")
+                return
+            try:
+                size = int(self.headers.get("Content-Length", "0") or 0)
+                if size > 1024 * 1024:
+                    self._drain_request_body(size)
+                    raise ValueError("Yêu cầu quá lớn.")
+                payload = request_json_object(self.rfile.read(size)) if size > 0 else {}
+                tail = [unquote(p) for p in route[len("/api/profiles/"):].split("/") if p]
+                enrich = self.engine.enrich
+                if tail == ["enrich-batch"]:
+                    ids = payload.get("ids")
+                    result = enrich.start_batch([clean(i, 80) for i in ids][:500] if isinstance(ids, list) else None)
+                elif tail == ["enrich-batch", "cancel"]:
+                    result = enrich.cancel_batch()
+                elif len(tail) == 2 and tail[1] == "enrich":
+                    result = {"ok": True, "job": enrich.start(clean(tail[0], 80))}
+                elif len(tail) == 3 and tail[1:] == ["enrich", "apply"]:
+                    fields = payload.get("fields")
+                    result = enrich.apply(clean(tail[0], 80),
+                                          [clean(f, 60) for f in fields][:20] if isinstance(fields, list) else [])
+                else:
+                    self.send_json(404, {"ok": False, "error": "not_found"})
+                    return
+                self.send_json(200, result)
+            except (ValueError, json.JSONDecodeError) as exc:
                 self.send_json(400, {"ok": False, "error": str(exc)})
             except Exception as exc:
                 report_problem("api_error", f"POST {route}", exc)

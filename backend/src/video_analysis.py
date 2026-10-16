@@ -99,12 +99,15 @@ def _probe_video(path):
     return {"duration_s": round(duration, 3), "streams": streams}
 
 
-def _extract_audio(video, wav):
-    subprocess.run([
-        _ffmpeg_binary("ffmpeg"), "-y", "-v", "error", "-i", str(video),
+def _extract_audio(video, wav, threads=None):
+    # F7: ffmpeg chạy ưu tiên BELOW_NORMAL; khi LIVE giới hạn luồng bằng -threads.
+    import resource_share
+    thread_args = ["-threads", str(int(threads))] if threads else []
+    resource_share.run([
+        _ffmpeg_binary("ffmpeg"), "-y", "-v", "error", *thread_args, "-i", str(video),
         "-vn", "-ac", "1", "-ar", str(TARGET_RATE), "-acodec", "pcm_s16le",
         str(wav),
-    ], timeout=60 * 60, check=True)
+    ], timeout=60 * 60)
 
 
 def _build_fingerprint(wav, destination):
@@ -135,13 +138,13 @@ def _register_cuda_dll_dirs():
     return gpu_runtime.register_cuda_dll_dirs()
 
 
-def _transcribe(path):
+def _transcribe(path, cpu_threads=None):
     # The frozen core delegates this optional capability to its own runtime
     # component. Source installs retain the inline legacy path below so older
     # development environments and tests keep their established behavior.
     if getattr(sys, "frozen", False):
         from transcription_client import transcribe
-        return transcribe(path, _find_whisper_model())
+        return transcribe(path, _find_whisper_model(), cpu_threads=cpu_threads)
 
     # CTranslate2 resolves CUDA DLLs while faster_whisper is imported. Windows
     # therefore needs the workspace/runtime directories registered first;
@@ -184,8 +187,10 @@ def _transcribe(path):
     )
     for device, compute in devices:
         try:
+            extra = ({"cpu_threads": int(cpu_threads)}
+                     if cpu_threads and device == "cpu" else {})
             model = WhisperModel(model_name, device=device, compute_type=compute,
-                                 local_files_only=Path(model_name).exists())
+                                 local_files_only=Path(model_name).exists(), **extra)
             segments, info = model.transcribe(
                 audio, language="vi", vad_filter=True, beam_size=5,
                 condition_on_previous_text=True,
@@ -629,6 +634,12 @@ class VideoAnalysisManager:
             self._start_worker(job_id)
             return self._read(job_id)
 
+    def _live_now(self):
+        try:
+            return bool(self.live_provider())
+        except Exception:  # noqa: BLE001 - LIVE probe must never fail a job.
+            return False
+
     def _analyze(self, job_id):
         with self._analysis_lock:
             self._analyze_one(job_id)
@@ -642,12 +653,19 @@ class VideoAnalysisManager:
             self._write(job_id, phase="extracting_audio", media=media,
                         source_sha256=_sha256(video))
             wav = folder / "audio-16k.wav"
-            _extract_audio(video, wav)
+            import resource_share
+            threads = resource_share.live_cpu_threads(self._live_now())
+            _extract_audio(video, wav, threads=threads)
             self._write(job_id, phase="building_fingerprint")
             duration, frames = _build_fingerprint(wav, folder / "fingerprint.npz")
+            # Đọc lại LIVE ngay trước bước nặng nhất (chép lời).
+            threads = resource_share.live_cpu_threads(self._live_now())
             self._write(job_id, phase="transcribing", duration_s=duration,
-                        fingerprint_frames=frames)
-            segments, transcription = _transcribe(wav)
+                        fingerprint_frames=frames, resource_share=bool(threads),
+                        cpu_threads=threads or 0,
+                        phase_label=("Đang chép lời (chia tài nguyên vì đang LIVE)"
+                                     if threads else "Đang chép lời"))
+            segments, transcription = _transcribe(wav, cpu_threads=threads)
             _atomic_json(folder / "transcript.json", {
                 "segments": segments, "metadata": transcription,
             })

@@ -21,7 +21,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -291,12 +290,12 @@ class VideoAssetManager:
 
 
 def _download(url: str, timeout=8) -> bytes:
-    request = urllib.request.Request(url, headers={
+    """Tải ảnh ngoài (B4): chặn IP nội bộ/CGNAT kể cả qua redirect, ≤12 MB, ≤30 s."""
+    from product_ingest import read_public_url
+    return read_public_url(url, 12 * 1024 * 1024, timeout=timeout, total_timeout=30, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) KidTE/1.1",
         "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*",
     })
-    with urllib.request.urlopen(request, timeout=timeout, context=__import__("net").ssl_context()) as response:
-        return response.read(12 * 1024 * 1024)
 
 
 def normalize_image(data: bytes, max_side=PRODUCT_THUMB_MAX) -> bytes:

@@ -6,7 +6,6 @@ import json
 import logging
 import re
 import shutil
-import urllib.request
 from pathlib import Path
 
 
@@ -38,8 +37,15 @@ def read_source(source):
     if not source:
         raise ValueError("chưa cấu hình nguồn gói kiến thức")
     if source.startswith("https://"):
-        with urllib.request.urlopen(source, timeout=20, context=__import__("net").ssl_context()) as response:
-            raw = response.read(MAX_PACKAGE_BYTES + 1)
+        # B4: cùng đường tải an toàn (chặn nội bộ, kiểm redirect, giới hạn cỡ/thời gian).
+        from product_ingest import read_public_url
+        try:
+            raw = read_public_url(source, MAX_PACKAGE_BYTES, timeout=20, total_timeout=120,
+                                  headers={"User-Agent": "KidTE", "Accept": "application/json,*/*"})
+        except ValueError as exc:
+            if "vượt giới hạn" in str(exc):
+                raise ValueError("gói kiến thức vượt giới hạn 16 MB") from exc
+            raise
     elif "://" in source:
         raise ValueError("chỉ cho phép HTTPS hoặc đường dẫn file nội bộ")
     else:

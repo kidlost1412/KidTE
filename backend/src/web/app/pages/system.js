@@ -8,6 +8,25 @@ import {btn, chip, empty, errorBox, skeletonRows, pageHead, tabs, field, input, 
 import {toast, confirmDialog, promptDialog, openDrawer} from '../ui/overlays.js';
 import {applyTheme} from '../shell.js';
 import {RESOURCE_NAME} from '../labels.js';
+
+// B3: tiện ích được ghép lần đầu theo từng sàn; "Ghép lại" xoá ghép để
+// heartbeat kế tiếp của tiện ích (đã cài lại) được ghi nhận.
+function pairingInfo(pairing) {
+  const p = pairing || {};
+  const blocked = p.blocked_recent;
+  return h('div', {class: 'col gap-2'},
+    h('p', {class: 'fs-sm soft'}, p.paired ? `Tiện ích đã ghép: ${p.id_short}` : 'Chưa ghép tiện ích nào — tiện ích đầu tiên gửi tín hiệu sẽ được ghép.'),
+    blocked ? notice('danger', 'Đã chặn một tiện ích lạ', `Tiện ích ${blocked.id_short} gọi Kid TE ${blocked.count} lần, bị từ chối vì không phải tiện ích đã ghép. Nếu bạn vừa cài lại tiện ích Kid TE, bấm “Ghép lại tiện ích”.`) : null);
+}
+
+function repairButton(platform, label) {
+  return btn('Ghép lại tiện ích', {kind: 'ghost', icon: 'puzzle', onClick: async () => {
+    const ok = await confirmDialog({title: `Ghép lại tiện ích ${label}?`, text: 'Kid TE sẽ quên tiện ích đang ghép. Tiện ích đầu tiên gửi tín hiệu tiếp theo (mở trang LIVE) sẽ được ghép. Chỉ làm khi bạn vừa cài lại tiện ích Kid TE.', confirm: 'Ghép lại', tone: 'danger'});
+    if (!ok) return;
+    try { await request('/api/extension/pairing/reset', {method: 'POST', body: {platform}}); toast('Đã xoá ghép. Mở trang LIVE để tiện ích ghép lại.', 'ok'); }
+    catch (e) { toast(friendlyError(e), 'danger'); }
+  }});
+}
 import {audioProblems, compactReport} from './audio-report-model.js';
 import {liveSettings} from './live-settings.js';
 import {kindLabel, kindNote, normalizeV2, passwordProblem, exportIndexedDb, startV2, selectionIds, deleteV2, restoreV2Visible, confirmProblem, restoreErrorText, restoreV2, reenableAi} from './backup-v2.js';
@@ -180,17 +199,19 @@ async function setup(ctx, host) {
       field('Tên tài khoản (@unique id)', uniqueIds)), {footer: saveTiktok}),
     card('Tiện ích Chrome · TikTok', h('div', {class: 'card-body col gap-3'},
       ext.connected ? notice('ok', 'Tiện ích đang kết nối', `Tín hiệu cuối ${Math.round(ext.age_s || 0)} giây trước · AI ${ext.ai_enabled ? 'bật' : 'tắt'} trong tiện ích`) : notice('warn', 'Chưa thấy tín hiệu tiện ích', 'Cài tiện ích Kid TE vào Chrome và mở trang TikTok LIVE Studio / LIVE của Shop.'),
-      h('ol', {class: 'list-lines'}, h('li', {}, 'Bấm “Mở hướng dẫn cài tiện ích” bên dưới — Chrome mở trang Tiện ích.'), h('li', {}, 'Bật “Chế độ nhà phát triển” ở góc phải.'), h('li', {}, 'Bấm “Tải tiện ích đã giải nén” và chọn thư mục extension được mở sẵn.'), h('li', {}, 'Mở trang LIVE của TikTok — trạng thái ở trên sẽ chuyển xanh.'))),
-    {footer: btn('Mở hướng dẫn cài tiện ích', {icon: 'puzzle', onClick: async () => { try { await request('/api/extension/setup', {method: 'POST', body: {}}); toast('Đã mở Chrome và thư mục tiện ích.', 'ok'); } catch (e) { toast(friendlyError(e), 'danger'); } }})}),
+      h('ol', {class: 'list-lines'}, h('li', {}, 'Bấm “Mở hướng dẫn cài tiện ích” bên dưới — Chrome mở trang Tiện ích.'), h('li', {}, 'Bật “Chế độ nhà phát triển” ở góc phải.'), h('li', {}, 'Bấm “Tải tiện ích đã giải nén” và chọn thư mục extension được mở sẵn.'), h('li', {}, 'Mở trang LIVE của TikTok — trạng thái ở trên sẽ chuyển xanh.')),
+      pairingInfo(dash.extension_pairing?.tiktok)),
+    {footer: [repairButton('tiktok', 'TikTok'), btn('Mở hướng dẫn cài tiện ích', {icon: 'puzzle', onClick: async () => { try { await request('/api/extension/setup', {method: 'POST', body: {}}); toast('Đã mở Chrome và thư mục tiện ích.', 'ok'); } catch (e) { toast(friendlyError(e), 'danger'); } }})]}),
     card('Tiện ích Chrome · Shopee', h('div', {class: 'card-body col gap-3'},
       notice(dash.live_channels?.shopee?.extension?.connected ? 'ok' : 'warn',
         dash.live_channels?.shopee?.extension?.connected ? 'Shopee đã kết nối' : 'Chờ tiện ích Shopee',
         'Cài tiện ích từ thư mục extension-shopee, mở trang quản lý Shopee LIVE. Tiện ích tự đọc giỏ, ghim theo video riêng và trả lời bằng kiến thức dùng chung.'),
+      pairingInfo(dash.extension_pairing?.shopee),
       btn('Cài nguồn OBS cho Shopee', {kind:'ghost',onClick:()=>ctx.navigate('system','live')})),
-      {footer:btn('Mở hướng dẫn cài tiện ích Shopee',{icon:'puzzle',onClick:async()=>{
+      {footer:[repairButton('shopee', 'Shopee'), btn('Mở hướng dẫn cài tiện ích Shopee',{icon:'puzzle',onClick:async()=>{
         try {await request('/api/extension/setup',{method:'POST',body:{platform:'shopee'}});toast('Đã mở thư mục tiện ích Shopee.','ok');}
         catch(error){toast(friendlyError(error),'danger');}
-      }})}),
+      }})]}),
     card('Gói kiến thức sản phẩm dùng chung', h('div', {class: 'card-body form-grid'},
       h('p', {class: 'fs-sm soft'}, 'Cập nhật hồ sơ sản phẩm từ gói do công ty phát hành. Thông tin bạn đã sửa trên máy được giữ nguyên nếu có xung đột.'),
       defaultProfilesPanel(ctx), seedBanner, seedOut,

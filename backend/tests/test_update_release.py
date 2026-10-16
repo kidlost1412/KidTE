@@ -42,7 +42,8 @@ def test_keygen_and_sign_use_protected_key_and_verify_before_writing(tmp_path, m
     payload_path = tmp_path / "payload.json"
     payload_path.write_text(json.dumps(payload()), encoding="utf-8")
     signed_path = tmp_path / "kidte-catalog-v2.json"
-    update_release.sign_catalog(payload_path, private, signed_path)
+    update_release.sign_catalog(payload_path, private, signed_path,
+                                trusted_keys={key_id: metadata["public_key"]})
     raw = signed_path.read_bytes()
     assert verify_catalog(raw, {key_id: metadata["public_key"]})["sequence"] == 1
     with pytest.raises(FileExistsError, match="refuses to overwrite"):

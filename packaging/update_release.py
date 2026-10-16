@@ -155,7 +155,14 @@ def keygen(private_path: Path, public_path: Path):
     return key_id
 
 
-def sign_catalog(payload_path: Path, private_path: Path, output_path: Path):
+def _trusted_keys(trusted_keys=None):
+    if trusted_keys is not None:
+        return trusted_keys
+    import update_trust
+    return update_trust.TRUSTED_KEYS
+
+
+def sign_catalog(payload_path: Path, private_path: Path, output_path: Path, trusted_keys=None):
     payload = _parse(payload_path.read_bytes())
     if not isinstance(payload, dict):
         raise TypeError("catalog payload must be a JSON object")
@@ -167,7 +174,73 @@ def sign_catalog(payload_path: Path, private_path: Path, output_path: Path):
     envelope = {"schema_version": 2, "key_id": hashlib.sha256(pub).hexdigest()[:16], "signed": payload, "signature": base64.b64encode(key.sign(canonical_json(payload))).decode("ascii")}
     result = canonical_json(envelope) + b"\n"
     verify_catalog(result, {envelope["key_id"]: base64.b64encode(pub).decode("ascii")}, channel=payload.get("channel"))
+    # A6: khóa ký phải là khóa app đang ghim; ký nhầm khóa thì mọi máy từ chối
+    # catalog (unknown_signing_key) — dừng trước khi ghi.
+    trusted = _trusted_keys(trusted_keys)
+    if trusted.get(envelope["key_id"]) != base64.b64encode(pub).decode("ascii"):
+        raise ValueError(f"signing_key_not_trusted: key_id {envelope['key_id']} không có trong update_trust.TRUSTED_KEYS")
+    verify_catalog(result, trusted, channel=payload.get("channel"))
     _atomic_write(output_path, result)
+
+
+def _anonymous_head(url: str, timeout=20) -> bool:
+    """HEAD không đăng nhập (GitHub chuyển hướng sang CDN); True nếu tồn tại."""
+    import urllib.error
+    import urllib.request
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "kidte-publish"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def check_release_catalog(catalog_path: Path, release_dir: Path, head_commit: str, *, tag="",
+                          repository="", trusted_keys=None, url_exists=None):
+    """A4/A5: kiểm catalog trước khi thay trên GitHub. Trả danh sách lỗi (tiếng Việt).
+
+    - chữ ký hợp lệ theo TRUSTED_KEYS đang ghim;
+    - mỗi URL component trỏ tới tệp trong thư mục phát hành (đúng tag, đúng sha256)
+      hoặc tới asset đã có trên GitHub (HEAD ẩn danh);
+    - component đóng gói trong lần phát hành này có source_commit == git HEAD.
+    """
+    from update_catalog import REPOSITORY, CatalogError
+    import urllib.parse
+    raw = Path(catalog_path).read_bytes()
+    url_exists = url_exists or _anonymous_head
+    repository = repository or REPOSITORY
+    try:
+        envelope = _parse(raw)
+        channel = str(((envelope or {}).get("signed") or {}).get("channel") or "stable")
+        signed = verify_catalog(raw, _trusted_keys(trusted_keys), repository=repository, channel=channel)
+    except (CatalogError, ValueError, TypeError) as exc:
+        return [f"Catalog không qua kiểm chữ ký bằng TRUSTED_KEYS ({exc})."]
+    problems = []
+    local = {path.name: path for path in Path(release_dir).iterdir() if path.is_file()}
+    head_commit = str(head_commit or "").strip().lower()
+    for component in signed.get("components") or []:
+        cid, url = component.get("id"), str(component.get("url") or "")
+        name = urllib.parse.unquote(url.rsplit("/", 1)[-1])
+        if name and name in local:
+            if tag:
+                wanted = f"https://github.com/{repository}/releases/download/{tag}/{name}"
+                if url != wanted:
+                    problems.append(f"Thành phần {cid}: URL {url} không trỏ đúng tag {tag} (cần {wanted}).")
+            if _file_sha256(local[name]) != str(component.get("archive_sha256") or "").lower():
+                problems.append(f"Thành phần {cid}: sha256 của {name} trong thư mục phát hành khác catalog.")
+            if str(component.get("source_commit") or "").lower() != head_commit:
+                problems.append(f"Thành phần {cid}: source_commit {component.get('source_commit') or '(trống)'} khác git HEAD {head_commit}.")
+        elif not url_exists(url):
+            problems.append(f"Thành phần {cid}: URL {url} không có trong thư mục phát hành và không tồn tại trên GitHub.")
+    return problems
 
 
 def package_directory(source: Path, output: Path, component="core"):
@@ -284,6 +357,12 @@ def main(argv=None):
     sg.add_argument("payload", type=Path)
     sg.add_argument("--private-key", required=True, type=Path)
     sg.add_argument("--out", required=True, type=Path)
+    cp = sub.add_parser("check-publish")
+    cp.add_argument("catalog", type=Path)
+    cp.add_argument("--release-dir", required=True, type=Path)
+    cp.add_argument("--head", required=True)
+    cp.add_argument("--tag", default="")
+    cp.add_argument("--repository", default="")
     pk = sub.add_parser("package")
     pk.add_argument("source", type=Path)
     pk.add_argument("--out", required=True, type=Path)
@@ -293,6 +372,15 @@ def main(argv=None):
         print(json.dumps({"key_id": keygen(args.private_key, args.public_key), "public_metadata": str(args.public_key)}))
     elif args.command == "sign":
         sign_catalog(args.payload, args.private_key, args.out)
+    elif args.command == "check-publish":
+        problems = check_release_catalog(args.catalog, args.release_dir, args.head,
+                                         tag=args.tag, repository=args.repository)
+        for line in problems:
+            sys.stdout.buffer.write(("LỖI: " + line + "\n").encode("utf-8"))
+        sys.stdout.flush()
+        if problems:
+            raise SystemExit(1)
+        print("OK")
     else:
         print(json.dumps(package_directory(args.source, args.out, component=args.component), indent=2))
 

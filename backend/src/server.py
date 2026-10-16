@@ -74,6 +74,7 @@ FORGET_REPLIES = (
 )
 import smalltalk
 from live_sources import LiveSources, PLATFORMS, read_channel_health
+from extension_pairing import ExtensionPairing
 from video_analysis import (
     UploadOffsetMismatch,
     UploadPartCorrupt,
@@ -555,6 +556,8 @@ class ReplyEngine:
         self.video_positions = {"tiktok": self.video_position, "shopee": VideoPositionStore()}
         self.live_sources = LiveSources(ROOT / "data" / "machine" / "live_sources.json")
         self.platform_heartbeats = {}
+        # B3: ghép tiện ích lần đầu theo từng sàn (ID unpacked khác nhau mỗi máy).
+        self.extension_pairing = ExtensionPairing(ROOT / "data" / "machine" / "extension_pairing.json")
         self.shopee_mapping_store = shopee_mapping_store or ShopeeMappingStore(
             SHOPEE_LIVE_MAPPING_PATH)
         self._shopee_ai = None
@@ -966,6 +969,7 @@ class ReplyEngine:
                              "first_job_id": str(review_jobs[0].get("job_id") or "") if review_jobs else "",
                              "pending_events": sum((row.get("suggestions") or 0) for row in review_jobs)},
             "extension": extension,
+            "extension_pairing": self.extension_pairing_state(),
             "recent_activity": self.workspace.recent_activity(),
             "learning": self._learning_summary(),
             "ai_queue": self._ai_queue_summary(),
@@ -2152,6 +2156,16 @@ class ReplyEngine:
                 channels[platform]["catalog"] = {"products_count": len(state.get("catalog", {}).get("products", [])),
                                                 "session_id": state.get("catalog", {}).get("session_id", "")}
         return channels
+
+    def extension_pairing_state(self):
+        pairing = getattr(self, "extension_pairing", None)
+        return pairing.status() if pairing is not None else {}
+
+    def reset_extension_pairing(self, platform):
+        pairing = getattr(self, "extension_pairing", None)
+        if pairing is None:
+            raise ValueError("extension_pairing_unavailable")
+        return pairing.reset(platform)
 
     def live_sources_state(self):
         return {"ok": True, "channels": self.live_channels()}
@@ -4510,12 +4524,52 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return origin in ("", f"http://{host}")
 
+    def loopback_read_request(self):
+        """B5: route đọc dùng chung cho UI, tiện ích, OBS/plugin cục bộ.
+
+        Bắt buộc Host loopback (chặn DNS rebinding); Origin được là rỗng
+        (plugin/OBS/PowerShell), chính trang app, hoặc chrome-extension://.
+        """
+        host = self.headers.get("Host", "")
+        if not _loopback_host(host):
+            return False
+        origin = self.headers.get("Origin", "")
+        return origin in ("", f"http://{host}") or origin.startswith("chrome-extension://")
+
+    @staticmethod
+    def extension_platform(route, payload=None):
+        """Sàn của một request tiện ích: /api/shopee/* là shopee; heartbeat và
+        purge-ack theo trường platform; còn lại (reply, tiktok/queue, catalog/sync,
+        observe) là tiktok."""
+        if route.startswith("/api/shopee/"):
+            return "shopee"
+        if route in ("/api/heartbeat", "/api/privacy/purge-ack"):
+            value = payload.get("platform", "tiktok") if isinstance(payload, dict) else "tiktok"
+            return value if value in PLATFORMS else None
+        return "tiktok"
+
+    def extension_paired(self, platform, heartbeat=False):
+        origin = self.headers.get("Origin", "")
+        if not origin.startswith("chrome-extension://"):
+            return True
+        pairing = getattr(self.engine, "extension_pairing", None)
+        if pairing is None or platform is None:
+            return True
+        return pairing.check(platform, origin, heartbeat=heartbeat)
+
+    def security_headers(self):
+        """B5: không cho nhúng iframe, không đoán MIME."""
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header("X-Content-Type-Options", "nosniff")
+
     def send_html(self, status, body):
         raw = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
+        self.security_headers()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -4528,6 +4582,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        self.security_headers()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -4538,6 +4593,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "private, max-age=86400")
+        self.security_headers()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -4616,6 +4672,7 @@ class Handler(BaseHTTPRequestHandler):
             self.cors()
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
@@ -4669,6 +4726,9 @@ class Handler(BaseHTTPRequestHandler):
                            {"ok": True, "enabled": False, "available": [], "installed": {},
                             "error": "update_source_mode_disabled"})
         elif route == "/health":
+            if not self.loopback_read_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
             self.send_json(200, self.engine.health())
         elif route in ("/", "/app", "/app/"):
             if not self.local_tool_request():
@@ -4945,6 +5005,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json(200, self.engine.mapping_state())
         elif route == "/api/video/position":
+            if not self.loopback_read_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
             platform = (parse_qs(parsed.query).get("platform") or ["tiktok"])[0]
             if platform not in PLATFORMS:
                 self.send_json(400, {"ok": False, "error": "invalid_platform"})
@@ -4956,15 +5019,24 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json(200, self.engine.live_sources_state())
         elif self.path == "/api/video/timelines":
+            if not self.loopback_read_request():
+                self.send_json(403, {"ok": False, "error": "local_only"})
+                return
             self.send_json(200, self.engine.video_timelines())
         elif self.path == "/api/shopee/mappings":
             if not self.local_tool_request() and not self.headers.get("Origin", "").startswith("chrome-extension://"):
                 self.send_json(403, {"ok": False, "error": "extension_origin_required"})
                 return
+            if not self.extension_paired("shopee"):
+                self.send_json(403, {"ok": False, "error": "extension_not_paired"})
+                return
             self.send_json(200, self.engine.shopee_mapping_state())
         elif self.path == "/api/shopee/ai/status":
             if not self.local_tool_request() and not self.headers.get("Origin", "").startswith("chrome-extension://"):
                 self.send_json(403, {"ok": False, "error": "extension_origin_required"})
+                return
+            if not self.extension_paired("shopee"):
+                self.send_json(403, {"ok": False, "error": "extension_not_paired"})
                 return
             checker = getattr(self.engine.responder, "check_balance", None)
             status = checker() if callable(checker) else {"ok": False, "error": "deepseek_unavailable"}
@@ -5346,7 +5418,8 @@ class Handler(BaseHTTPRequestHandler):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
-        elif route in ("/api/settings", "/api/settings/check-key", "/api/settings/gemini-models"):
+        elif route in ("/api/settings", "/api/settings/check-key", "/api/settings/gemini-models",
+                       "/api/extension/pairing/reset"):
             if not self.local_tool_request():
                 self.reject(403, "local_only")
                 return
@@ -5376,7 +5449,8 @@ class Handler(BaseHTTPRequestHandler):
                          "/api/audio/test", "/api/backup/restore", "/api/privacy/forget", "/api/privacy/purge-ack",
                          "/api/backup/v2", "/api/backup/v2/delete/preview", "/api/backup/v2/delete", "/api/backup/restore/reenable-ai", "/api/backup/indexeddb",
                          *local_video_routes} and not workspace_route and not trash_route and not video_draft_route and not dose_test_route and not duplicate_route and not conversation_example_route and not video_job_draft_route and not video_job_publish_route and not product_image_route:
-            if route not in ("/api/settings", "/api/settings/check-key", "/api/settings/gemini-models"):
+            if route not in ("/api/settings", "/api/settings/check-key", "/api/settings/gemini-models",
+                             "/api/extension/pairing/reset"):
                 self.reject(404, "not_found")
                 return
         try:
@@ -5407,6 +5481,10 @@ class Handler(BaseHTTPRequestHandler):
             if size <= 0 or size > maximum:
                 raise ValueError("invalid_body_size")
             payload = request_json_object(self.rfile.read(size))
+            if not self.extension_paired(self.extension_platform(route, payload),
+                                         heartbeat=route == "/api/heartbeat"):
+                self.send_json(403, {"ok": False, "error": "extension_not_paired"})
+                return
             if route in delivery_routes:
                 result = self.engine.delivery_operation(*delivery_routes[route], payload)
             elif route in queue_routes:
@@ -5543,6 +5621,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.engine.gemini_models(payload)
             elif route == "/api/audio/test":
                 result = self.engine.test_audio_device(payload)
+            elif route == "/api/extension/pairing/reset":
+                result = self.engine.reset_extension_pairing(payload.get("platform"))
             elif route == "/api/extension/setup":
                 result = self.engine.open_extension_setup(payload.get("platform", "tiktok"))
             elif route == "/api/focus":

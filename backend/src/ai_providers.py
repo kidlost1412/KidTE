@@ -260,7 +260,37 @@ class GeminiProvider:
             raise AIProviderError("gemini_key_missing",
                                   "Chưa có khóa Gemini. Vào Cài đặt, dán khóa vào ô “Key Gemini (đọc ảnh/PDF)”.")
         body = json.dumps(self.build_body(system, user_text, files)).encode("utf-8")
-        loaded = not self.explicit_model         # lười: chỉ dò khi chưa có/hết hạn; model tay thì dò khi cần
+        return self._call(lambda _model: body, self._post)
+
+    def generate_grounded(self, system, user_text):
+        """Gọi Gemini có công cụ tra Google. Trả về (chữ trả lời, groundingMetadata).
+
+        Gemini 2.x trở lên dùng ``google_search``; Gemini 1.x dùng ``google_search_retrieval``.
+        Không bật responseMimeType JSON (nhiều model không cho dùng chung với công cụ tra cứu).
+        """
+        if not self.api_key:
+            raise AIProviderError("gemini_key_missing",
+                                  "Chưa có khóa Gemini. Vào Cài đặt, dán khóa vào ô “Key Gemini (đọc ảnh/PDF)”.")
+
+        def body_for(model):
+            tool = ({"google_search_retrieval": {}} if re.match(r"gemini-1(\.|-)", model)
+                    else {"google_search": {}})
+            return json.dumps({"systemInstruction": {"parts": [{"text": system}]},
+                               "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+                               "tools": [tool],
+                               "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}}).encode("utf-8")
+        payload = self._call(body_for, self._post_payload)
+        text = self._text_of(payload)
+        meta = {}
+        for candidate in payload.get("candidates") or []:
+            if isinstance(candidate.get("groundingMetadata"), dict):
+                meta = candidate["groundingMetadata"]
+                break
+        return text, meta
+
+    def _call(self, body_for, post):
+        """Thử lần lượt các model; trả về payload JSON của model đầu tiên trả lời được."""
+        loaded = not self.explicit_model        # lười: chỉ dò khi chưa có/hết hạn; model tay thì dò khi cần
         if loaded:
             self._refresh()
         tried, rejected = [], []
@@ -277,7 +307,7 @@ class GeminiProvider:
             model = pending[0]
             tried.append(model)
             try:
-                text = self._post(model, body)
+                payload = post(model, body_for(model))
             except _ModelRejected as exc:
                 rejected.append(exc)
                 now = self._clock()
@@ -289,10 +319,13 @@ class GeminiProvider:
                         self._sleep(GEMINI_RETRY_BACKOFF)
                 continue
             self.last_model = model
-            return text
+            return payload
         raise self._exhausted(rejected)
 
     def _post(self, model, body):
+        return self._text_of(self._post_payload(model, body))
+
+    def _post_payload(self, model, body):
         request = urllib.request.Request(
             GEMINI_ENDPOINT.format(model=model), data=body, method="POST",
             headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key})
@@ -310,7 +343,7 @@ class GeminiProvider:
                                   "Không kết nối được Gemini (kiểm tra mạng rồi thử lại).") from exc
         except json.JSONDecodeError as exc:
             raise AIProviderError("gemini_bad_response", "Gemini trả về dữ liệu không đọc được.") from exc
-        return self._text_of(payload)
+        return payload
 
     @staticmethod
     def _exhausted(rejected):
@@ -345,6 +378,12 @@ class GeminiProvider:
             return AIProviderError("gemini_model_rejected",
                                    f"Gemini không nhận model “{model}”. Google có thể đã đổi tên: "
                                    "nhập tên mới ở Cài đặt → Model Gemini (xem ai.google.dev/gemini-api/docs/models).")
+        low = message.lower()
+        if status == 400 and ("google_search" in low or "search" in low and ("tool" in low or "ground" in low)
+                              or "grounding" in low):
+            return AIProviderError("gemini_search_unsupported",
+                                   f"Model “{model}” không hỗ trợ tra Google. Vào Cài đặt → Model Gemini, "
+                                   "chọn bản Flash 2.0 trở lên (hoặc để tự chọn) rồi thử lại.")
         if status == 400:
             return AIProviderError("gemini_bad_request", "Gemini không đọc được tệp này: " + message[:200])
         if status == 503:

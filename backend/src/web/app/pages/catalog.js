@@ -10,6 +10,7 @@ import * as mm from './mapping-model.js';
 import * as pd from './profile-delete-model.js';
 import * as pl from './product-list-model.js';
 import {openProductIngest} from './product-ingest-ui.js';
+import {openProfileEnrich, openBulkEnrich} from './product-enrich-ui.js';
 import {profilePicker} from '../ui/profile-picker.js';
 import {openComboProfiles} from './combo-profile-ui.js';
 import {defaultProfilesPanel} from './product-defaults-ui.js';
@@ -280,6 +281,8 @@ function mountProfiles(ctx, host, d) {
     h('span', {class: 'fs-xs muted'}, 'Sửa, tạo và xoá ở đây chỉ áp dụng trên máy này.'),
     bulkBar,
     btn('Hồ sơ đã xoá', {kind: 'ghost', icon: 'trash', onClick: () => openDeleted()}),
+    btn('Bổ sung hàng loạt', {kind: 'ghost', icon: 'search', attrs: {title: 'Nhờ Google tra thông tin còn thiếu cho các hồ sơ đã chọn (không chọn = tất cả hồ sơ còn thiếu). Anh/chị duyệt trước khi lưu.'},
+      onClick: () => openBulkEnrich([...picked], {names: Object.fromEntries((profiles || []).map(p => [p.id, p.title])), onApplied: () => { invalidateCatalog(); load(); }})}),
     btn('Thêm sản phẩm bằng AI', {icon: 'sparkles', onClick: () => openProductIngest(ctx, {onDone: id => { invalidateCatalog(); ctx.navigate('catalog', 'profiles', id); }})}),
     btn('Tạo hồ sơ mới', {kind: 'primary', icon: 'plus', onClick: () => createProfile(ctx, null)})), defaults, list);
   search.addEventListener('input', debounce(() => { query = fold(search.value); render(); }, 150, d));
@@ -371,6 +374,8 @@ function mountProfiles(ctx, host, d) {
         }}) : null,
         btn('Xoá hồ sơ', {kind: 'ghost', icon: 'trash', onClick: () => removeProfiles([id], drawer)}),
         h('span', {class: 'grow'}),
+        btn('Bổ sung bằng Google', {icon: 'search', attrs: {title: 'Tra Google để điền các mục còn trống (thành phần, cách dùng, cây trồng, lưu ý). Anh/chị xem nguồn và duyệt trước khi lưu.'},
+          onClick: () => openProfileEnrich(id, {name: data.ten_san_pham || id, onApplied: () => { drawer.close(); invalidateCatalog(); load(); }})}),
         btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}),
         btn('Lưu hồ sơ', {kind: 'primary', icon: 'save', onClick: async () => {
           const changes = {};

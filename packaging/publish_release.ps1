@@ -28,7 +28,8 @@ param(
     [string]$Series = 'p4',
     [string]$CatalogTag = '',
     [string]$CatalogName = 'kidte-catalog-v2.json',
-    [string]$RepoPath = ''
+    [string]$RepoPath = '',
+    [string]$Python = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +39,7 @@ $ProgressPreference = 'SilentlyContinue'
 if (-not $RepoPath) { $RepoPath = Split-Path -Parent $PSScriptRoot }
 if (-not $Folder) { $Folder = Join-Path $RepoPath ("PhatHanh\release-" + $Version) }
 if (-not $CatalogTag) { $CatalogTag = "updates-beta-$Series" }
+if (-not $Python) { $Python = Join-Path $RepoPath '.venv\Scripts\python.exe' }
 $Tag = "v$Version-$Series"
 $Api = "https://api.github.com/repos/$Repo"
 $script:Token = $null
@@ -138,6 +140,15 @@ try {
     $sourceCommit = $newCatalog.signed.components | Where-Object { $_.id -eq 'core' } | ForEach-Object { $_.source_commit }
     if (-not $sourceCommit) { $sourceCommit = $newCatalog.signed.components | Where-Object { $_.id -eq 'app' } | ForEach-Object { $_.source_commit } }
     Say "HEAD $head, truoc origin $ahead commit; source_commit core trong catalog: $sourceCommit"
+
+    # A4/A5: kiem chu ky catalog bang TRUSTED_KEYS, URL tung thanh phan (tep trong thu muc
+    # hoac asset da co tren GitHub, HEAD an danh) va source_commit == HEAD. Chi doc, chay ca khi -WhatIf.
+    if (-not (Test-Path -LiteralPath $Python)) { Fail "khong thay Python: $Python" }
+    $checkScript = Join-Path $RepoPath 'packaging\update_release.py'
+    $checkOut = & $Python -I $checkScript check-publish $catalogPath --release-dir $Folder --head $head --tag $Tag --repository $Repo
+    $checkCode = $LASTEXITCODE
+    foreach ($line in $checkOut) { Say $line }
+    if ($checkCode -ne 0) { Fail 'catalog khong dat kiem tra truoc phat hanh (xem LOI o tren); KHONG thay catalog' }
 
     # ------------------------------------------------------------------ 2. push main
     if (Confirm-Action "origin/$Branch" "git push ($ahead commit)") {

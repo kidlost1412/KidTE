@@ -131,6 +131,8 @@ def _b64(value):
 def _resolve(host):
     return [info[4][0] for info in socket.getaddrinfo(host, None)]
 
+_NAT64_NETS = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+
 
 def check_public_http_url(url):
     """Chỉ http/https tới máy chủ công cộng (chặn localhost, mạng nội bộ, link-local)."""
@@ -145,8 +147,12 @@ def check_public_http_url(url):
         raise IngestError("Không tìm thấy trang web này")
     for address in addresses:
         ip = ipaddress.ip_address(address.split("%")[0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast \
-                or ip.is_unspecified:
+        # B11: chỉ địa chỉ định tuyến công cộng. is_global loại cả CGNAT
+        # 100.64.0.0/10, khối tài liệu/dự trữ. Python 3.11 coi NAT64 là global
+        # nên chặn hẳn NAT64; IPv4 nhúng (mapped/6to4) cũng phải công cộng.
+        embedded = [getattr(ip, "ipv4_mapped", None), getattr(ip, "sixtofour", None)]
+        if not ip.is_global or ip.is_multicast or any(ip in net for net in _NAT64_NETS) \
+                or any(item is not None and not item.is_global for item in embedded):
             raise IngestError("Không đọc được địa chỉ nội bộ")
     return parts.geturl()
 
@@ -166,6 +172,46 @@ def _open_url(url, timeout=URL_TIMEOUT):
     request = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (KidTE product reader)", "Accept": "text/html,image/*;q=0.8,*/*;q=0.5"})
     return opener.open(request, timeout=timeout)
+
+
+def read_public_url(url, limit, timeout=URL_TIMEOUT, headers=None, total_timeout=None):
+    """Tải một URL ngoài an toàn (B4): chỉ máy công cộng, kiểm lại mỗi redirect,
+    giới hạn số byte và tổng thời gian. Vượt ``limit`` thì báo lỗi."""
+    from net import ssl_context
+    safe = check_public_http_url(url)
+    opener = urllib.request.build_opener(
+        _SafeRedirect(), urllib.request.HTTPSHandler(context=ssl_context()))
+    request = urllib.request.Request(safe, headers=dict(headers or {
+        "User-Agent": "Mozilla/5.0 (KidTE)", "Accept": "*/*"}))
+    deadline = time.monotonic() + float(total_timeout or timeout * 3)
+    try:
+        response = opener.open(request, timeout=timeout)
+    except IngestError:
+        raise
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        raise IngestError("Không tải được địa chỉ này (quá thời gian hoặc bị chặn)") from exc
+    chunks, total = [], 0
+    try:
+        while True:
+            if time.monotonic() > deadline:
+                raise IngestError("Tải quá thời gian cho phép")
+            chunk = response.read(min(65536, limit + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > limit:
+                raise IngestError("Tệp tải về vượt giới hạn kích thước")
+    except IngestError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise IngestError("Không tải được địa chỉ này (quá thời gian hoặc bị chặn)") from exc
+    finally:
+        try:
+            response.close()
+        except Exception:
+            pass
+    return b"".join(chunks)
 
 
 def _read_limited(url, limit, kinds):

@@ -15,6 +15,15 @@ function kpi(label, value, hint, iconName, onClick, tone) {
     hint ? h('div', {class: 'kpi-hint'}, hint) : null);
 }
 
+// B3: ID tiện ích đã ghép (rút gọn) + cảnh báo khi vừa chặn tiện ích lạ.
+function pairingItems(pairing, ctx) {
+  const names = {tiktok: 'TikTok', shopee: 'Shopee'};
+  return Object.entries(pairing || {}).filter(([, p]) => p && (p.paired || p.blocked_recent)).map(([platform, p]) =>
+    p.blocked_recent
+      ? checkItem('danger', `Tiện ích lạ · ${names[platform] || platform}`, `Đã chặn tiện ích ${p.blocked_recent.id_short} (${p.blocked_recent.count} lần) — chỉ tiện ích đã ghép ${p.id_short || ''} được gọi Kid TE.`, btn('Xem', {size:'sm', onClick:()=>ctx.navigate('system','setup')}))
+      : checkItem('ok', `Tiện ích ${names[platform] || platform}`, `Đã ghép ${p.id_short}`));
+}
+
 function checkItem(state, title, text, action) {
   return h('div', {class: 'check-item ' + state},
     h('span', {class: 'ck'}, icon(state === 'ok' ? 'check' : state === 'danger' ? 'x' : 'alert')),
@@ -79,7 +88,7 @@ export default {
       channelGrid.update(dash.live_channels,videoNames);
       // Source positions change on every poll. Patch only their text; retain
       // action elements and focus while the rest of the dashboard is unchanged.
-      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.privacy, dash.recent_activity, dash.readiness && dash.readiness.summary, dash.live_control, dash.ai && dash.ai.deepseek_available, settings && settings.selected_audio_device, Object.keys(videoNames).length]);
+      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.privacy, dash.recent_activity, dash.readiness && dash.readiness.summary, dash.live_control, dash.extension_pairing, dash.ai && dash.ai.deepseek_available, settings && settings.selected_audio_device, Object.keys(videoNames).length]);
       if (!force && key === lastKey) return;
       lastKey = key;
       const ext = dash.extension || {};
@@ -99,6 +108,7 @@ export default {
           checkItem(catalog.total ? 'ok' : 'warn', 'Giỏ TikTok', `${number(catalog.total)} sản phẩm · ${number(catalog.mapped)} có hồ sơ`, btn('Xem giỏ', {size:'sm', onClick:()=>ctx.navigate('catalog')})),
           checkItem(dash.live_channels?.shopee?.catalog?.products_count ? 'ok' : 'warn', 'Giỏ Shopee', `${number(dash.live_channels?.shopee?.catalog?.products_count || 0)} sản phẩm · ánh xạ theo kịch bản Shopee`, btn('Nguồn LIVE', {size:'sm', onClick:()=>ctx.navigate('system','live')})),
           checkItem(dash.backup && !dash.backup.overdue ? 'ok' : 'warn', 'Sao lưu dùng chung', dash.backup ? `Gần nhất ${relative(dash.backup.latest)}` : 'Chưa có bản sao lưu', btn('Xem', {size:'sm',onClick:()=>ctx.navigate('system','backups')})),
+          ...pairingItems(dash.extension_pairing, ctx),
           privacyWarning(dash.privacy) ? checkItem('danger', 'Bộ nhớ khách', privacyWarning(dash.privacy)) : null));
 
       clear(queueSlot, queuePanel(dash.ai_queue));

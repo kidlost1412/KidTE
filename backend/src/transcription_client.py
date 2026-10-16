@@ -99,6 +99,16 @@ def _run_worker(worker, request, env, args=(), timeout=6 * 60 * 60):
         stderr=subprocess.PIPE, env=env,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    # F7/F8: BELOW_NORMAL + Job Object KILL_ON_JOB_CLOSE, theo dõi để dừng khi thoát.
+    import resource_share
+    resource_share.adopt(process)
+    try:
+        return _collect(process, request, timeout)
+    finally:
+        resource_share.release(process)
+
+
+def _collect(process, request, timeout):
     captured = {"stdout": bytearray(), "stderr": bytearray()}
     oversized = threading.Event()
 
@@ -149,7 +159,7 @@ def _run_worker(worker, request, env, args=(), timeout=6 * 60 * 60):
     return return_code, bytes(captured["stdout"])
 
 
-def transcribe(audio_path, model_path):
+def transcribe(audio_path, model_path, cpu_threads=None):
     """Run the local transcription worker and validate its complete reply."""
     if not model_path:
         raise RuntimeError("Máy chưa có model chép lời — vào Cài đặt → Chép lời để tải model")
@@ -179,6 +189,11 @@ def transcribe(audio_path, model_path):
     # absolute data root as the core process.
     from config import ROOT
     env["KID_TE_ROOT"] = str(Path(ROOT).resolve())
+    # Truyền qua biến môi trường (không đổi giao thức JSON nghiêm ngặt):
+    # worker cũ bỏ qua, worker mới đưa vào WhisperModel(cpu_threads=...).
+    env.pop("KID_TE_CPU_THREADS", None)
+    if cpu_threads:
+        env["KID_TE_CPU_THREADS"] = str(int(cpu_threads))
     try:
         return_code, stdout = _run_worker(worker, request, env)
     except OSError as exc:

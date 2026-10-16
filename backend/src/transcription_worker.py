@@ -84,6 +84,15 @@ def _validate_model(path):
     return str(model.resolve())
 
 
+def _env_cpu_threads():
+    """Giới hạn luồng CPU do lõi đặt khi đang LIVE (KID_TE_CPU_THREADS)."""
+    try:
+        value = int(os.environ.get("KID_TE_CPU_THREADS") or 0)
+    except ValueError:
+        return 0
+    return value if 1 <= value <= 256 else 0
+
+
 def _transcribe(request):
     model_path = _validate_model(request["model_path"])
     audio = _read_pcm_wav(request["audio_wav"])
@@ -104,9 +113,13 @@ def _transcribe(request):
     )
     for device, compute in devices:
         try:
+            extra = {}
+            threads = _env_cpu_threads()
+            if threads and device == "cpu":
+                extra["cpu_threads"] = threads
             model = WhisperModel(
                 model_path, device=device, compute_type=compute,
-                local_files_only=True,
+                local_files_only=True, **extra,
             )
             segments, info = model.transcribe(
                 audio, language="vi", vad_filter=True, beam_size=5,

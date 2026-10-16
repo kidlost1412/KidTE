@@ -886,6 +886,14 @@ class Learner:
             except queue.Empty:
                 job = None
             if job:
+                # F15: đang LIVE có bình luận (≤ 2 phút) thì hoãn, chạy khi rảnh để
+                # gọi DeepSeek thinking dài không tranh hạn mức với đường trả lời.
+                # Một luồng nền duy nhất nên vốn đã giới hạn đồng thời = 1.
+                while self._live_busy() and not self._stop.wait(self.BUSY_POLL_S):
+                    pass
+                if self._stop.is_set():
+                    self._queue.put(job)
+                    break
                 kind, run_id = job
                 try:
                     (self._run_distill if kind == "distill" else self._run_relearn)(run_id)
@@ -900,6 +908,20 @@ class Learner:
                     self.maybe_auto_relearn()
                 except Exception:
                     pass
+
+    BUSY_WINDOW_S = 120
+    BUSY_POLL_S = 15
+
+    def _live_busy(self):
+        """Có bình luận trong 2 phút gần nhất → LIVE đang bận trả lời khách."""
+        try:
+            last_comment = self._activity()
+            if not last_comment:
+                return False
+            idle = time.time() - datetime.fromisoformat(str(last_comment)).timestamp()
+        except Exception:  # noqa: BLE001 - lỗi đọc mốc thì không chặn học.
+            return False
+        return idle < self.BUSY_WINDOW_S
 
     def _enqueue(self, kind, run_id, sync=False):
         if sync:

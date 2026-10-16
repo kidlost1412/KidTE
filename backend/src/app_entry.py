@@ -395,6 +395,12 @@ def main() -> int:
                 engine.close()
             except Exception as exc:
                 logger.error(str(exc), extra={"event": "engine_close_failed"})
+        # F8: dừng worker chép lời/ffmpeg còn chạy (Job Object là lưới an toàn cuối).
+        try:
+            import resource_share
+            resource_share.stop_all()
+        except Exception as exc:
+            logger.error(str(exc), extra={"event": "transcription_stop_failed"})
         lock.release()
         logger.info(ly_do_dung, extra={"event": "backend_stopped"})
     if restart_requested:

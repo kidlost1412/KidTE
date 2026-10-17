@@ -118,6 +118,22 @@ def build_payload(published, changes, *, now=None, days=90, additions=None, remo
     return payload
 
 
+def renew_payload(published, *, now=None, days=90):
+    """Same components as the published catalog, sequence+1, fresh issued_at/expires_at.
+
+    No package URL/hash changes, so no new build is needed: this only extends the
+    validity window so clients keep accepting the feed. Unsigned; sign it with
+    ``update_release.py sign``.
+    """
+    signed = published.get("signed", published)
+    now = now or datetime.now(timezone.utc)
+    payload = copy.deepcopy(signed)
+    payload["sequence"] = int(signed["sequence"]) + 1
+    payload["issued_at"] = _utc(now)
+    payload["expires_at"] = _utc(now + timedelta(days=days))
+    return payload
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--published", required=True, type=Path)

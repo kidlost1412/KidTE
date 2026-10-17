@@ -4,8 +4,8 @@
   (Windows PowerShell 5.1). Dry run by default.
 
 .DESCRIPTION
-  1. Downloads the signed catalogs anonymously (updates-beta-p3 required; stable-p3 and the p4 feeds optional, 404 ignored).
-  2. Lists all releases anonymously (GET API, no token).
+  1. Lists all releases anonymously (GET API, no token).
+  2. Downloads the signed catalog of EVERY existing feed release (updates-*) anonymously; any failure STOPS the script (nothing deleted).
   3. Calls release_prune_plan.py (python -I) to decide KEEP / DELETE per release:
        KEEP    tag referenced by a catalog component url
        KEEP    channel feed tag (updates-*)
@@ -29,6 +29,7 @@ param(
     [string]$Repo = 'kidlost1412/KidTE',
     [string]$CatalogName = 'kidte-catalog-v2.json',
     [string[]]$CatalogTags = @('updates-beta-p3', 'updates-stable-p3', 'updates-beta-p4', 'updates-stable-p4'),
+    [string[]]$RequiredFeeds = @('updates-beta-p4'),
     [string]$Python = 'D:\KidTE-NguonMa\.venv\Scripts\python.exe',
     [string]$RepoPath = ''
 )
@@ -78,22 +79,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("kidte-prune-" + [guid]::NewGuid()
 New-Item -ItemType Directory -Path $work | Out-Null
 
 try {
-    # ------------------------------------------------------------------ 1. tai catalog (cong khai)
-    $catalogPaths = @()
-    foreach ($tag in $CatalogTags) {
-        $dest = Join-Path $work ("$tag-" + $CatalogName)
-        $url = "https://github.com/$Repo/releases/download/$tag/$CatalogName"
-        try {
-            Download-Anonymous $url $dest
-            $catalogPaths += $dest
-            Say "tai catalog $tag"
-        } catch {
-            if ($tag -eq $CatalogTags[0]) { Fail "khong tai duoc catalog bat buoc $tag ($($_.Exception.Message))" }
-            Say "bo qua $tag (khong co catalog)"
-        }
-    }
-
-    # ------------------------------------------------------------------ 2. liet ke release (cong khai, phan trang)
+    # ------------------------------------------------------------------ 1. liet ke release (cong khai, phan trang)
     $all = @()
     $page = 1
     while ($true) {
@@ -104,14 +90,35 @@ try {
         $page++
     }
     Say "$($all.Count) release tren GitHub"
+    if ($all.Count -eq 0) { Fail 'danh sach release rong - dung lai, khong xoa gi' }
     $relPath = Join-Path $work 'releases.json'
     $relJson = ConvertTo-Json -InputObject $all -Depth 10
     [IO.File]::WriteAllText($relPath, $relJson, (New-Object Text.UTF8Encoding($false)))
 
+    # ------------------------------------------------------------------ 2. tai catalog cua MOI feed dang ton tai (cong khai)
+    # A2: feed (tag updates-*) co tren GitHub ma tai loi -> DUNG, khong xoa gi (khong "bo qua" nua).
+    $feedTags = @($all | Where-Object { $_.tag_name -like 'updates-*' } | ForEach-Object { $_.tag_name })
+    foreach ($tag in $CatalogTags) {
+        if ($feedTags -notcontains $tag) { Say "bo qua $tag (release feed khong ton tai)" }
+    }
+    foreach ($req in $RequiredFeeds) {
+        if ($feedTags -notcontains $req) { Fail "khong thay feed bat buoc $req tren GitHub - dung lai, khong xoa gi" }
+    }
+    if ($feedTags.Count -eq 0) { Fail 'khong thay release feed nao (updates-*) - dung lai, khong xoa gi' }
+    $feedArgs = @()
+    foreach ($tag in $feedTags) {
+        $dest = Join-Path $work ("$tag-" + $CatalogName)
+        $url = "https://github.com/$Repo/releases/download/$tag/$CatalogName"
+        try { Download-Anonymous $url $dest }
+        catch { Fail "khong tai duoc catalog cua feed $tag ($($_.Exception.Message)) - dung lai, khong xoa gi" }
+        $feedArgs += "$tag=$dest"
+        Say "tai catalog $tag"
+    }
+
     # ------------------------------------------------------------------ 3. quyet dinh KEEP/DELETE (python)
     $planPath = Join-Path $work 'plan.json'
     $pyArgs = @('-I', $PlanScript, '--releases', $relPath)
-    foreach ($c in $catalogPaths) { $pyArgs += @('--catalog', $c) }
+    foreach ($f in $feedArgs) { $pyArgs += @('--feed', $f) }
     $pyArgs += @('--keep-core', [string]$KeepCore, '--plan-out', $planPath)
     & $Python @pyArgs
     if ($LASTEXITCODE -ne 0) { Fail 'release_prune_plan.py that bai' }

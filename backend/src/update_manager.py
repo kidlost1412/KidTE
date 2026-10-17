@@ -23,6 +23,26 @@ AUTO_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
 logger = logging.getLogger("kidte.update")
 
 
+CATALOG_EXPIRY_WARN_DAYS = 21
+
+
+def catalog_expiry_info(expires_at, now=None, warn_days=CATALOG_EXPIRY_WARN_DAYS):
+    """Cờ nhắc sớm: catalog đang dùng còn < warn_days ngày là hết hạn (chỉ nhắc, không chặn gì)."""
+    empty = {"catalog_expires_at": None, "catalog_days_left": None, "catalog_expiring_soon": False}
+    if not isinstance(expires_at, str) or not expires_at:
+        return empty
+    try:
+        expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        return empty
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    days_left = int((expires - current).total_seconds() // 86400)
+    return {"catalog_expires_at": expires_at, "catalog_days_left": days_left,
+            "catalog_expiring_soon": days_left < warn_days}
+
+
 def _is_newer(candidate, installed):
     """True only when ``candidate`` is a strictly higher SemVer than ``installed``."""
     try:
@@ -171,6 +191,7 @@ class UpdateManager:
         result["update_total_bytes"] = sum(row["download_bytes"] for row in newer)
         with self._lock:
             result["last_checked_at"] = self._last_checked_at
+        result.update(catalog_expiry_info((catalog or {}).get("expires_at")))
         result["extension_reload"] = None
         if self.app_root is not None:
             try:

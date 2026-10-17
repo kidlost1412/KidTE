@@ -16,6 +16,7 @@ from console_io import ensure_std_streams, force_utf8_console, hide_child_consol
 from instance_lock import InstanceAlreadyRunning, SingleInstanceLock
 from launch_origin import record, started_by_user
 import auto_backup
+import data_retention
 import problems
 from port_diagnostics import owners_for_port
 from plugin_registry import discover_plugins
@@ -231,6 +232,7 @@ def main() -> int:
     engine = None
     server = None
     auto_scheduler = None
+    retention_scheduler = None
     ly_do_dung = "graceful"
     restart_requested = False
     logger = configure_logger("core", LOG_DIR)
@@ -349,6 +351,14 @@ def main() -> int:
                 maintenance_provider=lambda: bool(getattr(getattr(engine, "maintenance", None), "blocked", lambda: False)()),
                 logger=logger)
             auto_scheduler.start()
+        if data_retention.enabled() and not args.safe_mode:
+            # Dọn log/dữ liệu thô quá hạn ở nền, theo lô; hoãn khi LIVE/bảo trì/đang sao lưu.
+            import backup_policy
+            retention_scheduler = data_retention.RetentionScheduler(
+                ROOT, live_provider=getattr(engine, "_is_live_running", None),
+                maintenance_provider=lambda: bool(getattr(getattr(engine, "maintenance", None), "blocked", lambda: False)()),
+                backup_lock=backup_policy.OPERATIONAL_BACKUP_LOCK, logger=logger)
+            retention_scheduler.start()
         try:
             import whisper_models
             whisper_models.warm_up()    # đo GPU/CUDA nền, trang Chép lời không phải chờ
@@ -368,6 +378,8 @@ def main() -> int:
         logger.info(ly_do_dung, extra={"event": "backend_stopping"})
         if auto_scheduler is not None:
             auto_scheduler.stop()
+        if retention_scheduler is not None:
+            retention_scheduler.stop()
         if server is not None:
             try:
                 server.server_close()

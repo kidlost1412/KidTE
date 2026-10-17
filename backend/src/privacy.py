@@ -468,6 +468,9 @@ def purge_db_by_tombstones(db_path, tombstones, secret):
                                "(SELECT interaction_id FROM interactions WHERE customer_key=?)", (key,))
                 for t in keyed:
                     deleted += db.execute('DELETE FROM "%s" WHERE customer_key=?' % t, (key,)).rowcount
+                if "memory_opt_outs" in tables:
+                    # Tombstone (HMAC) thay cho dòng opt-out giữ khoá thô của khách đã quên (D5).
+                    deleted += db.execute("DELETE FROM memory_opt_outs WHERE customer_key=?", (key,)).rowcount
             db.execute("CREATE TABLE IF NOT EXISTS privacy_tombstones (key_hmac TEXT PRIMARY KEY, "
                        "created_at REAL NOT NULL, scope TEXT NOT NULL DEFAULT 'all')")
             for t in items:

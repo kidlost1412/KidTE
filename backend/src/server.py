@@ -3587,22 +3587,39 @@ class ReplyEngine:
                     "rule": _CLARIFY_RULE},
                     max(1, limit - tag_len),
                     system_override=_model_processor.compose_system(_CLARIFY_TASK, _CLARIFY_RULE))
+                fallback_reason = "model_action_not_reply"
                 if isinstance(result, dict) and result.get("action") == "reply":
                     body = clean(result.get("reply"), 2000)
-                    if (body and utf16_length(f"{tag} {body}") <= limit
-                            and not _clarify_price_violation(self, body, {}, {})):
+                    if not body:
+                        fallback_reason = "model_empty"
+                    elif utf16_length(f"{tag} {body}") > limit:
+                        fallback_reason = "model_too_long"
+                    elif _clarify_price_violation(self, body, {}, {}):
+                        fallback_reason = "model_price_violation"
+                    else:
                         text = body
             except Exception:
+                fallback_reason = "model_error"
                 logging.getLogger("kid-te.core").warning("tiktok clarify model failed", exc_info=True)
-            text = text or dose_selection.clarify_listing([p.get("title") for p in top], tag_len, template, limit)
+            listing = ""
+            if not text:
+                listing = dose_selection.clarify_listing([p.get("title") for p in top], tag_len, template, limit)
+                text = listing
             new_counts = {**counts, family_id: count + 1}
         if utf16_length(f"{tag} {text}") > limit:
             text = template
+        clarify_fallback = "" if not listing else ("template" if text == template else "listing")
+        if clarify_fallback:
+            logging.getLogger("kid-te.core").info("tiktok clarify fallback=%s reason=%s candidates=%d",
+                                                  clarify_fallback, fallback_reason, len(top))
         reply_id = uuid.uuid4().hex
         with self._lock:
             self._pending_reply_bodies[reply_id] = text
         metrics = {"reply_source": "clarification", "clarify_count": new_counts.get(family_id, 0),
                    **(extra_metrics or {})}
+        if clarify_fallback:
+            metrics["clarify_fallback"] = clarify_fallback
+            metrics["clarify_fallback_reason"] = fallback_reason
         self.memory.record_reply(ref.get("interaction_id", ""), text, complete=False,
             product={}, turn_id=reply_id, metrics=metrics)
         self.memory.note_conversation_state(ref.get("interaction_id", ""), conversation_state(

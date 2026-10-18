@@ -39,3 +39,38 @@ def test_quantity_is_not_customer_price():
 def test_real_customer_price_still_detected():
     for text in ("mình thấy 99k", "giá 150 hả shop", "em thấy còn 185k", "đang 150 nghìn"):
         assert PRICE.customer_price_signal(text, {}), text
+
+
+# K1 -- bớt câu mẫu "đang hỏi sản phẩm hoặc dung tích nào"
+TEMPLATE = "Anh/chị đang hỏi sản phẩm hoặc dung tích nào ạ?"
+
+
+def test_clarify_listing_shortens_titles_instead_of_template():
+    from dose_selection import clarify_listing
+    titles = ["Phân bón lá sinh học cao cấp siêu ra rễ cực mạnh chai 1 lít chính hãng",
+              "Phân bón lá sinh học cao cấp siêu ra rễ cực mạnh can 5 lít chính hãng",
+              "Thuốc trừ nấm bệnh sinh học thế hệ mới gói 100 gram nhập khẩu"]
+    out = clarify_listing(titles, 60, TEMPLATE, 150)
+    assert out != TEMPLATE and "Phân bón" in out
+
+
+def test_shopee_real_selector_keeps_pin_for_generic_questions():
+    from types import SimpleNamespace
+    from shopee_commerce import select_product
+    owner = SimpleNamespace()
+    products = [{"product_id": "a1", "shop_id": 1, "title": "Kích Rễ TC01 chai 100ml"},
+                {"product_id": "b2", "shop_id": 1, "title": "Đạm Cá Hữu Cơ can 5 lít"}]
+    for text in ("pha mấy lít", "còn hàng không", "lấy 3", "bón lúc nào"):
+        chosen, reason = select_product(owner, text, products, "a1", [])
+        assert chosen and chosen["product_id"] == "a1", (text, reason)
+    chosen, _ = select_product(owner, "pha mấy lít", products[:1], "", [])
+    assert chosen["product_id"] == "a1"
+
+
+def test_clarify_text_telling_customer_to_tap_price_is_ok_without_price():
+    from types import SimpleNamespace
+    from shopee_commerce import price_violation
+    owner = SimpleNamespace()
+    assert price_violation(owner, "Anh nhắn shop hoặc bấm giỏ xem giá giúp em nha", {}, {}) == ""
+    assert price_violation(owner, "Bấm giỏ xem giá nha", {"quotable_price": "185.000đ",
+                                                          "quotable_price_vnd": 185000}, {})

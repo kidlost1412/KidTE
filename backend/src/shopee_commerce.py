@@ -87,7 +87,23 @@ def select_product(owner, comment, products, pinned, turns):
     if result["reason"] == "ambiguous_keeps_pinned" and (generic_commerce or re.search(
             r'\b(?:(?:chai|can|loai|san pham|sp|phan) nay|dang ghim)\b', fold(comment))):
         return result["product"], "currently_pinned"
+    if pinned and result["reason"] == "ambiguous_keeps_pinned" and not names_other_product(result, pinned):
+        # "pha mấy lít", "còn hàng không", "lấy 3": câu không chỉ SP nào khác
+        # thì khách đang nói món đang ghim — trả lời luôn thay vì hỏi lại.
+        return result["product"], "currently_pinned"
+    listed = [p for p in products or [] if isinstance(p, dict) and p.get('product_id')]
+    if len(listed) == 1:
+        # Chỉ có một SKU thì không có gì để hỏi lại.
+        return listed[0], 'single_product'
     return None, "ambiguous_product"
+
+
+def names_other_product(result, pinned):
+    """Câu có chữ khớp riêng một SP khác (điểm cao hơn SP ghim) thì mới coi là chỉ SP khác."""
+    ranked = result.get('ranked') or []
+    pinned_score = next((row['score'] for row in ranked if str(row.get('product_id')) == str(pinned)), 0)
+    return any(row['score'] > pinned_score and row['score'] > 0
+               for row in ranked if str(row.get('product_id')) != str(pinned))
 
 
 def price_context(product, catalog, session_id):
@@ -131,6 +147,8 @@ def price_violation(owner, reply, price, signal):
     allowed = {price.get("quotable_price_vnd"), signal.get("reported_price_vnd")}
     if any(value not in allowed for value in said):
         return "Chỉ được nói số tiền trong price.quotable_price hoặc nhắc lại số tiền chính khách vừa báo; không tự tính."
-    if re.search(r"bam|nhan|click", fold(reply)) and re.search(r"xem gia", fold(reply)):
+    # Bảo khách bấm xem giá chỉ sai khi ĐÃ có giá để nói; chưa có giá thì đó là
+    # câu đúng (không bịa số). Khớp theo từ để "nhắn" vẫn khớp nhưng chỉ cạnh "xem giá".
+    if price.get("quotable_price") and re.search(r"\b(?:bam|nhan|click)\b[^.!?]{0,30}\bxem gia\b", fold(reply)):
         return "Trả lời giá trực tiếp bằng price.quotable_price; không bảo khách nhấn vào xem giá."
     return ""

@@ -497,6 +497,8 @@ class ShopeeAiEngine:
             system = system_with_brief(SHOPEE_SYSTEM_PROMPT, context.get('rule', ''), SHOPEE_REPLY_TASK)
             result = self.owner.responder.reply(nickname, comment, context, limit, system_override=system)
             if not isinstance(result, dict) or result.get('action') != 'reply':
+                logging.getLogger('kid-te.core').info('shopee model text rejected reason=action_%s ask=%s',
+                    (result or {}).get('action') if isinstance(result, dict) else 'invalid', context.get('ask', ''))
                 return ''
             body = clean(result.get('reply'), 2000)
             if not body:  # A06: tolerant — a schema-shaped output (messages only) still yields text
@@ -506,8 +508,10 @@ class ShopeeAiEngine:
             while body and utf16_length(f'@{nickname} {body}') > 150:
                 cut = max(body.rfind('. ', 0, len(body) - 1), body.rfind(', ', 0, len(body) - 1), body.rfind(' ', 0, len(body) - 1))
                 body = body[:cut].rstrip(' ,') if cut > 0 else ''
-            if not body or price_violation(self.owner, body, {}, {}):
-                logging.getLogger('kid-te.core').info('shopee model text rejected')
+            violation = price_violation(self.owner, body, {}, {}) if body else ''
+            if not body or violation:
+                logging.getLogger('kid-te.core').info('shopee model text rejected reason=%s ask=%s',
+                    'price_violation' if violation else 'empty_after_fit', context.get('ask', ''))
                 return ''
             return body
         except Exception:
@@ -546,11 +550,17 @@ class ShopeeAiEngine:
             'catalog_candidates': [{k: p.get(k, '') for k in ('product_id', 'title')} for p in top],
             'recent_turns': [{'khach': t.get('comment', ''), 'shop': t.get('response', '')} for t in (turns or [])[:3] if isinstance(t, dict)][::-1],
             'rule': "Mã chưa chắc khách nói sản phẩm nào. Đọc recent_turns: nếu khách đang nối tiếp sản phẩm vừa bàn (vd vừa hỏi can 5l đạm cá rồi hỏi 'đi với thuốc sâu ko' = hỏi pha đạm cá với thuốc sâu) thì trả lời luôn bằng dữ liệu + kiến thức chung. Nếu chỉ còn vài lựa chọn (vd chai 1L hay can 5L) thì hỏi tự nhiên kèm tên cụ thể. Không lặp câu hỏi lại y như lượt trước; không nêu giá/ưu đãi khi chưa rõ sản phẩm."})
+        fallback = ''
         if not modeled:
             # Model hỏng: nêu tên cụ thể thay vì lặp mãi một câu hỏi chung chung.
             modeled = clarify_listing([p.get('title') for p in top], tag_len, template) if top else ''
+            fallback = 'template' if not modeled or modeled == template else 'listing'
+            logging.getLogger('kid-te.core').info('shopee clarify fallback=%s candidates=%d', fallback, len(top))
         new_counts = {**counts, family_id: count + 1}
-        return self._prepare_reply(session_id, nickname, modeled or template, ref, None, '', '', metrics=dict(extra_metrics or {}),
+        metrics = dict(extra_metrics or {})
+        if fallback:
+            metrics['clarify_fallback'] = fallback
+        return self._prepare_reply(session_id, nickname, modeled or template, ref, None, '', '', metrics=metrics,
             reply_source='clarification', awaiting_fields=['product', 'variant'], clarify_count=new_counts)
 
     def _shopee_router(self, comment, original_comment, products, pin_id, turns):

@@ -92,7 +92,7 @@ def test_valid_rule_computed(engine):
     _rule(engine, True)
     out = _dose(engine, "d1")
     assert out["should_send"] and out["reply"] == "Dạ câu trả lời đủ dữ kiện ạ."
-    assert len(_asks(engine)) == 1
+    assert len(_asks(engine)) == 0          # C2: một quy tắc -> mã chọn thẳng, không gọi model chọn
     final = engine.responder.calls[-1]["context"]
     assert "33" in json.dumps(final["verified_dose_calculations"]) and final["dose_rule_selected"]["rule_id"]
 
@@ -112,6 +112,7 @@ def test_no_rules_unchanged_behaviour(engine):
 
 def test_foreign_rule_rejected_then_handoff(engine):
     _rule(engine, True)
+    _rule(engine, True, amount=45)          # hai quy tắc -> model phải chọn
     foreign = _rule(engine, True, sku="SP-99", amount=99)
     engine.responder.selections = [{"rule_id": foreign, "params": {"volume": 16, "unit": "l"}}] * 2
     out = _dose(engine, "d4")
@@ -121,6 +122,7 @@ def test_foreign_rule_rejected_then_handoff(engine):
 
 def test_single_correction_then_valid(engine):
     good = _rule(engine, True)
+    _rule(engine, True, amount=45)
     engine.responder.selections = [{"rule_id": "nope", "params": {"volume": 16, "unit": "l"}},
                                    {"rule_id": good, "params": {"volume": 16, "unit": "l"}}]
     out = _dose(engine, "d5")
@@ -131,6 +133,7 @@ def test_single_correction_then_valid(engine):
 
 def test_wrong_volume_rejected(engine):
     good = _rule(engine, True)
+    _rule(engine, True, amount=45)
     engine.responder.selections = [{"rule_id": good, "params": {"volume": 20, "unit": "l"}}] * 2
     assert _dose(engine, "d6")["reply"] in dose_selection.DOSE_HANDOFFS
 

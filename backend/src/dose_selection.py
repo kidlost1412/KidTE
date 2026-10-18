@@ -88,6 +88,19 @@ def select_dose_rule(call, proc, usable, liters, platform, conversation, context
     ask = {'platform': platform, 'ask': 'select_dose_rule', 'dose_rule_options': options,
            'conversation': conversation, 'rule': DOSE_RULE_NOTE}
     correction = ''
+    if len(usable) == 1:
+        # Rà soát 17/10 C2: chỉ MỘT quy tắc dùng được thì không cần model chọn (tiết kiệm 1–4 giây).
+        # Vẫn qua verify_dose_selection + tính bằng mã như đường model.
+        only = next(iter(usable))
+        rule, volume, _error = verify_dose_selection(
+            {'rule_id': only, 'params': {'volume': liters, 'unit': 'l'}}, usable, liters)
+        rows = proc.verified_dose_calculations(f"bình {volume:g} lít",
+            {'huong_dan_su_dung': [_rule_text(rule)], 'dose_extrapolation_rule': 'nearest_endpoint'},
+            dose_intent=True) if rule else None
+        if rows:
+            context['verified_dose_calculations'] = rows
+            context['dose_rule_selected'] = {'rule_id': rule['rule_id'], 'text': _rule_text(rule)}
+            return {'rows': rows, 'auto_selected': True}
     for _attempt in range(2):
         result = call(ask, correction)
         if isinstance(result, dict) and isinstance(result.get('reply'), str) and 'rule_id' not in result:

@@ -185,3 +185,25 @@ def test_crop_extraction_uses_word_boundaries():
     assert extract_customer_facts("tôi trồng tiêu 2 ha")["cay_trong"] == "hồ tiêu"
     assert extract_customer_facts("cây mai nhà tôi rụng lá")["cay_trong"] == "mai"
     assert extract_customer_facts("trồng điều ở Bình Phước")["cay_trong"] == "điều"
+
+
+# K13 -- Shopee: SKU thiếu giá thì mời xem giỏ, không im lặng, không số
+def test_shopee_missing_price_invites_cart_instead_of_silence(tmp_path):
+    import time
+    from types import SimpleNamespace
+    from shopee_ai import ShopeeAiEngine
+    catalog = {"session_id": "123", "updated_at": time.time(), "products": [
+        {"shop_id": "10", "product_id": "20", "title": "Kích Rễ TC01", "price_data": {}}]}
+    owner = SimpleNamespace(responder=SimpleNamespace(reply=lambda *a, **kw: {"action": "skip"}),
+        knowledge=SimpleNamespace(match=lambda *_: None),
+        shopee_mapping_state=lambda: {"videos": {"v": {"mappings": {"tc01": {"shop_id": "10", "product_id": "20"}}}},
+                                      "catalog": catalog})
+    engine = ShopeeAiEngine(owner, tmp_path / "memory.db", tmp_path / "journal")
+    try:
+        answer = engine.reply({"session_id": "123", "video_id": "v", "comment_id": "1", "user_id": "77",
+                               "nickname": "Khách A", "comment": "giá bao nhiêu", "shop_id": "10", "product_id": "20"})
+        assert answer["should_send"] is True
+        import re
+        assert "giỏ hàng" in answer["reply"] and not re.search(r"ds*(?:k|đ|nghìn|ngàn)", answer["reply"])
+    finally:
+        engine.close()

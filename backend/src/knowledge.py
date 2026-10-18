@@ -773,6 +773,10 @@ _GAP_RULES = {
     "lieu_dung": "liều: hồ sơ shop không có; suy từ loại sản phẩm, nồng độ, dung tích (ml/bình 16-25L), dặn xem thêm nhãn",
     "thoi_diem_sau_trong": "sau trồng: hồ sơ shop không có; trả lời theo kinh nghiệm nông học, nói vừa phải",
     "ho_so_san_pham": "chưa có hồ sơ sản phẩm: dùng hiểu biết chung về loại sản phẩm, đừng bịa số cụ thể",
+    "san_pham_phu_hop": ("khách hỏi nên dùng gì mà mã chưa khớp hồ sơ: gợi ý 1-2 sản phẩm hợp nhất trong "
+                         "all_live_products theo cây/triệu chứng khách nói, hoặc hỏi thêm cây gì/bệnh gì; không bịa giá"),
+    "gia_goc": ("sản phẩm này chưa có giá trong dữ liệu: KHÔNG nói con số nào; trả lời phần khác khách hỏi "
+                "và mời bấm giỏ hàng xem giá (mã giảm theo tài khoản tự áp lúc đặt)"),
 }
 
 

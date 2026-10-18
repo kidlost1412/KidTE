@@ -217,7 +217,11 @@ class ShopeeAiEngine:
         if asks_price and not price.get("quotable_price"):
             if price.get("needs_variant"):
                 return self._prepare_reply(session_id,nickname,"Mình lấy phân loại hoặc dung tích nào để em báo đúng giá nha?",ref,None,title,product_id,metrics={},reply_source="clarification", awaiting_fields=['variant'])
-            return {"ok":True,"should_send":False,"reason":"shopee_price_missing", "missing_fields":["gia_shopee_hien_hanh"]}
+            # K13: không im lặng, không bịa số — mời khách xem giá ở giỏ.
+            logging.getLogger('kid-te.core').info('shopee price missing -> cart invite')
+            return self._prepare_reply(session_id, nickname,
+                f"Dạ giá {clean(title, 50)} anh/chị bấm giỏ hàng xem giúp em nha, mã giảm theo tài khoản tự áp lúc đặt ạ.",
+                ref, None, title, product_id, metrics={}, reply_source="price_missing_cart")
         record = self.owner.knowledge.match(title)
         full_approved = self.owner.knowledge.context(record) if record else {}
         # Product knowledge and approved shop promotions are shared. Catalog

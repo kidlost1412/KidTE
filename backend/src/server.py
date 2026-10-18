@@ -2792,7 +2792,12 @@ class ReplyEngine:
                         soft_gaps.remove(field)
                     taught_gates.append(field)
         if unresolved_recommendation:
-            missing.append("san_pham_phu_hop")
+            # Rà soát 17/10 P2: không im lặng — model gợi ý từ danh mục/kiến thức hoặc hỏi thêm cây/bệnh.
+            soft_gaps.append("san_pham_phu_hop")
+        if "gia_goc" in missing:
+            # K13: SKU thiếu giá -> vẫn trả lời (không nói số), mời xem giá trong giỏ.
+            missing.remove("gia_goc")
+            soft_gaps.append("gia_goc")
         return {"taught_gates": taught_gates,"product": product, "learned_product": learned_product, "intents": intents,
                 "recommendations": recommendations, "record": record, "approved": approved,
                 "soft_gaps": sorted(set(soft_gaps)), "missing": sorted(set(missing))}

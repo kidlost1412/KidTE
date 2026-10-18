@@ -3312,7 +3312,7 @@ class ReplyEngine:
         max_body = max(1, (150 if multi else _model_processor.max_chars()) - utf16_length(tag) - 1)
         started = time.monotonic()
         if promotion_clarification:
-            context['promotion_status'] = 'Chưa có chương trình được duyệt cho SKU này. Ghi nhận đúng sản phẩm/số lượng khách đã nói, nói cần kiểm tra quà tặng; không hỏi lại loại hoặc số lượng đã rõ, không chuyển sang công dụng/giá, không bịa quà.'
+            context['promotion_status'] = 'Chưa có chương trình được duyệt cho SKU này. Phần khách hỏi quà/ưu đãi: nói cần kiểm tra quà tặng, không bịa quà; không hỏi lại loại hoặc số lượng đã rõ. Nếu câu khách còn hỏi ý khác (liều, công dụng, giá gốc) thì vẫn trả lời phần đó bình thường.'
         try:
             dose_gate = self._tiktok_dose_gate(nickname, comment, context, sel, intents, max_body)
         except Exception:

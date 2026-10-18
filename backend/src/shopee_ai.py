@@ -213,7 +213,7 @@ class ShopeeAiEngine:
         if signal:
             signal = {k:v.replace('TikTok','Shopee') if isinstance(v,str) else v for k,v in signal.items()}
         asks_price = bool(PRICE_QUESTION.search(fold(comment)))
-        asks_promotion = bool(PROMOTION_QUESTION.search(fold(comment)))
+        asks_promotion = KnowledgeBase.intents(comment)['promotion']  # P1: có dấu trước, 'tăng' khác 'tặng'
         if asks_price and not price.get("quotable_price"):
             if price.get("needs_variant"):
                 return self._prepare_reply(session_id,nickname,"Mình lấy phân loại hoặc dung tích nào để em báo đúng giá nha?",ref,None,title,product_id,metrics={},reply_source="clarification", awaiting_fields=['variant'])

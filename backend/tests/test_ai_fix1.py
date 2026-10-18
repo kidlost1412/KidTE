@@ -74,3 +74,22 @@ def test_clarify_text_telling_customer_to_tap_price_is_ok_without_price():
     assert price_violation(owner, "Anh nhắn shop hoặc bấm giỏ xem giá giúp em nha", {}, {}) == ""
     assert price_violation(owner, "Bấm giỏ xem giá nha", {"quotable_price": "185.000đ",
                                                           "quotable_price_vnd": 185000}, {})
+
+
+# P1 -- ý định giá/khuyến mãi so trên chữ có dấu trước
+def test_intents_respect_diacritics():
+    from knowledge import KnowledgeBase
+    def it(text):
+        found = KnowledgeBase.intents(text)
+        return found["price"], found["promotion"]
+    assert it("phân này tăng đậu trái không") == (False, False)
+    assert it("tăng trưởng mạnh không") == (False, False)
+    assert it("dùng cho gia đình được không") == (False, False)
+    assert it("mua 2 chai") == (False, False)
+    assert it("giá trị dinh dưỡng cao không") == (False, False)
+    assert it("có tặng gì không shop") == (False, True)
+    assert it("có quà không") == (False, True)
+    assert it("gia bao nhiêu") == (True, False)
+    assert it("gia bao nhieu shop") == (True, False)
+    assert it("co qua tang ko") == (False, True)
+    assert it("tang dau trai khong") == (False, False)

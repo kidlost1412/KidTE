@@ -42,13 +42,38 @@ def test_exited_process_with_open_handle_does_not_keep_lock(tmp_path):
     assert instance_lock._pid_is_alive(child.pid) is False
 
 
-def test_corrupt_lock_is_not_deleted_automatically(tmp_path):
+def test_fresh_corrupt_lock_is_not_taken_while_it_may_still_be_written(tmp_path):
     path = tmp_path / "runtime" / "live-re.lock"
     path.parent.mkdir()
     path.write_text("không phải json", encoding="utf-8")
-    with pytest.raises(InstanceAlreadyRunning, match="Không đọc được"):
+    with pytest.raises(InstanceAlreadyRunning, match="tạo dở"):
         SingleInstanceLock(path).acquire()
     assert path.exists()
+
+
+@pytest.mark.parametrize("content", [b"", b"{\"pid\": 12", b"\x00\x00\x00", b"[1, 2]"])
+def test_old_empty_or_corrupt_lock_is_replaced_and_app_still_starts(tmp_path, content):
+    """C4: mất điện giữa lúc tạo khoá để lại tệp rỗng/hỏng -> không được khoá app mãi."""
+    path = tmp_path / "runtime" / "live-re.lock"
+    path.parent.mkdir()
+    path.write_bytes(content)
+    old = path.stat().st_mtime - 3600
+    os.utime(path, (old, old))
+    lock = SingleInstanceLock(path)
+    lock.acquire()
+    assert json.loads(path.read_text(encoding="utf-8"))["pid"] == os.getpid()
+    assert lock.stale_lock == {"pid": 0, "corrupt": "unreadable"}
+    lock.release()
+    assert not path.exists()
+
+
+def test_lock_is_written_whole_and_leaves_no_temporary_files(tmp_path):
+    path = tmp_path / "runtime" / "live-re.lock"
+    lock = SingleInstanceLock(path)
+    lock.acquire()
+    assert json.loads(path.read_bytes())["token"] == lock.token
+    assert [p.name for p in path.parent.iterdir()] == ["live-re.lock"]
+    lock.release()
 
 
 def test_legacy_lock_with_reused_pid_for_other_executable_is_replaced(tmp_path, monkeypatch):

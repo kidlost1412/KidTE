@@ -32,10 +32,43 @@ class AlreadyRunning(LauncherError):
     """An instance for this data root is already serving the user."""
 
 
+class PortBusy(LauncherError):
+    """The local port is held by another program (never killed by Kid TE)."""
+
+    def __init__(self, port: int, message: str):
+        super().__init__(message)
+        self.port = port
+
+
+class LockBusy(LauncherError):
+    """The data-folder lock is being written right now or cannot be read."""
+
+
+class CoreCrashLoop(LauncherError):
+    """The core stopped unexpectedly too often; supervision gave up."""
+
+
 BASELINE_IDS = ("core", "runtime", "app", "extensions")
 SPLIT_IDS = ("runtime", "app", "extensions")
 LAUNCHER_CAPS = "split-components restart-exit"
 MAX_RESTARTS_PER_WINDOW = 3
+CRASH_RESTART_LIMIT = 3
+CRASH_WINDOW_SECONDS = 600
+CRASH_RESTART_DELAY_SECONDS = 2.0
+# Ctrl+C / đóng console / đăng xuất Windows (STATUS_CONTROL_C_EXIT): người dùng
+# hoặc hệ thống chủ động dừng, không phải sập.
+_INTENTIONAL_EXIT_CODES = {0, 0xC000013A, -1073741510}
+
+
+def _is_unexpected_exit(code) -> bool:
+    """Lõi đã sẵn sàng rồi thoát với mã này có phải sập không (cần tự mở lại)?"""
+    from update_restart import ALREADY_RUNNING_EXIT_CODE, RESTART_EXIT_CODE
+
+    try:
+        value = int(code)
+    except (TypeError, ValueError):
+        return True
+    return value not in _INTENTIONAL_EXIT_CODES | {RESTART_EXIT_CODE, ALREADY_RUNNING_EXIT_CODE}
 
 
 def _prepare_installer_core(app_root, store):
@@ -407,9 +440,16 @@ def _live_lock_state(data_root: Path, app_root: Path) -> tuple[str, int | None]:
     except FileNotFoundError:
         return "free", None
     except (OSError, UnicodeError, json.JSONDecodeError):
-        return "unknown", None
+        value = None
     pid = value.get("pid") if isinstance(value, dict) else None
     if not isinstance(pid, int) or pid <= 0:
+        # C4: rỗng/hỏng (mất điện lúc tạo khoá) không ghi tiến trình nào còn sống.
+        # Đủ cũ thì để lõi tự thay khoá; mới tinh thì có thể đang được ghi dở.
+        from instance_lock import corrupt_lock_is_stale
+
+        if corrupt_lock_is_stale(lock):
+            _record_recovery(app_root, f"stale unreadable lock {lock} will be replaced by the core")
+            return "free", None
         return "unknown", None
     if not _is_pid_alive(pid):
         return "free", pid
@@ -435,16 +475,34 @@ def _call_focus(port: int) -> None:
         f"http://{DEFAULT_HOST}:{port}/api/focus", data=b"{}", method="POST",
         headers={"Content-Type": "application/json"},
     )
+    focused = False
     try:
-        urllib.request.urlopen(request, timeout=1).close()
+        with urllib.request.urlopen(request, timeout=2) as response:
+            value = json.loads(response.read(64 * 1024).decode("utf-8"))
+            focused = isinstance(value, dict) and value.get("ok") is True
     except (OSError, TimeoutError, urllib.error.URLError, ValueError):
-        pass
+        focused = False
+    if focused:
+        return
+    # C2: không có cửa sổ để đưa lên (WebView2 hỏng, lõi đang chạy chế độ trình
+    # duyệt): mở giao diện trong trình duyệt thay vì thoát im lặng.
+    from user_dialogs import open_browser, show_warning
+
+    url = f"http://{DEFAULT_HOST}:{port}/app"
+    if _probe_update_ready(port) is not None and open_browser(url):
+        _record_recovery(_app_root(), f"no window to focus; opened {url} in the default browser")
+        return
+    show_warning("Kid TE đang khởi động",
+                 "Kid TE đang khởi động hoặc đang chạy nhưng chưa đưa được cửa sổ lên.\n\n"
+                 "Hãy đợi khoảng 1 phút. Nếu cửa sổ vẫn không hiện, mở trình duyệt và vào "
+                 f"địa chỉ: {url}\n"
+                 "Nếu vẫn không vào được, hãy khởi động lại máy tính rồi mở lại Kid TE.")
 
 
 def _preflight(app_root: Path, data_root: Path, port: int, *, ready_probe, occupied_probe):
     state, pid = _live_lock_state(data_root, app_root)
     if state == "unknown":
-        raise LauncherError(f"Cannot safely read the existing Kid TE lock in {data_root}.")
+        raise LockBusy(f"Cannot safely read the existing Kid TE lock in {data_root}.")
     if state == "running":
         _call_focus(port)
         raise AlreadyRunning(f"Kid TE is already running (PID {pid}).")
@@ -457,9 +515,9 @@ def _preflight(app_root: Path, data_root: Path, port: int, *, ready_probe, occup
                 isinstance(existing_root, str) and _same_path(existing_root, data_root)):
             _call_focus(port)
             raise AlreadyRunning(f"Kid TE is already running (PID {existing_pid}).")
-        raise LauncherError(f"Port {port} is serving another application; update was not activated.")
+        raise PortBusy(port, f"Port {port} is serving another application; Kid TE was not started.")
     if occupied_probe(port):
-        raise LauncherError(f"Port {port} is already in use; update was not activated.")
+        raise PortBusy(port, f"Port {port} is already in use; Kid TE was not started.")
 
 
 def _mapping_executable(app_root: Path, component: dict) -> Path:
@@ -568,12 +626,81 @@ def _baseline_compatible(component: dict | None) -> bool:
             package.get("compatibility") == {"data_schema": CORE_DATA_SCHEMA})
 
 
+LAUNCHER_LOG_MAX_BYTES = 1024 * 1024
+
+
 def _record_recovery(app_root: Path, message: str) -> None:
+    path = app_root / "launcher-startup.log"
     try:
-        with (app_root / "launcher-startup.log").open("a", encoding="utf-8") as stream:
-            stream.write(f"[Kid TE launcher] {message}\n")
+        if path.is_file() and path.stat().st_size > LAUNCHER_LOG_MAX_BYTES:
+            os.replace(path, path.with_name(path.name + ".1"))
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(f"[Kid TE launcher] {stamp} {message}\n")
     except OSError:
         pass
+
+
+UPDATE_FAILURE_FILE = "update-failure.json"
+
+
+def _mapping_version(mapping) -> str | None:
+    components = (mapping or {}).get("components") if isinstance(mapping, dict) else None
+    for key in ("app", "core"):
+        row = (components or {}).get(key)
+        version = ((row or {}).get("package") or {}).get("version") if isinstance(row, dict) else None
+        if isinstance(version, str):
+            return version
+    return None
+
+
+def _failure_code(detail: str) -> str:
+    if "did not become ready within" in detail:
+        return "startup_timeout"
+    if "validation failed" in detail or "digest" in detail:
+        return "validation_failed"
+    return "startup_failed"
+
+
+def _record_update_failure(app_root: Path, failed, restored, detail: str) -> None:
+    """C5: ghi lý do bản mới bị tự lùi để trang Cập nhật báo cho người dùng.
+
+    Không bao giờ làm hỏng khởi động: lỗi ghi chỉ vào launcher-startup.log.
+    """
+    record = {"schema_version": 1, "failed_version": _mapping_version(failed),
+              "failed_generation": (failed or {}).get("generation") if isinstance(failed, dict) else None,
+              "restored_version": _mapping_version(restored),
+              "reason_code": _failure_code(detail), "reason": detail[:2000],
+              "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    path = app_root / UPDATE_FAILURE_FILE
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        temporary.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
+        _record_recovery(app_root, f"update {record['failed_version']} rolled back to "
+                         f"{record['restored_version']}: {record['reason_code']}")
+    except OSError as exc:
+        _record_recovery(app_root, f"could not record update failure: {exc}")
+
+
+def _read_update_failure(app_root: Path) -> dict | None:
+    try:
+        value = json.loads((app_root / UPDATE_FAILURE_FILE).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        _record_recovery(app_root, f"unreadable {UPDATE_FAILURE_FILE}: {exc}")
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _clear_update_failure(app_root: Path) -> None:
+    try:
+        (app_root / UPDATE_FAILURE_FILE).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        _record_recovery(app_root, f"could not clear {UPDATE_FAILURE_FILE}: {exc}")
 
 
 def _recover_store(app_root: Path, store) -> None:
@@ -792,7 +919,8 @@ class Launcher:
     """Startup coordinator. Dependencies are injectable for non-LIVE tests."""
     def __init__(self, *, store_factory=None, popen=None, ready_probe=None,
                  occupied_probe=None, job_factory=None, sleep=time.sleep,
-                 startup_timeout=STARTUP_TIMEOUT, environ=None):
+                 startup_timeout=STARTUP_TIMEOUT, environ=None, clock=time.monotonic):
+        self.clock = clock
         self.store_factory = store_factory
         self.popen = popen or subprocess.Popen
         self.ready_probe = ready_probe or _probe_update_ready
@@ -840,7 +968,7 @@ class Launcher:
                 pass
 
     def _spawn(self, executable, app_root, data_root, port, generation, active,
-               passthrough_args=()):
+               passthrough_args=(), timeout=None):
         nonce = secrets.token_urlsafe(32)
         gpu_root, gpu_hash = _select_gpu(app_root, active)
         app_dir = _select_app(app_root, active)
@@ -858,7 +986,7 @@ class Launcher:
             job.attach(process)
             ready, detail = _wait_ready(
                 process, nonce, generation, data_root, port,
-                ready_probe=self.ready_probe, timeout=self.startup_timeout, sleep=self.sleep,
+                ready_probe=self.ready_probe, timeout=timeout or self.startup_timeout, sleep=self.sleep,
                 log=lambda m: _record_recovery(app_root, m),
             )
             if not ready:
@@ -881,12 +1009,29 @@ class Launcher:
         try:
             with _launcher_lock(app_root):
                 recent: list[float] = []
+                crashes: list[float] = []
                 while True:
                     _preflight(app_root, data_root, port, ready_probe=self.ready_probe,
                                occupied_probe=self.occupied_probe)
                     code = self._run_once(app_root, data_root, port, child_args)
                     if not self._restart_requested(app_root, code):
-                        return code
+                        if not _is_unexpected_exit(code):
+                            return code
+                        # O2: lõi đã chạy rồi tắt bất thường (sập, hết bộ nhớ, driver...):
+                        # tự mở lại, tối đa CRASH_RESTART_LIMIT lần trong CRASH_WINDOW giây.
+                        now = self.clock()
+                        crashes = [t for t in crashes if now - t < CRASH_WINDOW_SECONDS] + [now]
+                        if len(crashes) > CRASH_RESTART_LIMIT:
+                            _record_recovery(app_root, f"core exited unexpectedly (exit code {code}) "
+                                             f"{len(crashes)} times within {CRASH_WINDOW_SECONDS}s; "
+                                             "not restarting again")
+                            raise CoreCrashLoop(
+                                f"core exited unexpectedly {len(crashes)} times within "
+                                f"{CRASH_WINDOW_SECONDS // 60} minutes (last exit code {code})")
+                        _record_recovery(app_root, f"core exited unexpectedly (exit code {code}); "
+                                         f"restarting ({len(crashes)}/{CRASH_RESTART_LIMIT})")
+                        self.sleep(CRASH_RESTART_DELAY_SECONDS)
+                        continue
                     # The core asked for a restart (UI "Khoi dong lai"): run the normal
                     # selection again so a pending generation is activated through the
                     # usual readiness handshake / rollback. Cap runaway loops.
@@ -969,8 +1114,9 @@ class Launcher:
             if activated is not None:
                 detail = f"pending core validation failed: {exc}"
                 store.rollback()
-                activated = None
+                failed_mapping, activated = activated, None
                 active = store.load_active()
+                _record_update_failure(app_root, failed_mapping, active, detail)
                 generation = active.get("generation") if isinstance(active, dict) else "baseline"
                 component = _core_component(active)
                 try:
@@ -1007,8 +1153,10 @@ class Launcher:
         if not selected.is_file():
             if activated is not None:
                 store.rollback()
-                activated = None
+                failed_mapping, activated = activated, None
                 active = store.load_active()
+                _record_update_failure(app_root, failed_mapping, active,
+                                       f"pending core validation failed: {selected} is missing")
                 generation = active.get("generation") if isinstance(active, dict) else "baseline"
                 component = _core_component(active)
                 try:
@@ -1036,9 +1184,20 @@ class Launcher:
             launch_generation = "baseline"
         if recovery_note and _same_path(selected, app_root / "KidTE.exe"):
             _record_recovery(app_root, recovery_note + "; starting legacy baseline")
+        timeout = None
+        if activated is not None:
+            # C5: bản này lần trước bị lùi vì khởi động quá hạn (máy chậm, diệt virus
+            # quét exe mới) và người dùng đã bấm cài lại: cho thêm thời gian một lần.
+            previous_failure = _read_update_failure(app_root) or {}
+            if (previous_failure.get("reason_code") == "startup_timeout"
+                    and previous_failure.get("failed_version") == _mapping_version(activated)):
+                timeout = self.startup_timeout * 2
+                _record_recovery(app_root, f"retrying {previous_failure.get('failed_version')} "
+                                 f"with a longer startup timeout ({int(timeout)} s)")
         try:
             running, detail = self._spawn(selected, app_root, data_root, port,
-                                          launch_generation, launch_active, child_args)
+                                          launch_generation, launch_active, child_args,
+                                          timeout=timeout)
         except AlreadyRunning as exc:
             self._defer_for_foreign_instance(store, app_root, port, activated, pending_snapshot, exc)
             raise
@@ -1055,6 +1214,7 @@ class Launcher:
                     detail = f"new core became ready but activation confirmation failed: {exc}"
                 else:
                     activated = None
+                    _clear_update_failure(app_root)
             if running is not None:
                 self._collect_garbage(store)
                 try:
@@ -1065,6 +1225,7 @@ class Launcher:
             try:
                 store.rollback()
                 previous = store.load_active()
+                _record_update_failure(app_root, activated, previous, detail)
                 previous_generation = (previous.get("generation")
                                        if isinstance(previous, dict) else "baseline")
                 try:
@@ -1160,32 +1321,83 @@ def main(argv=None) -> int:
         _report_startup_failure(exc)
         return 2
     except Exception as exc:  # noqa: BLE001 - GUI entrypoint must convert unexpected startup errors to a user message
+        import traceback
+
+        try:
+            _record_recovery(_app_root(), "unexpected launcher error:\n" + "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__))[-8000:])
+        except Exception:  # noqa: BLE001 - logging only
+            pass
         _report_startup_failure(f"Launcher error: {type(exc).__name__}: {exc}")
         return 2
 
 
+_REINSTALL_HINT = ("Tệp cài đặt của Kid TE bị thiếu hoặc bị thay đổi (thường do phần mềm diệt "
+                   "virus cách ly). Hãy tải bộ cài Kid TE mới nhất và cài lại vào đúng thư mục cũ: "
+                   "dữ liệu của bạn (thư mục DuLieu) được giữ nguyên.")
+
+
+def _port_owners(port: int):
+    try:
+        from port_diagnostics import owners_for_port
+        return owners_for_port(DEFAULT_HOST, port)
+    except Exception:  # noqa: BLE001 - diagnostics only
+        return []
+
+
+def _user_message(error) -> str:
+    """Câu tiếng Việt nói rõ chuyện gì xảy ra và nên làm gì (C3/C15)."""
+    from user_dialogs import port_busy_message
+
+    text = str(error)
+    port = getattr(error, "port", None)
+    if isinstance(error, PortBusy) or "exit code 3)" in text:
+        port = port or DEFAULT_PORT
+        return port_busy_message(port, _port_owners(port))
+    if isinstance(error, LockBusy):
+        return ("Một phiên Kid TE khác vừa mở hoặc đang tắt dở.\n\n"
+                "Hãy đợi khoảng 10 giây rồi mở lại Kid TE. Nếu vẫn báo lỗi này, hãy khởi động "
+                "lại máy tính.")
+    if isinstance(error, CoreCrashLoop):
+        return ("Kid TE bị tắt bất thường nhiều lần liên tiếp nên đã dừng tự mở lại.\n\n"
+                "Hãy khởi động lại máy tính rồi mở Kid TE. Nếu vẫn lỗi, vào Kid TE > Chẩn đoán > "
+                "Tạo gói hỗ trợ (hoặc gửi các tệp nhật ký bên dưới) cho bộ phận hỗ trợ.")
+    if "did not become ready within" in text:
+        return ("Kid TE khởi động quá lâu nên đã dừng lại an toàn (máy đang bận, hoặc phần mềm "
+                "diệt virus đang quét Kid TE).\n\n"
+                "Hãy đợi 1-2 phút rồi mở lại. Nếu lặp lại, thêm thư mục cài Kid TE vào danh sách "
+                "loại trừ của phần mềm diệt virus.")
+    if any(key in text for key in ("digest", "do not match", "not found", "unavailable",
+                                     "is invalid", "is unsafe", "escaped", "incomplete",
+                                     "Thiếu gói", "cài lại")):
+        return _REINSTALL_HINT
+    if "data schema" in text:
+        return ("Bản Kid TE đang cài không mở được dữ liệu hiện có, và không có bản cũ phù hợp "
+                "để quay về.\n\n" + _REINSTALL_HINT)
+    if "older than" in text:
+        return ("Bộ cài này cũ hơn bản Kid TE đang dùng nên không được áp dụng. Hãy tải bộ cài "
+                "mới nhất, hoặc cứ mở Kid TE như bình thường.")
+    return ("Kid TE gặp lỗi khi khởi động.\n\nHãy khởi động lại máy tính rồi mở lại Kid TE. "
+            "Nếu vẫn lỗi, gửi tệp nhật ký bên dưới cho bộ phận hỗ trợ.")
+
+
 def _report_startup_failure(error):
     message = str(error)
+    log_path = None
     try:
         app_root = _app_root()
-        with (app_root / "launcher-startup.log").open("a", encoding="utf-8") as stream:
+        log_path = app_root / "launcher-startup.log"
+        with log_path.open("a", encoding="utf-8") as stream:
             stream.write(f"[Kid TE launcher] {message}\n")
     except OSError:
-        pass
-    if os.name == "nt":
-        try:
-            import ctypes
-
-            ctypes.windll.user32.MessageBoxW(
-                None, message, "Kid TE không khởi động được", 0x10 | 0x1000,
-            )
-            return
-        except (AttributeError, OSError):
-            pass
+        log_path = None
     try:
-        print(f"[Kid TE] {message}", file=sys.stderr, flush=True)
-    except (AttributeError, OSError):
-        pass
+        body = _user_message(error)
+    except Exception:  # noqa: BLE001 - a failing explanation must not hide the error
+        body = "Kid TE gặp lỗi khi khởi động."
+    from user_dialogs import show_error
+
+    show_error("Kid TE không khởi động được", body, log_path=log_path, detail=message)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised by the executable

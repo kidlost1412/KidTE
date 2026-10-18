@@ -83,7 +83,7 @@ def copy_file(source: Path, target: Path):
 RUNTIME_VERSION = "1.0.0"
 # Version of the ``extensions`` package; bump it whenever extension/ or extension-shopee/ change
 # (build_catalog.py refuses a re-published package with unchanged files).
-EXTENSIONS_VERSION = "1.0.6"
+EXTENSIONS_VERSION = "1.0.7"
 
 
 def runtime_version():

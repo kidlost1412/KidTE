@@ -258,7 +258,12 @@ def _strip_nickname(value, nickname, max_chars=100):
     # (sau "Dạ"/"Chào" nếu có). Nickname là từ thường/số ("5", "Anh", "Phân")
     # mà xoá giữa câu sẽ làm mất liều/số lượng: "pha 5 ml" -> "pha ml".
     escaped = re.escape(name)
+    tagged_start = bool(re.match(rf"@{escaped}(?!\w)", text, flags=re.I))
     text = re.sub(rf"@{escaped}(?!\w)[,:]?", "", text, flags=re.I)
+    if tagged_start and not re.fullmatch(r"[\d\s.,]+", name.strip()):
+        # "@Hoa Dạ anh Hoa ơi, ..." — tên gọi lặp ngay sau @tag đầu câu (R12).
+        text = re.sub(rf"^(\s*(?:dạ[\s,]*)?(?:(?:chào|hi|hello)[\s,!]+)?(?:(?:anh|chị|bạn|cô|chú|em)\s+)?)"
+                      rf"{escaped}(?:\s+ơi[\s,!]*|\s*[,:!]\s*)", lambda m: m.group(1), text, flags=re.I)
     # Đầu câu: phải có dấu gọi ("Nam ơi", "Nam,") mới chắc là gọi tên, tránh
     # "Phân này bón gốc" hay "Dạ 5 ml/bình" bị cắt mất chữ.
     text = re.sub(rf"^((?:dạ\s*)?(?:chào|hi|hello)[\s,!]+){escaped}(?!\w)(?:\s+ơi)?[\s,:!]*",

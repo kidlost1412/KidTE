@@ -3585,7 +3585,7 @@ class ReplyEngine:
                        if isinstance(t, dict) and t.get("delivery_status") == "sent" and t.get("response")]
         correction = self._combined_correction(
             self._policy_violation(comment, result, price_signal),
-            self._invented_price(result, live, sel["approved"], price_signal),
+            self._invented_price(result, live, sel["approved"], price_signal, sel.get("product")),
             self._invented_promo(result, sel.get("product"), sel["approved"]),
             self._variety_correction(result, own_replies))
         if dose_gate and dose_gate.get('handoff'):
@@ -3602,7 +3602,7 @@ class ReplyEngine:
             result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
             result = self._drop_invented_price(result, live, sel["approved"], price_signal, sel.get("product"))
             if (self._policy_violation(comment, result, price_signal)
-                    or self._invented_price(result, live, sel["approved"], price_signal)
+                    or self._invented_price(result, live, sel["approved"], price_signal, sel.get("product"))
                     or reply_variety.admits_fault(result.get("reply"))):
                 retried = "advisory"
         return result, dose_gate, retried
@@ -4006,7 +4006,7 @@ class ReplyEngine:
         # Cùng lớp kiểm chính sách như lúc LIVE, để "Thử AI" phản ánh đúng câu sẽ gửi.
         correction = self._combined_correction(
             self._policy_violation(comment, result, _signal),
-            self._invented_price(result, live, sel["approved"], _signal),
+            self._invented_price(result, live, sel["approved"], _signal, sel.get("product")),
             self._invented_promo(result, sel.get("product"), sel["approved"]),
             self._variety_correction(result))
         if correction:
@@ -4018,7 +4018,7 @@ class ReplyEngine:
             result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
             result = self._drop_invented_price(result, live, sel["approved"], _signal, sel.get("product"))
             if (self._policy_violation(comment, result, _signal)
-                    or self._invented_price(result, live, sel["approved"], _signal)):
+                    or self._invented_price(result, live, sel["approved"], _signal, sel.get("product"))):
                 logging.getLogger("kid-te.core").warning(
                     "TikTok preview reply advisory", extra={"event":"ai_reply_advisory"})
         metrics = dict(result.get("metrics") or {})
@@ -4084,52 +4084,80 @@ class ReplyEngine:
             return []
 
     # "555k", "1.110k", "640.000đ", "1,2 triệu" — số tiền trong câu trả lời.
+    # Nhánh "triệu" đứng TRƯỚC nhánh số trần: "1 triệu 6", "1 triệu 110", "1tr2", "1 triệu rưỡi" (R1).
     _PRICE_TOKEN = re.compile(
-        r"(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+|\d{1,4})(?:\s?(k|nghin|ngan)(?![a-z])|\s?(d|vnd|dong)(?![a-z])"
-        r"|(?=[.,]?\s|$))|(?<![\d.,])(\d{1,3}(?:[.,]\d)?)\s?(tr|trieu)(?![a-z])")
+        r"(?<![\d.,])(?P<mil>\d{1,3}(?:[.,]\d{1,3})?)\s?(?:tr|trieu)(?![a-z])"
+        r"(?:\s?(?P<tail>\d{1,3})(?![\d.,]?\d)(?:\s?k(?![a-z]))?"
+        r"(?!\s*(?:chai|can|cai|lit|ml|kg|goi|thung|hop|bao|ngay|thang|tuan|lan|cay|%))"
+        r"|\s(?P<half>ruoi)(?![a-z]))?"
+        r"|(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+|\d{1,4})(?:\s?(k|nghin|ngan)(?![a-z])|\s?(d|vnd|dong)(?![a-z])"
+        r"|(?=[.,]?\s|$))")
 
     # Số đứng trước đơn vị đo/đếm là quy cách, liều, diện tích — không phải tiền:
     # "1.000 lít", "2.500 m2", "20.000 cây", "1k lít" (rà soát 17/10 K7).
     # Đơn vị đo RÕ: miễn cả khi có k ("1k lít"). Đơn vị đếm chỉ miễn cho số có dấu
     # ngăn nghìn không k ("20.000 cây"); "150k chai" là giá mỗi chai. Không có
     # "con"/"lan" ("còn", "lần" bỏ dấu) để "150k còn 5 suất" vẫn bị bắt.
-    _MEASURE_UNIT = re.compile(r"\s*(?:lit|ml|cc|kg|g|gr|gam|gram|m2|m3|ha|hecta)(?![a-z0-9])")
-    _COUNT_UNIT = re.compile(r"\s*(?:cay|goc|sao|bao|chai|can|goi|thung|hop|bich|tui|binh|phuy|tan|%)(?![a-z0-9])")
+    # Đơn vị so trên chữ CÓ DẤU (R3): bỏ dấu thì "hợp"→hop, "cần"→can, "bình", "gọi", "bảo",
+    # "sao", "gốc" trùng đơn vị và "Giá 450.000 hợp lý" lọt. Bản không dấu chỉ khi đoạn đó
+    # cũng viết không dấu, và chỉ các đơn vị không trùng từ thường (_PLAIN_UNIT).
+    _MEASURE_UNIT = re.compile(r"\s*(?:lít|lit|ml|cc|kg|g|gr|gam|gram|m2|m3|ha|hecta)(?!\w)")
+    _COUNT_UNIT = re.compile(r"\s*(?:cây|gốc|sào|bao|chai|can|gói|thùng|hộp|bịch|túi|bình(?!\s+(?:thường|tĩnh|yên|dân|luận|chọn))|phuy|tấn|%)(?!\w)")
+    _PLAIN_UNIT = re.compile(r"\s*(?:lit|ml|kg|m2|ha|cc)(?![a-z0-9])")
     # "1,5k", "2.5k": số lẻ nghìn.
     _DECIMAL_K = re.compile(r"(?<![\d.,])(\d{1,3}[.,]\d{1,2})\s?(?:k|nghin|ngan)(?![a-z])")
-    # "tổng 370 luôn", "hết 1110": số trần sau từ cộng tiền là tiền (nghìn đồng).
-    _TOTAL_BARE = re.compile(r"\b(?:tong(?: cong)?|het|tinh ra|thanh tien|tat ca la)\s+(\d{2,4})(?![\d.,])")
+    # "tổng 370 luôn", "hết 1110": số trần sau từ cộng tiền là tiền (nghìn đồng) — chỉ khi sau số
+    # là hết câu/dấu câu/từ đệm; "hết 10 ngày", "tổng 12 tháng", "hết 50 cái" không phải tiền (R2).
+    _TOTAL_BARE = re.compile(r"\b(?:tong(?: cong)?|het|tinh ra|thanh tien|tat ca la)\s+(\d{2,4})(?![\d.,]?\d)"
+                             r"(?=\s*(?:$|[.,!?;)]|(?:nha|nhe|nghe|nhen|luon|a|thoi|do|ha|roi|anh|chi|em|ban|"
+                             r"ca nha)(?![a-z])))")
+
+    @classmethod
+    def _unit_after(cls, low, folded, pos, units):
+        """Đơn vị ngay sau vị trí pos: so trên chữ có dấu; không dấu chỉ khi đoạn đó viết không dấu."""
+        if len(low) == len(folded):
+            m = units.match(low, pos)
+            if m:
+                return True
+            m = cls._PLAIN_UNIT.match(folded, pos)
+            return bool(m and low[pos:m.end()] == folded[pos:m.end()])
+        return bool(cls._PLAIN_UNIT.match(folded, pos))
 
     @classmethod
     def _price_values(cls, text):
         values = set()
-        folded = fold(text).replace("₫", "d")
+        low = unicodedata.normalize("NFC", clean(text)).casefold().replace("₫", "d")
+        folded = fold(low)
         for m in cls._PRICE_TOKEN.finditer(folded):
-            if m.group(4):
-                values.add(int(round(float(m.group(4).replace(",", ".")) * 1_000_000)))
+            if m.group("mil"):
+                amount = float(m.group("mil").replace(",", ".")) * 1_000_000
+                tail = m.group("tail")
+                if tail:
+                    amount += int(tail) * 10 ** (6 - len(tail))
+                elif m.group("half"):
+                    amount += 500_000
+                values.add(int(round(amount)))
                 continue
-            digits, k, dong = m.group(1), m.group(2), m.group(3)
+            digits, k, dong = m.group(4), m.group(5), m.group(6)
             has_sep = bool(re.search(r"[.,]\d{3}", digits))
             if not (k or dong or has_sep):
                 continue                    # số trần (vd "20", "150") không phải giá
-            if not dong and k and cls._MEASURE_UNIT.match(folded, m.end()):
+            if not dong and k and cls._unit_after(low, folded, m.end(), cls._MEASURE_UNIT):
                 continue                    # "1k lít": quy cách/liều
-            if not dong and not k and (cls._MEASURE_UNIT.match(folded, m.end(1))
-                                       or cls._COUNT_UNIT.match(folded, m.end(1))):
+            if not dong and not k and (cls._unit_after(low, folded, m.end(4), cls._MEASURE_UNIT)
+                                       or cls._unit_after(low, folded, m.end(4), cls._COUNT_UNIT)):
                 continue                    # "1.000 lít", "20.000 cây"
             number = int(re.sub(r"[.,]", "", digits))
             values.add(number * 1000 if k else number)
         for m in cls._DECIMAL_K.finditer(folded):
             values.add(int(round(float(m.group(1).replace(",", ".")) * 1000)))
         for m in cls._TOTAL_BARE.finditer(folded):
-            if cls._MEASURE_UNIT.match(folded, m.end(1)) or cls._COUNT_UNIT.match(folded, m.end(1)):
-                continue                    # "tổng 20 lít"
             number = int(m.group(1))
             values.add(number * 1000 if number < 1000 else number)
         # >= 1.000đ: bắt cả "1k", "5k", "5 nghìn" (C2). Số trần không đơn vị đã bỏ ở trên.
         return {v for v in values if v >= 1_000}
 
-    def _invented_price(self, result, live, approved, price_signal):
+    def _invented_price(self, result, live, approved, price_signal, product=None):
         """Câu trả lời có số tiền KHÔNG phải giá của sản phẩm nào → tự tính/bịa.
 
         Thấy thật 23/09: "cho 2 can đạm cá 5 lít" → "hết 1.110k". Giá sau mã theo
@@ -4140,7 +4168,7 @@ class ReplyEngine:
         said = self._price_values(result.get("reply") or "")
         if not said:
             return ""
-        allowed = self._allowed_prices(live, approved, price_signal)
+        allowed = self._allowed_prices(live, approved, price_signal, product)
         extra = sorted(said - allowed)
         if not extra:
             return ""
@@ -4164,7 +4192,7 @@ class ReplyEngine:
         """Sau lần sinh lại vẫn còn số tiền bịa: bỏ riêng câu có số đó; không còn gì thì câu an toàn (K6)."""
         if result.get("action") != "reply" or not _price_processor.SETTINGS["chan_tu_tinh_gia"]:
             return result
-        allowed = self._allowed_prices(live, approved, price_signal)
+        allowed = self._allowed_prices(live, approved, price_signal, product)
 
         def bad(sentence):
             return bool(self._price_values(sentence) - allowed)
@@ -4183,7 +4211,7 @@ class ReplyEngine:
             out["messages"] = msgs or [out["reply"]]
         return out
 
-    def _allowed_prices(self, live, approved, price_signal):
+    def _allowed_prices(self, live, approved, price_signal, product=None):
         allowed = set()
         for item in live.get("products") or []:
             item = item or {}
@@ -4192,8 +4220,8 @@ class ReplyEngine:
             sale = self._price_values(clean(item.get("sale_price"), 80) + " d")
             if not (sale and listed == sale):   # price == sale_price là giá sale: không được nói (C1)
                 allowed |= listed
-            # Số tiền nằm trong chương trình khuyến mãi thật ("mua 2 giảm 20k") được nói.
-            allowed |= self._price_values(clean(item.get("promotion"), 3000))
+        # Số tiền trong khuyến mãi CHỈ của đúng SKU đang bàn ("mua 2 giảm 20k"), không phải mọi SKU (R7).
+        allowed |= self._price_values(clean((product or {}).get("promotion"), 3000))
         allowed |= self._price_values(clean((approved or {}).get("gia_goc_duyet"), 80) + " d")
         allowed |= self._price_values(self._promo_text(approved))
         allowed |= self._price_values(json.dumps(price_signal or {}, ensure_ascii=False))
@@ -4216,24 +4244,31 @@ class ReplyEngine:
     # mà dữ liệu (promotion của SKU, hồ sơ đã duyệt, thông tin shop) không có.
     # So khớp trên chữ CÓ DẤU: "tặng" khác "tăng" (bỏ dấu thì trùng).
     _PROMO_KINDS = (
-        ("qua", re.compile(r"(tặng kèm|tặng thêm|quà tặng|có quà|kèm quà|mua \d+\s*\S*\s*tặng|tặng \d+|tặng ngay|được tặng|sẽ tặng|shop tặng|em tặng)"),
-         re.compile(r"tặng|quà|gift")),
+        ("qua", re.compile(r"(tặng kèm|tặng thêm|quà tặng|có quà|kèm quà|mua \d+\s*\S*\s*tặng|tặng \d+|tặng ngay|được tặng|"
+                           r"sẽ tặng|shop tặng|em tặng|gửi tặng|gửi kèm (?:\d|một|thêm|quà|chai|gói|can|lọ)|"
+                           r"(?<!\w)biếu(?!\w)|khuyến mãi thêm)"),
+         re.compile(r"tặng|quà|gift|biếu|kèm")),
         ("freeship", re.compile(r"(freeship|free ship|miễn phí (?:vận chuyển|ship|giao)|miễn ship)"),
          re.compile(r"freeship|free ship|miễn phí (?:vận chuyển|ship|giao)|miễn ship|free_?shipping")),
     )
     # So trên chữ CÓ DẤU: "thuốc bột 80%" không phải "bớt 80%"; "giảm 30% liều" là nông học (K8).
-    _PROMO_PERCENT = re.compile(r"(?<!\w)(?:giảm|sale|off|bớt)\s*(?:giá\s*)?(?:đến\s*)?(\d{1,2})\s*%"
-                                r"(?!\s*(?:liều|lượng|nước|hàm|độ|thuốc|phân|bệnh|sâu|nấm|năng suất))"
+    # R5: "giảm tới/hẳn/luôn 20%", "ưu đãi 20%", "20 phần trăm"; "giảm 20% liều/lượng nước" vẫn là nông học.
+    _PROMO_PERCENT = re.compile(r"(?<!\w)(?:giảm|sale|off|bớt|ưu đãi|khuyến mãi|chiết khấu)\s*(?:giá\s*)?"
+                                r"(?:(?:đến|tới|hẳn|luôn|ngay|thêm|còn)\s*)?(\d{1,2})\s*(?:%|phần trăm(?!\w))"
+                                r"(?!\s*(?:liều|lượng|nước|hàm|độ|bệnh|sâu|nấm|năng suất))"
                                 r"|(?<!\w)(\d{1,2})\s*%\s*off(?!\w)")
     _AGRO_WORDS = re.compile(r"(?<!\w)(liều|hàm lượng|nồng độ|pha|phun|bón|tưới|bệnh|sâu|nấm|hoạt chất)(?!\w)")
-    _CLAUSE_SPLIT = re.compile(r"[,;:]\s*|(?<=\?)\s*")
+    # Tách cả tại "nhưng/mà/còn/tuy nhiên/song": "Chưa có khuyến mãi nhưng em tặng kèm 1 chai" — vế
+    # phủ định chỉ miễn cho chính nó, vế hứa quà sau vẫn bị xét (R4).
+    _CLAUSE_SPLIT = re.compile(r"[,;:]\s*|(?<=\?)\s*|\s+(?=(?:nhưng|mà|còn|tuy nhiên|song)(?!\w))", re.I)
     _SENTENCE_SPLIT = re.compile(r"(?<=[.!?\n])\s+")
     # Câu hỏi / phủ định / hẹn kiểm tra: không phải khẳng định có quà.
     _PROMO_HEDGE = re.compile(r"\b(chua co|khong co|ko co|k co|chua thay|kiem tra|check|hoi lai|de em xem|"
                               r"em xem lai|neu co|co khong|hong co)\b")
 
     # "không có quà", "chưa có chương trình tặng": phủ định trong dữ liệu không phải căn cứ (K9).
-    _NEGATED_PROMO = re.compile(r"(?:không|chưa|ko|hết)\s+(?:có\s+)?(?:\S+\s+){0,2}?(?:quà|tặng|freeship|free ship|"
+    # R6: không còn "hết" chung chung ("Hết hàng lẻ, tặng 1 chai…" là quà thật); tối đa 1 từ chen.
+    _NEGATED_PROMO = re.compile(r"(?:không|chưa|ko)\s+(?:có\s+)?(?:\S+\s+)?(?:quà|tặng|freeship|free ship|"
                                 r"miễn phí \S+|giảm|khuyến mãi|ưu đãi)\S*(?:\s+(?:quà|tặng|kèm|giá))*")
 
     def _promo_source(self, product, approved):
@@ -4264,7 +4299,7 @@ class ReplyEngine:
                     continue
                 for m in self._PROMO_PERCENT.finditer(low):
                     pct = m.group(1) or m.group(2)
-                    if not re.search(rf"(?<!\d){pct}\s*%", source):
+                    if not re.search(rf"(?<!\d){pct}\s*(?:%|phần trăm)", source):
                         hit = True
             if hit:
                 bad.append(sentence)

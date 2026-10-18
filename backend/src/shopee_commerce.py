@@ -87,7 +87,8 @@ def select_product(owner, comment, products, pinned, turns):
     if result["reason"] == "ambiguous_keeps_pinned" and (generic_commerce or re.search(
             r'\b(?:(?:chai|can|loai|san pham|sp|phan) nay|dang ghim)\b', fold(comment))):
         return result["product"], "currently_pinned"
-    if pinned and result["reason"] == "ambiguous_keeps_pinned" and not names_other_product(result, pinned):
+    if (pinned and result["reason"] == "ambiguous_keeps_pinned" and not names_other_product(result, pinned)
+            and not asks_recommendation(comment)):
         # "pha mấy lít", "còn hàng không", "lấy 3": câu không chỉ SP nào khác
         # thì khách đang nói món đang ghim — trả lời luôn thay vì hỏi lại.
         return result["product"], "currently_pinned"
@@ -96,6 +97,17 @@ def select_product(owner, comment, products, pinned, turns):
         # Chỉ có một SKU thì không có gì để hỏi lại.
         return listed[0], 'single_product'
     return None, "ambiguous_product"
+
+
+_RECOMMEND_ASK = re.compile(
+    r'\b(?:dung gi|xai gi|bon gi|phun gi|xit gi|nen dung|nen xai|loai nao|thuoc gi|phan gi|'
+    r'san pham nao|sp nao|co loai nao|tri gi)\b')
+
+
+def asks_recommendation(comment):
+    """Câu XIN GỢI Ý ("cây mai vàng lá dùng gì", "nên dùng loại nào", "có thuốc gì trị…"):
+    không tự gán SP đang ghim — để router/gợi ý xử lý (R8)."""
+    return bool(_RECOMMEND_ASK.search(fold(comment)))
 
 
 def names_other_product(result, pinned):

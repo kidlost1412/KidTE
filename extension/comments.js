@@ -671,9 +671,10 @@ function noteSendFailure(detail) {
     if (outcome?.sent) noteSendOk();
     if (outcome?.stopped) {
       await setStatus('Dữ kiện đã đổi trước khi gửi; backend soạn lại lượt trả lời',true);
-      return;
+      return false;
     }
     await setStatus('Đã gửi đủ các tin của lượt trả lời',true);
+    return true;
   }
 
   async function deliverProtocol2Turn(result, target, row, onSendError) {
@@ -745,8 +746,8 @@ function noteSendFailure(detail) {
       throw new Error("Lượt trả lời từ hàng chờ không phải protocol 2");
     }
     const row = pending.find(item => item.comment_id === target.comment_id) || {};
-    await sendProtocol2Turn(result, target, row);
-    markAnswered(target);
+    // R13: backend soạn lại (stopped) thì chưa gửi — không đánh dấu đã trả lời.
+    if (await sendProtocol2Turn(result, target, row)) markAnswered(target);
     removeLocalRow(target.comment_id);
     return 'handled';
   }
@@ -810,8 +811,7 @@ function noteSendFailure(detail) {
       return;
     }
     if (result.protocol_version === 2) {
-      await sendProtocol2Turn(result, result.source_comment || comment, comment);
-      markAnswered(comment);
+      if (await sendProtocol2Turn(result, result.source_comment || comment, comment)) markAnswered(comment);
       return;
     }
     const content = taggedReply(comment, result.reply, result.max_chars);

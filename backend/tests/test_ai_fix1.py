@@ -120,7 +120,7 @@ def test_measurements_are_not_money():
 def test_money_in_real_promotion_or_shop_info_is_allowed():
     eng = _engine({"freeship": "Freeship đơn từ 500k"})
     live = {"products": [{**LIVE["products"][0], "promotion": "Mua 2 giảm 20k"}]}
-    assert eng._invented_price(_reply("Mua 2 giảm 20k nha anh"), live, {}, {}) == ""
+    assert eng._invented_price(_reply("Mua 2 giảm 20k nha anh"), live, {}, {}, live["products"][0]) == ""
     assert eng._invented_price(_reply("Đơn từ 500k được freeship nha"), live, {}, {}) == ""
     assert eng._invented_price(_reply("Mua 2 giảm 50k nha"), live, {}, {})
 

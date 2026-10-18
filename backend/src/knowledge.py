@@ -21,13 +21,15 @@ _DOSE = re.compile(r"\b(liều|pha|bao nhiêu ml|bình \d+|phuy|cách dùng|sử
 # "combo này pha bình 16 lít sao" là hỏi liều, không phải hỏi khuyến mãi.
 # Để nguyên thì mọi câu có chữ combo đều bị chặn vì thiếu chuong_trinh.
 # "mua 2 chai" là tín hiệu MUA, không phải hỏi khuyến mãi (rà soát 17/10 P1).
-_PROMO = re.compile(r"\b(khuyến mãi|ưu đãi|tặng|quà|chương trình|giảm giá|được giảm|bớt giá|"
+_PROMO = re.compile(r"\b(khuyến mãi|ưu đãi|tặng|quà|chương trình|giảm giá|được giảm|bớt giá|giảm (?:bao nhiêu|mấy phần trăm)|"
                     r"mua \d+[^.?!]{0,24}(?:giảm|bớt|rẻ hơn))\b", re.I)
 # Bản KHÔNG DẤU chỉ dùng cho chữ khách gõ không dấu, và được thiết kế để không
 # đụng chữ có dấu khác: "tang" có thể là "tăng" nên chỉ nhận cụm rõ nghĩa quà;
 # "gia" không nhận "gia đình"/"giá trị".
 _PRICE_PLAIN = re.compile(r"\b(gia(?!\s+(?:dinh|tri|su|vi|han|lai|hang|nhap))|nhieu tien|bao nhieu tien)\b")
 _PROMO_PLAIN = re.compile(r"\b(khuyen mai|uu dai|qua tang|tang kem|tang qua|tang gi|co qua|km|giam gia|duoc giam|"
+                          r"chuong trinh(?: gi| nao| khuyen mai)?|qua gi|giam (?:bao nhieu|may phan tram|duoc khong)|"
+                          r"bot (?:duoc )?(?:khong|ko|bao nhieu)|"
                           r"mua \d+[^.?!]{0,24}(?:giam|bot|re hon))\b")
 _MIX = re.compile(
     r"\b(pha chung|trộn|phun chung|phun chúng|chung với|cùng với|kết hợp)\b",

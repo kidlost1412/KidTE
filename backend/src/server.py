@@ -3365,7 +3365,7 @@ class ReplyEngine:
             if result.get("action") != "reply":
                 result = drafted
             result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
-            result = self._drop_invented_price(result, live, sel["approved"], price_signal)
+            result = self._drop_invented_price(result, live, sel["approved"], price_signal, sel.get("product"))
             if (self._policy_violation(comment, result, price_signal)
                     or self._invented_price(result, live, sel["approved"], price_signal)
                     or reply_variety.admits_fault(result.get("reply"))):
@@ -3931,7 +3931,7 @@ class ReplyEngine:
             if result.get("action") != "reply":
                 result = drafted
             result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
-            result = self._drop_invented_price(result, live, sel["approved"], _signal)
+            result = self._drop_invented_price(result, live, sel["approved"], _signal, sel.get("product"))
             if (self._policy_violation(comment, result, _signal)
                     or self._invented_price(result, live, sel["approved"], _signal)):
                 logging.getLogger("kid-te.core").warning(
@@ -4004,9 +4004,11 @@ class ReplyEngine:
 
     # Số đứng trước đơn vị đo/đếm là quy cách, liều, diện tích — không phải tiền:
     # "1.000 lít", "2.500 m2", "20.000 cây", "1k lít" (rà soát 17/10 K7).
-    _MEASURE_AFTER = re.compile(
-        r"\s*(?:k\s*)?(?:lit|l|ml|cc|kg|g|gr|gam|gram|m2|m3|m|ha|hecta|cay|goc|sao|cong|ngay|tuan|"
-        r"thang|nam|bao|chai|can|goi|thung|hop|lo|bich|tui|binh|phuy|ta|tan|con|cai|lan|%)(?![a-z0-9])")
+    # Đơn vị đo RÕ: miễn cả khi có k ("1k lít"). Đơn vị đếm chỉ miễn cho số có dấu
+    # ngăn nghìn không k ("20.000 cây"); "150k chai" là giá mỗi chai. Không có
+    # "con"/"lan" ("còn", "lần" bỏ dấu) để "150k còn 5 suất" vẫn bị bắt.
+    _MEASURE_UNIT = re.compile(r"\s*(?:lit|ml|cc|kg|g|gr|gam|gram|m2|m3|ha|hecta)(?![a-z0-9])")
+    _COUNT_UNIT = re.compile(r"\s*(?:cay|goc|sao|bao|chai|can|goi|thung|hop|bich|tui|binh|phuy|tan|%)(?![a-z0-9])")
     # "1,5k", "2.5k": số lẻ nghìn.
     _DECIMAL_K = re.compile(r"(?<![\d.,])(\d{1,3}[.,]\d{1,2})\s?(?:k|nghin|ngan)(?![a-z])")
     # "tổng 370 luôn", "hết 1110": số trần sau từ cộng tiền là tiền (nghìn đồng).
@@ -4024,14 +4026,17 @@ class ReplyEngine:
             has_sep = bool(re.search(r"[.,]\d{3}", digits))
             if not (k or dong or has_sep):
                 continue                    # số trần (vd "20", "150") không phải giá
-            if not dong and cls._MEASURE_AFTER.match(folded, m.end(1)):
-                continue                    # "1.000 lít", "1k lít": quy cách/liều
+            if not dong and k and cls._MEASURE_UNIT.match(folded, m.end()):
+                continue                    # "1k lít": quy cách/liều
+            if not dong and not k and (cls._MEASURE_UNIT.match(folded, m.end(1))
+                                       or cls._COUNT_UNIT.match(folded, m.end(1))):
+                continue                    # "1.000 lít", "20.000 cây"
             number = int(re.sub(r"[.,]", "", digits))
             values.add(number * 1000 if k else number)
         for m in cls._DECIMAL_K.finditer(folded):
             values.add(int(round(float(m.group(1).replace(",", ".")) * 1000)))
         for m in cls._TOTAL_BARE.finditer(folded):
-            if cls._MEASURE_AFTER.match(folded, m.end(1)):
+            if cls._MEASURE_UNIT.match(folded, m.end(1)) or cls._COUNT_UNIT.match(folded, m.end(1)):
                 continue                    # "tổng 20 lít"
             number = int(m.group(1))
             values.add(number * 1000 if number < 1000 else number)
@@ -4058,9 +4063,18 @@ class ReplyEngine:
                 "khách mua nhiều thì mời chọn số lượng trong giỏ, TikTok tự tính tổng theo mã của họ.").replace(",", ".")
 
     # Câu thay thế khi sau sinh lại vẫn còn số tiền bịa: không có số nào, vẫn có ích.
-    _SAFE_PRICE_LINE = "Dạ giá gốc anh/chị bấm giỏ hàng xem giúp em nha, mã giảm theo tài khoản sẽ tự áp lúc đặt ạ."
+    _SAFE_PRICE_LINE = "Giá anh/chị xem trong giỏ hàng giúp em nha."
 
-    def _drop_invented_price(self, result, live, approved, price_signal):
+    def _safe_price_line(self, product, approved):
+        """Có giá gốc của đúng SKU thì nói đúng giá đó; không có thì mời xem giỏ (không số, không hứa mã)."""
+        quotable = (clean((approved or {}).get("gia_goc_duyet"), 40)
+                    or clean((product or {}).get("original_price"), 40))
+        if not quotable:
+            listed, sale = clean((product or {}).get("price"), 40), clean((product or {}).get("sale_price"), 40)
+            quotable = listed if listed and listed != sale else ""
+        return f"Giá gốc món này {quotable} nha anh/chị." if quotable else self._SAFE_PRICE_LINE
+
+    def _drop_invented_price(self, result, live, approved, price_signal, product=None):
         """Sau lần sinh lại vẫn còn số tiền bịa: bỏ riêng câu có số đó; không còn gì thì câu an toàn (K6)."""
         if result.get("action") != "reply" or not _price_processor.SETTINGS["chan_tu_tinh_gia"]:
             return result
@@ -4076,7 +4090,7 @@ class ReplyEngine:
         logging.getLogger("kid-te.core").warning("dropped invented price sentences",
                                                  extra={"event": "ai_price_dropped"})
         out = dict(result)
-        out["reply"] = " ".join(kept).strip() or self._SAFE_PRICE_LINE
+        out["reply"] = " ".join(kept).strip() or self._safe_price_line(product, approved)
         if messages:
             msgs = [m for m in (" ".join(k for k in self._SENTENCE_SPLIT.split(str(m)) if k and not bad(k)).strip()
                                 for m in messages) if m]
@@ -4180,7 +4194,7 @@ class ReplyEngine:
                 "Chỉ nói quà tặng, % giảm, freeship khi có trong promotion của sản phẩm, hồ sơ đã duyệt hoặc "
                 "thong_tin_shop; không có thì bỏ ý đó, không bịa.")
 
-    _SAFE_PROMO_LINE = "Dạ quà với ưu đãi em kiểm tra lại rồi báo anh/chị liền nha."
+    _SAFE_PROMO_LINE = "Món này hiện em chưa thấy quà tặng kèm, anh/chị xem thêm ưu đãi trong giỏ hàng giúp em nha."
 
     def _drop_invented_promo(self, result, product, approved):
         """Sau lần sinh lại vẫn bịa quà: bỏ riêng câu vi phạm; không còn gì thì skip."""

@@ -139,6 +139,23 @@ def test_invented_price_after_retry_is_dropped_not_sent():
     out = eng._drop_invented_price(_reply("2 can hết 370k luôn anh."), LIVE, {}, {})
     assert out["action"] == "reply" and out["reply"] == eng._SAFE_PRICE_LINE
     assert not eng._price_values(eng._SAFE_PRICE_LINE)
+    assert "mã" not in eng._SAFE_PRICE_LINE and not eng._SAFE_PRICE_LINE.startswith("Dạ")
+    out = eng._drop_invented_price(_reply("2 can hết 370k luôn anh."), LIVE, {}, {}, LIVE["products"][0])
+    assert "185.000₫" in out["reply"] and "370" not in out["reply"]
+    assert eng._invented_price(out, LIVE, {}, {}) == ""
+
+
+def test_safe_promo_line_promises_nothing():
+    eng = _engine()
+    line = eng._SAFE_PROMO_LINE
+    assert not line.startswith("Dạ") and "báo" not in line and not eng._invented_promo(_reply(line), {}, {})
+
+
+def test_price_followed_by_count_word_is_still_money():
+    eng = _engine()
+    for text in ("150k còn 5 suất thôi", "150.000 còn 5 suất", "150k/chai nha", "150k chai nha",
+                 "Lần này 150k nha", "150k năm nay"):
+        assert eng._invented_price(_reply(text), LIVE, {}, {}), text
 
 
 def test_agronomy_percent_is_not_discount():
@@ -204,7 +221,7 @@ def test_shopee_missing_price_invites_cart_instead_of_silence(tmp_path):
                                "nickname": "Khách A", "comment": "giá bao nhiêu", "shop_id": "10", "product_id": "20"})
         assert answer["should_send"] is True
         import re
-        assert "giỏ hàng" in answer["reply"] and not re.search(r"ds*(?:k|đ|nghìn|ngàn)", answer["reply"])
+        assert "giỏ hàng" in answer["reply"] and "mã" not in answer["reply"] and not re.search(r"ds*(?:k|đ|nghìn|ngàn)", answer["reply"])
     finally:
         engine.close()
 

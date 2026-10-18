@@ -220,7 +220,7 @@ class ShopeeAiEngine:
             # K13: không im lặng, không bịa số — mời khách xem giá ở giỏ.
             logging.getLogger('kid-te.core').info('shopee price missing -> cart invite')
             return self._prepare_reply(session_id, nickname,
-                f"Dạ giá {clean(title, 50)} anh/chị bấm giỏ hàng xem giúp em nha, mã giảm theo tài khoản tự áp lúc đặt ạ.",
+                f"Giá {clean(title, 50)} anh/chị xem trong giỏ hàng giúp em nha.",
                 ref, None, title, product_id, metrics={}, reply_source="price_missing_cart")
         record = self.owner.knowledge.match(title)
         full_approved = self.owner.knowledge.context(record) if record else {}

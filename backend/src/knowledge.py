@@ -776,7 +776,7 @@ _GAP_RULES = {
     "san_pham_phu_hop": ("khách hỏi nên dùng gì mà mã chưa khớp hồ sơ: gợi ý 1-2 sản phẩm hợp nhất trong "
                          "all_live_products theo cây/triệu chứng khách nói, hoặc hỏi thêm cây gì/bệnh gì; không bịa giá"),
     "gia_goc": ("sản phẩm này chưa có giá trong dữ liệu: KHÔNG nói con số nào; trả lời phần khác khách hỏi "
-                "và mời bấm giỏ hàng xem giá (mã giảm theo tài khoản tự áp lúc đặt)"),
+                "và mời xem giá trong giỏ hàng; không khẳng định có mã/ưu đãi"),
 }
 
 

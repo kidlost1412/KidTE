@@ -101,7 +101,8 @@ def test_second_violation_drops_only_bad_sentence_or_skips():
     out = eng._drop_invented_promo(reply("Gốc 120k nha anh. Tặng kèm 1 chai luôn!"), {}, {})
     assert out["action"] == "reply" and out["reply"] == "Gốc 120k nha anh."
     out = eng._drop_invented_promo(reply("Tặng kèm 1 chai luôn!"), {}, {})
-    assert out["action"] == "skip"
+    # Rà soát 17/10 K8: không im lặng — thay bằng câu không hứa gì.
+    assert out["action"] == "reply" and out["reply"] == eng._SAFE_PROMO_LINE
 
 
 # ---- C12: nhiều vi phạm -> một lời nhắc

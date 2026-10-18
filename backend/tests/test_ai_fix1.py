@@ -93,3 +93,71 @@ def test_intents_respect_diacritics():
     assert it("gia bao nhieu shop") == (True, False)
     assert it("co qua tang ko") == (False, True)
     assert it("tang dau trai khong") == (False, False)
+
+
+# K6/K7/K8/K9 -- hậu kiểm tiền/quà
+def _engine(shop_info=None):
+    import server as server_module
+    eng = object.__new__(server_module.ReplyEngine)
+    eng.shop_info = shop_info or {}
+    return eng
+
+
+def _reply(text):
+    return {"action": "reply", "reply": text}
+
+
+LIVE = {"products": [{"product_id": "p1", "title": "Đạm cá 1L", "original_price": "185.000₫"}]}
+
+
+def test_measurements_are_not_money():
+    eng = _engine()
+    for text in ("Can này pha được 1.000 lít nước nha", "Bón 1.200 kg/ha", "Đủ cho 2.500 m2",
+                 "Trồng 20.000 cây", "Gói 500g", "Pha 2ml/16 lít", "1k lít nước"):
+        assert eng._invented_price(_reply(text), LIVE, {}, {}) == "", text
+
+
+def test_money_in_real_promotion_or_shop_info_is_allowed():
+    eng = _engine({"freeship": "Freeship đơn từ 500k"})
+    live = {"products": [{**LIVE["products"][0], "promotion": "Mua 2 giảm 20k"}]}
+    assert eng._invented_price(_reply("Mua 2 giảm 20k nha anh"), live, {}, {}) == ""
+    assert eng._invented_price(_reply("Đơn từ 500k được freeship nha"), live, {}, {}) == ""
+    assert eng._invented_price(_reply("Mua 2 giảm 50k nha"), live, {}, {})
+
+
+def test_new_price_shapes_are_caught():
+    eng = _engine()
+    for text in ("Dạ 1,5k một gói nha", "Giá 2.5k thôi", "2 can tổng 370 luôn anh"):
+        assert eng._invented_price(_reply(text), LIVE, {}, {}), text
+    assert eng._invented_price(_reply("Gốc 185k nha anh"), LIVE, {}, {}) == ""
+
+
+def test_invented_price_after_retry_is_dropped_not_sent():
+    eng = _engine()
+    out = eng._drop_invented_price(_reply("Pha 20ml/bình nha. 2 can hết 370k luôn anh."), LIVE, {}, {})
+    assert out["reply"] == "Pha 20ml/bình nha." and "370" not in out["reply"]
+    out = eng._drop_invented_price(_reply("2 can hết 370k luôn anh."), LIVE, {}, {})
+    assert out["action"] == "reply" and out["reply"] == eng._SAFE_PRICE_LINE
+    assert not eng._price_values(eng._SAFE_PRICE_LINE)
+
+
+def test_agronomy_percent_is_not_discount():
+    eng = _engine()
+    for text in ("Thuốc bột 80% pha 20g/bình nha", "Mưa nhiều thì giảm 30% liều nha anh",
+                 "Hàm lượng đạm 5% nha"):
+        assert eng._invented_promo(_reply(text), {}, {}) == "", text
+    assert eng._invented_promo(_reply("Hôm nay shop giảm 30% cho anh nha"), {}, {})
+
+
+def test_gift_promise_with_trailing_question_is_caught():
+    eng = _engine()
+    assert eng._invented_promo(_reply("Shop tặng kèm 1 chai nha anh, anh lấy mấy chai ạ?"), {}, {})
+    assert eng._invented_promo(_reply("Anh hỏi có tặng kèm không ạ?"), {}, {}) == ""
+
+
+def test_gift_basis_only_from_promotion_data_and_not_negated():
+    eng = _engine({"ghi_chu": "Hiện không có quà tặng"})
+    approved = {"thanh_phan_dang_ky": "Đạm 5%", "cong_dung": "tặng sức đề kháng"}
+    assert eng._invented_promo(_reply("Shop tặng kèm 1 chai nha"), {}, approved)
+    assert eng._invented_promo(_reply("Shop giảm 5% cho anh nha"), {}, approved)
+    assert eng._invented_promo(_reply("Shop tặng kèm 1 chai nha"), {"promotion": "Mua 2 tặng 1 chai"}, {}) == ""

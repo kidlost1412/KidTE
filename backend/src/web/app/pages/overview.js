@@ -1,9 +1,9 @@
-import {aiStatus} from '../core/ai-status.js';
+import {aiStatus, liveAlertBanners} from '../core/ai-status.js';
 import {h, clear, disposer} from '../core/dom.js';
 import {icon} from '../core/icons.js';
 import {request} from '../core/api.js';
 import {number, relative, clock} from '../core/format.js';
-import {btn, chip, empty, pageHead, personAvatar, bag, productAvatar, skeletonRows} from '../ui/kit.js';
+import {btn, chip, empty, notice, pageHead, personAvatar, bag, productAvatar, skeletonRows} from '../ui/kit.js';
 import {CONVERSATION_STATUS, RESOURCE_NAME, lookup} from '../labels.js';
 import {liveChannelCards} from '../ui/live-status.js';
 import {liveWizard} from './live-wizard.js';
@@ -59,6 +59,7 @@ export default {
     const wizard = liveWizard(ctx, {withCards: true});
     const heroSlot = h('div', {class: 'live-overview'});
     const kpiSlot = h('div', {class: 'kpis'});
+    const alertSlot = h('div', {class: 'live-alerts', 'aria-live': 'assertive'});
     const queueSlot = h('div');
     const pendingSlot = h('div', {}, skeletonRows(4, 50));
     const activitySlot = h('div');
@@ -67,7 +68,7 @@ export default {
         [btn('Mở hộp thư', {kind: 'primary', icon: 'message', onClick: () => ctx.navigate('inbox')})]),
       // Màn rộng: trợ lý + công tắc bên trái, thẻ nguồn xếp dọc bên phải (pages.css .live-top).
       // "Cần xử lý" nằm ngay màn hình đầu (1366x768) — khách bị bỏ sót là thứ cần thấy nhất khi LIVE.
-      kpiSlot,
+      alertSlot, kpiSlot,
       h('div', {class: 'live-top'}, wizard.el, heroSlot), queueSlot,
       h('div', {class: 'overview-grid'},
         h('section', {class: 'card'}, h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h2', {}, 'Việc cần làm trong Hộp thư'), h('div', {class: 'sub'}, 'Khách hỏi mà chưa ai trả lời và chưa được dạy AI — mới nhất trước')),
@@ -85,12 +86,14 @@ export default {
 
     function render(dash, force = false) {
       if (!dash) { clear(heroSlot, h('div', {class: 'skeleton', style: {height: '188px', borderRadius: '20px'}}), h('div', {class: 'skeleton', style: {height: '188px', borderRadius: '20px'}})); return; }
+      // O3/O4: băng đỏ báo AI hỏng / không nhận bình luận khi LIVE; tự mất khi hết lỗi.
+      clear(alertSlot, ...liveAlertBanners(dash.live_alerts).map(a => notice(a.tone, a.title, a.text)));
       wizard.update(dash, videoNames);
       if (!channelGrid.isConnected) clear(heroSlot,h('div',{class:'col gap-4'},channelGrid,servicesSlot));
       channelGrid.update(dash.live_channels,videoNames);
       // Source positions change on every poll. Patch only their text; retain
       // action elements and focus while the rest of the dashboard is unchanged.
-      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.privacy, dash.recent_activity, dash.readiness && dash.readiness.summary, dash.live_control, dash.extension_pairing, dash.ai && dash.ai.deepseek_available, settings && settings.selected_audio_device, Object.keys(videoNames).length]);
+      const key = JSON.stringify([dash.live_channels?.shopee?.catalog?.products_count, dash.captcha && [dash.captcha.running, dash.captcha.configured, dash.captcha.key_rejected], dash.session && [dash.session.todo, dash.session.review, dash.session.ai_replied], dash.catalog, dash.backup, dash.video_review, dash.learning, dash.ai_queue, dash.privacy, dash.recent_activity, dash.readiness && dash.readiness.summary, dash.live_control, dash.extension_pairing, dash.ai && dash.ai.deepseek_available, (dash.live_alerts || []).map(a => a.code), settings && settings.selected_audio_device, Object.keys(videoNames).length]);
       if (!force && key === lastKey) return;
       lastKey = key;
       const ext = dash.extension || {};
@@ -106,7 +109,7 @@ export default {
 
       clear(servicesSlot,
         h('section', {class: 'hero-checklist card'}, h('h3', {class:'shared-services-title'}, 'Dữ liệu và dịch vụ dùng chung'),
-          checkItem(aiStatus(dash.ai).kind, 'DeepSeek', aiStatus(dash.ai).kind === 'ok' ? 'Sẵn sàng cho cả hai sàn; bật trả lời trong từng tiện ích' : aiStatus(dash.ai).checking ? aiStatus(dash.ai).text : 'Chưa kết nối AI', btn('Cài đặt', {size:'sm', onClick:()=>ctx.navigate('system','setup')})),
+          checkItem(aiStatus(dash.ai, dash.live_alerts).kind, 'DeepSeek', aiStatus(dash.ai, dash.live_alerts).kind === 'ok' ? 'Sẵn sàng cho cả hai sàn; bật trả lời trong từng tiện ích' : (aiStatus(dash.ai, dash.live_alerts).checking || aiStatus(dash.ai, dash.live_alerts).alert) ? aiStatus(dash.ai, dash.live_alerts).text : 'Chưa kết nối AI', btn('Cài đặt', {size:'sm', onClick:()=>ctx.navigate('system','setup')})),
           checkItem(catalog.total ? 'ok' : 'warn', 'Giỏ TikTok', `${number(catalog.total)} sản phẩm · ${number(catalog.mapped)} có hồ sơ`, btn('Xem giỏ', {size:'sm', onClick:()=>ctx.navigate('catalog')})),
           checkItem(dash.live_channels?.shopee?.catalog?.products_count ? 'ok' : 'warn', 'Giỏ Shopee', `${number(dash.live_channels?.shopee?.catalog?.products_count || 0)} sản phẩm · ánh xạ theo kịch bản Shopee`, btn('Nguồn LIVE', {size:'sm', onClick:()=>ctx.navigate('system','live')})),
           checkItem(dash.backup && !dash.backup.overdue ? 'ok' : 'warn', 'Sao lưu dùng chung', dash.backup ? `Gần nhất ${relative(dash.backup.latest)}` : 'Chưa có bản sao lưu', btn('Xem', {size:'sm',onClick:()=>ctx.navigate('system','backups')})),

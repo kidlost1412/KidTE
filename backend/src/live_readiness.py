@@ -220,9 +220,12 @@ def build_readiness(dash, extra=None):
     ai_tk = bool(ext.get("ai_enabled")) and bool(ext.get("ai_ready"))
     ai_sp = sh_beat.get("connected") is not False and bool(sh_beat.get("ai_enabled")) and bool(sh_beat.get("ai_ready"))
     ai_names = [n for n, ok in (("TikTok", ai_tk), ("Shopee", ai_sp)) if ok]
+    alerts = [a for a in (dash.get("live_alerts") or []) if isinstance(a, dict)]
+    ai_alert = next((a for a in alerts if str(a.get("code", "")).startswith("ai_")), None)
     add(_step("C4", "live", "Bật AI trả lời", "AI trả lời bình luận khách khi được bật.",
-              "done" if ai_names else ("todo" if connected or sh_ext else "blocked"),
-              f"AI đang trả lời ({', '.join(ai_names)})" if ai_names else "AI đang tắt", required=False))
+              "error" if ai_alert else ("done" if ai_names else ("todo" if connected or sh_ext else "blocked")),
+              ai_alert.get("message", "") if ai_alert else
+              (f"AI đang trả lời ({', '.join(ai_names)})" if ai_names else "AI đang tắt"), required=False))
     add(_step("C5", "live", "Theo dõi khách hỏi", "Xem câu chưa trả lời và duyệt câu AI đã gửi.",
               "optional", "", required=False, action=_nav("inbox", "todo")))
 
@@ -232,4 +235,4 @@ def build_readiness(dash, extra=None):
             # Giữ trạng thái thật để trang đổi lựa chọn sàn mà không cần hỏi lại máy chủ.
             s["real"] = {"state": s["state"], "required": s["required"], "detail": s["detail"]}
             s["state"], s["required"], s["detail"] = "na", False, "Không dùng sàn này"
-    return {"ok": True, "steps": steps, "platforms": plats, "summary": summarize(steps)}
+    return {"ok": True, "steps": steps, "platforms": plats, "summary": summarize(steps), "alerts": alerts}

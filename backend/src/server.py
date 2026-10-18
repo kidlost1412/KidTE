@@ -1009,6 +1009,7 @@ class ReplyEngine:
             "restore_v2_enabled": self._restore_v2_flag(),
             "privacy": self._privacy_status(),
             "live_control": self.live_control(),
+            "live_alerts": self.live_alerts(),
         }
         try:
             from live_readiness import build_readiness
@@ -1256,6 +1257,41 @@ class ReplyEngine:
         self._backup_cache = None
         return result
 
+    def _live_alerts(self):
+        alerts = getattr(self, "_live_alerts_state", None)
+        if alerts is None:
+            from live_alerts import LiveAlerts
+            alerts = self._live_alerts_state = LiveAlerts()
+        return alerts
+
+    def _note_ai_failure(self, reasons, http_status=None):
+        """O3: đếm lỗi AI liên tiếp; lần đầu chuyển sang báo động thì ghi nhật ký + thông báo Windows."""
+        before = self._live_alerts().ai_alert()
+        alert = self._live_alerts().ai_failed(reasons, http_status)
+        if alert and not before:
+            report_problem("live_alert_ai", f"{alert['message']} {alert['action']}", severity="error")
+            if alert["code"] in ("ai_out_of_balance", "ai_key_rejected"):
+                # Số dư/khoá đã đổi: cache số dư hết hạn để pill AI kiểm lại ngay lần tới.
+                responder = getattr(self, "responder", None)
+                lock = getattr(responder, "_balance_lock", None)
+                if lock is not None and hasattr(responder, "_balance_checked_at"):
+                    with lock:
+                        responder._balance_checked_at = 0.0
+
+    def live_alerts(self):
+        """Báo động đang có khi LIVE (O3 AI hỏng, O4 không nhận bình luận TikTok)."""
+        from config import COMMENT_SILENCE_ALERT_S
+        out = []
+        ai = self._live_alerts().ai_alert()
+        if ai:
+            out.append(ai)
+        heartbeat = (getattr(self, "platform_heartbeats", {}) or {}).get("tiktok") or {}
+        comments = self._live_alerts().comment_alert(heartbeat, COMMENT_SILENCE_ALERT_S,
+                                                     heartbeat.get("live_since") or 0)
+        if comments:
+            out.append(comments)
+        return out
+
     def heartbeat(self, payload):
         platform = payload.get("platform", "tiktok")
         if platform not in PLATFORMS:
@@ -1275,7 +1311,21 @@ class ReplyEngine:
             "tab_id": clean(payload.get("tab_id"), 64),
             "received_at": time.time(),
         }
+        collector = payload.get("collector")
+        if isinstance(collector, dict):
+            # O4: trạng thái thu bình luận của tiện ích (cầu ChatMessage + bộ thu).
+            try:
+                last_ms = max(0, int(collector.get("last_comment_at_ms") or 0))
+            except (TypeError, ValueError):
+                last_ms = 0
+            allowed["collector"] = {"ok": collector.get("ok") is not False,
+                                    "bridge": collector.get("bridge") is not False,
+                                    "last_comment_at_ms": last_ms}
         previous = self.platform_heartbeats.get(platform) or {}
+        # Mốc bắt đầu LIVE (theo heartbeat) để tính "bao lâu chưa có bình luận".
+        if allowed["live_running"]:
+            allowed["live_since"] = (previous.get("live_since") if previous.get("live_running")
+                                     else None) or allowed["received_at"]
         # E2: mọi tab shop.tiktok.com đều có thể gửi heartbeat. Tab KHÔNG điều khiển
         # (session rỗng / chưa sẵn sàng) không được đè heartbeat còn mới của tab điều
         # khiển — nếu không claim/queue/next trả delivery_control_inactive. Cùng tab
@@ -3433,6 +3483,7 @@ class ReplyEngine:
             if any(str(r).startswith(("deepseek_", "model_", "empty_model")) for r in reasons):
                 report_problem("ai_reply_failed", f"AI không trả lời được: {', '.join(reasons)}",
                                severity="warning")
+                self._note_ai_failure(reasons, metrics.get("http_status"))
             self.missing.record(payload, reasons, product)
             return self._tracked_result({
                 "ok": True, "should_send": False, "reason": "model_skipped",
@@ -3444,6 +3495,7 @@ class ReplyEngine:
             result = {**result, "awaiting_fields": schema["awaiting_fields"]}
         metrics = reply_schema.audit_metrics(metrics, schema)
         reply = result["reply"]
+        self._live_alerts().ai_succeeded()   # O3: một lượt thành công là hết báo động AI
         bodies = result.get('messages', [reply]) if multi else [reply]
         if time.time() * 1000 - received_at >= 120000:
             return self._tracked_result({'ok': True, 'should_send': False, 'reason': 'expired'})
@@ -5298,7 +5350,13 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             job_id = (query.get("job_id") or [""])[0]
             include = (query.get("include_draft") or [""])[0] == "1"
-            self.send_json(200, self.engine.video_analysis_status(job_id, include))
+            try:
+                status = self.engine.video_analysis_status(job_id, include)
+            except (ValueError, KeyError, FileNotFoundError):
+                # O5: job id sai/rỗng/cũ -> 404 JSON, không traceback ra console.
+                self.send_json(404, {"ok": False, "error": "invalid_job_id"})
+                return
+            self.send_json(200, status)
         elif self.path == "/api/plugins":
             if not self.local_tool_request():
                 self.send_json(403, {"ok": False, "error": "local_only"})

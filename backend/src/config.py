@@ -97,6 +97,11 @@ CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "2400"))
 # khuyên 1.3 cho hội thoại; 0.8 giữ tự nhiên mà vẫn bám dữ kiện trong ngữ cảnh.
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.8"))
 MEMORY_MAX_TURNS = int(os.getenv("MEMORY_MAX_TURNS", "5"))
+# O4: đang LIVE mà bấy nhiêu giây không có bình luận TikTok mới thì cảnh báo (tối thiểu 60).
+try:
+    COMMENT_SILENCE_ALERT_S = max(60, int(os.getenv("KID_TE_COMMENT_SILENCE_S", "300")))
+except ValueError:
+    COMMENT_SILENCE_ALERT_S = 300
 RAW_STREAM_ENABLED = os.getenv("RAW_STREAM_ENABLED", "1") == "1"
 TIKTOK_HOST_USER_IDS = {
     item.strip() for item in os.getenv("TIKTOK_HOST_USER_IDS", "").split(",")

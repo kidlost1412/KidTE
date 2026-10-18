@@ -1446,6 +1446,15 @@ class HttpLayerTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, 403)
 
+    def test_video_analysis_status_invalid_job_is_404_json(self):
+        def boom(job_id, include_draft=False):
+            raise ValueError("invalid_job_id")
+        self.engine.video_analysis_status = boom
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.get("/api/video/analysis/status?job_id=")
+        self.assertEqual(caught.exception.code, 404)
+        self.assertEqual(json.loads(caught.exception.read())["error"], "invalid_job_id")
+
     def test_backup_now_is_local_only(self):
         result = self.post("/api/backup", {}, origin="")
         self.assertTrue(result["created"])

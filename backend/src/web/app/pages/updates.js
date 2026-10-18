@@ -150,6 +150,16 @@ export async function updates(ctx, host, owner) {
         showAll && h('div', {class: 'muted fs-sm'}, 'Cài các tính năng còn thiếu và cập nhật gói đã cài trong một lượt. Chỉ khởi động lại một lần sau khi tải xong.'),
         h('div', {class: 'muted fs-sm'}, state.hardware_probing ? 'Đang nhận diện card đồ họa…' : state.setup_hardware?.eligible ? `Đã nhận diện ${state.setup_hardware.name || 'card NVIDIA'} — tự chọn gói tăng tốc NVIDIA.` : 'Dùng CPU; gói tăng tốc NVIDIA không được tự tải.')];
       const main = [];
+      const failure = state.last_update_failure;
+      if (failure && failure.message) {
+        // Bản cập nhật trước bị launcher tự lùi: báo rõ, bấm "Đã hiểu" để ẩn.
+        main.push(notice('warn', 'Lần cập nhật trước chưa thành công', failure.message,
+          btn('Đã hiểu', {kind: 'ghost', size: 'sm', onClick: async () => {
+            try { await request('/api/updates/ack_update_failure', {method: 'POST', body: {}}); }
+            catch (error) { toast(friendlyError(error), 'danger'); return; }
+            if (!disposed) render();
+          }})));
+      }
       if (state.error) {
         main.push(notice('danger', 'Chưa cập nhật được', friendlyError({code: state.error}),
           btn('Thử lại', {kind: 'primary', size: 'sm', disabled: state.busy, onClick: () => act('check', {channel})})));

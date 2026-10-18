@@ -50,6 +50,7 @@
   let enabled = false;
   let busy = false;
   let installed = false;      // cầu ChatMessage đã cài (độc lập với AI)
+  let lastCommentAtMs = 0;    // lần cuối cầu đưa lên một bình luận (O4)
   let aiReady = false;        // đã kiểm tra backend + đồng bộ danh mục
   let isController = false;
   let protocolV2 = false;
@@ -568,6 +569,9 @@ function noteSendFailure(detail) {
           send_pause_reason: sendPauseReason,
           // Đồng hồ tự ghim (liveReState.running) — trợ lý LIVE đọc trạng thái Tự ghim thật.
           pin_running: liveStateCache?.running === true,
+          // O4: trạng thái thu bình luận để app cảnh báo khi cầu/bộ thu hỏng.
+          collector: { ok: collectorOk && observePersistErrors === 0, bridge: installed,
+            last_comment_at_ms: lastCommentAtMs },
           ...(appliedSeq > 0 ? { control_applied_seq: appliedSeq,
             control_error: String(ctlSaved?.liveReControlError || "") } : {})
         }
@@ -1149,6 +1153,7 @@ function noteSendFailure(detail) {
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     if (event.data?.source !== "LIVE_RE_TIKTOK_CHAT" || event.data?.nonce !== nonce) return;
+    lastCommentAtMs = Date.now();   // O4: app cảnh báo khi LIVE mà lâu không có bình luận
     onRawComment(event.data.payload);
   });
 

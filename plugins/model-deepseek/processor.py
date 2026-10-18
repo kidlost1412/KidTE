@@ -679,8 +679,10 @@ class DeepSeekResponder:
                 remaining = turn_remaining()
                 if (attempt == 2 or not _is_transient_error(exc) or elapsed_ms() > 20000
                         or (remaining is not None and (remaining < 2.0 or elapsed_ms() > 12000))):
+                    status = getattr(exc, "status_code", None)
                     return {"action": "skip", "missing_fields": [f"deepseek_{type(exc).__name__}"],
-                            "metrics": {"model_ms": elapsed_ms(), **({"retried_transient": True} if attempt else {})}}
+                            "metrics": {"model_ms": elapsed_ms(), **({"retried_transient": True} if attempt else {}),
+                                        **({"http_status": status} if isinstance(status, int) else {})}}
                 time.sleep(0.6 * (attempt + 1))
         # DeepSeek tinh gia input theo cache hit/miss (hit re hon nhieu lan). Thieu hai
         # truong nay thi metrics_store phai coi CA prompt la cache miss — dat gia cao hon
@@ -726,6 +728,9 @@ class DeepSeekResponder:
             try:
                 response = self._create(inference)
             except Exception as exc:
+                status = getattr(exc, "status_code", None)
+                if isinstance(status, int):
+                    metrics["http_status"] = status
                 return {"action": "skip", "missing_fields": [f"deepseek_{type(exc).__name__}"], "metrics": metrics}
             choice, content = response.choices[0], response.choices[0].message.content or ""
             _add_usage(metrics, getattr(response, "usage", None))

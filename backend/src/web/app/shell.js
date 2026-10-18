@@ -147,8 +147,12 @@ export function createShell({navigate, commands, goBack = () => false, canGoBack
         return pill(`${name}: ${live ? 'LIVE' : ext.connected ? 'đã nối' : 'chưa nối'}`, tone,
           () => navigate('system', 'live'), {live, short: shortPill(name, live || ext.connected ? 'ok' : 'warn'), title: `${name} · ${channel.position?.available ? 'đã nhận diện video riêng' : 'chờ nguồn riêng'}`});
       }),
-      pill(ai.deepseek_available ? 'DeepSeek sẵn sàng' : aiStatus(ai).checking ? aiStatus(ai).text : 'AI chưa sẵn sàng', aiStatus(ai).kind, () => navigate('system', 'setup'),
-        {short: shortPill('AI', ai.deepseek_available ? 'ok' : aiStatus(ai).kind)}),
+      (() => {
+        const st = aiStatus(ai, dash?.live_alerts);
+        const label = st.alert ? 'AI đang lỗi' : ai.deepseek_available ? 'DeepSeek sẵn sàng' : st.checking ? st.text : 'AI chưa sẵn sàng';
+        return pill(label, st.kind, () => navigate('system', 'setup'),
+          {short: shortPill('AI', st.kind), ...(st.alert ? {title: st.alert.message} : {})});
+      })(),
       pill(captcha.running ? 'CAPTCHA đang quét' : captcha.key_rejected ? 'CAPTCHA: khoá lỗi' : 'CAPTCHA chưa chạy',
         captcha.running ? 'ok' : captcha.key_rejected ? 'danger' : 'warn', () => navigate('captcha'),
         {short: shortPill('CAPTCHA', captcha.running ? 'ok' : captcha.key_rejected ? 'danger' : 'warn')}));

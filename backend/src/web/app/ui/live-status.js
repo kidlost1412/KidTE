@@ -20,8 +20,8 @@ export const LIVE_REASONS = {
 export function videoSourceBadge(p = {}) {
   const sec = v => Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v)) : null;
   const state = String(p.state || ''), verified = sec(p.verification_age_s), age = sec(p.age_s);
-  if (state === 'uncertain' || state === 'weak' || state === 'verifying') return {kind: 'uncertain', className: 'chip warn src-uncertain', text: 'Video đã khóa · vị trí chưa chắc chắn' + (verified !== null ? ` · kiểm chứng cách đây ${verified} giây` : '')};
-  if (state === 'locked' && p.available !== false) return {kind: 'locked', className: 'chip ok src-locked', text: 'Video đã khóa · vị trí đã kiểm chứng' + (verified !== null ? ` · ${verified} giây trước` : '')};
+  if (state === 'uncertain' || state === 'weak' || state === 'verifying') return {kind: 'uncertain', className: 'chip warn src-uncertain', text: 'Video đã khoá · vị trí chưa chắc chắn' + (verified !== null ? ` · kiểm chứng cách đây ${verified} giây` : '')};
+  if (state === 'locked' && p.available !== false) return {kind: 'locked', className: 'chip ok src-locked', text: 'Video đã khoá · vị trí đã kiểm chứng' + (verified !== null ? ` · ${verified} giây trước` : '')};
   if (p.available === false && p.reason === 'stale' || state === 'stale' || state === 'locked') return {kind: 'stale', className: 'chip warn src-stale', text: 'Mất tín hiệu nguồn' + (age !== null ? ` · đo cách đây ${age} giây` : '')};
   return {kind: 'stale', className: 'chip warn src-stale', text: 'Chờ nguồn phát'};
 }

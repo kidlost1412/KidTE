@@ -80,7 +80,7 @@ export function confirmProblem(typed, backupId) {
 }
 
 const RESTORE_ERRORS = {
-  restore_v2_disabled: 'Khôi phục v2 đang tắt trên máy này (restore_v2_disabled). Bật cờ restore_v2 trong data/machine/restore_v2.json rồi thử lại.',
+  restore_v2_disabled: 'Tính năng khôi phục chưa được bật trên máy này. Hãy bấm “Tạo báo cáo hỗ trợ” để nhờ bật giúp.',
   maintenance_required: 'Còn phiên LIVE hoạt động. Dừng phiên LIVE trước khi khôi phục.',
   maintenance_job_busy: 'Máy đang bảo trì hoặc có tác vụ khác đang chạy. Chờ xong rồi thử lại.',
   backup_password_required: 'Cần nhập mật khẩu của bản sao lưu.',

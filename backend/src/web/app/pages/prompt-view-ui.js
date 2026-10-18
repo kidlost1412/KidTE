@@ -48,7 +48,7 @@ export function openPromptViewer(persona, {onChange} = {}) {
       const warn = h('div', {class: 'fs-xs', style: {color: 'var(--warn, #b7791f)'}});
       const upd = () => {
         const gone = missingProtected(area.value, s.protected);
-        warn.textContent = gone.length ? `Các dòng định dạng JSON bắt buộc đã bị xóa — ứng dụng sẽ tự thêm lại ${gone.length} mục khi lưu.` : '';
+        warn.textContent = gone.length ? `Các dòng định dạng JSON bắt buộc đã bị xoá — ứng dụng sẽ tự thêm lại ${gone.length} mục khi lưu.` : '';
       };
       area.addEventListener('input', upd); upd();
       extras.push(warn);

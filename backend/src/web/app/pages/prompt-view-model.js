@@ -9,7 +9,7 @@ export const STYLE_MAX = 2400;
 
 const squash = text => String(text ?? '').replace(/\s+/g, '');
 
-// Các dòng hợp đồng bị xóa khỏi bản đang sửa (backend sẽ tự nối lại) -> UI cảnh báo trước khi lưu.
+// Các dòng hợp đồng bị xoá khỏi bản đang sửa (backend sẽ tự nối lại) -> UI cảnh báo trước khi lưu.
 export function missingProtected(text, protectedLines = []) {
   const s = squash(text);
   return protectedLines.filter(line => !s.includes(squash(line)));

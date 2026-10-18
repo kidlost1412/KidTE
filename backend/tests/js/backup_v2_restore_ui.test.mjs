@@ -45,7 +45,8 @@ test('reenableAi calls the re-enable route', async () => {
 });
 
 test('restore_v2_disabled and rollback errors are explained clearly', () => {
-  assert.match(restoreErrorText({code: 'restore_v2_disabled'}), /restore_v2_disabled/);
+  assert.match(restoreErrorText({code: 'restore_v2_disabled'}), /chưa được bật/);
+  assert.doesNotMatch(restoreErrorText({code: 'restore_v2_disabled'}), /restore_v2|\.json/);
   assert.match(restoreErrorText({code: 'maintenance_required'}), /LIVE/);
   assert.match(restoreErrorText({code: 'restore_failed/RuntimeError'}), /quay về dữ liệu cũ/);
   assert.match(restoreErrorText({code: 'writers_close_failed/learning'}), /nguyên vẹn/);

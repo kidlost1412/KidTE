@@ -84,7 +84,7 @@ async function setup(ctx, host, _d, registerDirty = () => {}) {
     } catch (e) { clear(box, notice('danger', 'Không kiểm tra được', friendlyError(e))); return null; }
   };
   const dsStatus = keyStatus('deepseek');
-  const checkDs = btn('Kiểm tra key', {kind: 'ghost', icon: 'shield', onClick: () => runKeyCheck('deepseek', dsStatus, key.value.trim())});
+  const checkDs = btn('Kiểm tra khoá', {kind: 'ghost', icon: 'shield', onClick: () => runKeyCheck('deepseek', dsStatus, key.value.trim())});
   const saveAi = btn('Lưu cài đặt AI', {kind: 'primary', icon: 'save', onClick: async () => {
     const body = {model: model.value};
     const typed = key.value.trim();
@@ -128,7 +128,7 @@ async function setup(ctx, host, _d, registerDirty = () => {}) {
   const gemModelField = field('Model Gemini', gemModel, {hint: 'Bạn có thể chọn phiên bản cũ hơn ngay trong danh sách. Với bản Flash cố định, dự phòng chỉ thử các bản cùng phiên bản hoặc cũ hơn; Google vẫn có thể báo quá tải.'});
   gemModelField.append(gemCustom, gemListStatus, gemRefresh);
   const gemStatus = keyStatus('gemini');
-  const checkGem = btn('Kiểm tra key', {kind: 'ghost', icon: 'shield', onClick: () => runKeyCheck('gemini', gemStatus, gemKey.value.trim())});
+  const checkGem = btn('Kiểm tra khoá', {kind: 'ghost', icon: 'shield', onClick: () => runKeyCheck('gemini', gemStatus, gemKey.value.trim())});
   const saveGemini = btn('Lưu cài đặt Gemini', {kind: 'primary', icon: 'save', onClick: async () => {
     const body = {};
     const typed = gemKey.value.trim();
@@ -183,7 +183,7 @@ async function setup(ctx, host, _d, registerDirty = () => {}) {
     card('AI trả lời bình luận', h('div', {class: 'card-body form-grid'},
       aiStatus(dash.ai).checking ? notice('warn', 'Đang kiểm tra số dư DeepSeek…', 'Kết quả sẽ hiện sau vài giây.') : dash.ai && dash.ai.deepseek_available ? notice('ok', 'AI đang sẵn sàng', `${labels[s.selected_model] || s.selected_model}. ${s.model_error ? 'Lỗi lấy danh sách model: ' + s.model_error : ''}`) : notice('danger', 'AI chưa sẵn sàng', 'Nhập khoá API DeepSeek để AI có thể trả lời khách.'),
       field('Model trả lời khách', model, {hint: 'Từ 10/09/2026 “deepseek-flash” CHÍNH LÀ DeepSeek V4.1 Flash — nhanh hơn, rẻ hơn và trả lời tốt hơn V4 Pro. Việc HỌC (rút kiến thức, học lại) chọn model riêng ở trang Trí nhớ AI. Độ dài câu, độ sáng tạo, lời nhắc: Trợ lý tự động → Nhà cung cấp DeepSeek.'}),
-      field('Khoá API DeepSeek', key, {hint: 'Khoá được lưu trong file .env trên máy này, không hiển thị lại. “Kiểm tra key” thử khoá đang nhập (để trống = khoá đã lưu) và cho biết còn tiền không.'}),
+      field('Khoá API DeepSeek', key, {hint: 'Khoá được lưu trong file .env trên máy này, không hiển thị lại. “Kiểm tra khoá” thử khoá đang nhập (để trống = khoá đã lưu) và cho biết còn tiền không.'}),
       dsStatus),
     {sub: 'DeepSeek', footer: [checkDs, saveAi]}),
     card('Đọc ảnh & PDF (Gemini)', h('div', {class: 'card-body form-grid'},
@@ -200,8 +200,8 @@ async function setup(ctx, host, _d, registerDirty = () => {}) {
         btn('Mở Sổ tay tình huống', {kind: 'ghost', icon: 'fileText', onClick: () => ctx.navigate('playbook')})))),
     card('Tài khoản TikTok của chủ shop', h('div', {class: 'card-body form-grid'},
       h('p', {class: 'fs-sm soft'}, 'Để hệ thống biết bình luận nào là do chủ shop/host gõ (không phải khách) và không trả lời nhầm chính mình.'),
-      field('Mã người dùng (user id)', userIds, {hint: 'Nhiều mã cách nhau bằng dấu phẩy.'}),
-      field('Tên tài khoản (@unique id)', uniqueIds)), {footer: saveTiktok}),
+      field('Mã số tài khoản TikTok', userIds, {hint: 'Dãy số của tài khoản chủ shop/host. Nhiều tài khoản thì cách nhau bằng dấu phẩy.'}),
+      field('Tên tài khoản TikTok (phần sau dấu @)', uniqueIds)), {footer: saveTiktok}),
     card('Tiện ích Chrome · TikTok', h('div', {class: 'card-body col gap-3'},
       ext.connected ? notice('ok', 'Tiện ích đang kết nối', `Tín hiệu cuối ${Math.round(ext.age_s || 0)} giây trước · AI ${ext.ai_enabled ? 'bật' : 'tắt'} trong tiện ích`) : notice('warn', 'Chưa thấy tín hiệu tiện ích', 'Cài tiện ích Kid TE vào Chrome và mở trang TikTok LIVE Studio / LIVE của Shop.'),
       h('ol', {class: 'list-lines'}, h('li', {}, 'Bấm “Mở hướng dẫn cài tiện ích” bên dưới — Chrome mở trang Tiện ích.'), h('li', {}, 'Bật “Chế độ nhà phát triển” ở góc phải.'), h('li', {}, 'Bấm “Tải tiện ích đã giải nén” và chọn thư mục extension được mở sẵn.'), h('li', {}, 'Mở trang LIVE của TikTok — trạng thái ở trên sẽ chuyển xanh.')),
@@ -444,11 +444,11 @@ async function backups(ctx, host, d) {
     try {
       const checked = await request('/api/system/backups/delete/preview', {method: 'POST', body: all ? {all: true} : {ids}, signal});
       if (signal.aborted) return;
-      if (!await confirmDialog({title: `Xóa ${checked.ids.length} bản sao lưu?`,
-        text: `Thu hồi ${bytes(checked.reclaimable_bytes)} dữ liệu file. Thao tác xóa không tạo bản sao lưu mới.`, confirm: 'Xóa', tone: 'danger'})) return;
+      if (!await confirmDialog({title: `Xoá ${checked.ids.length} bản sao lưu?`,
+        text: `Thu hồi ${bytes(checked.reclaimable_bytes)} dữ liệu file. Thao tác xoá không tạo bản sao lưu mới.`, confirm: 'Xoá', tone: 'danger'})) return;
       if (signal.aborted) return;
       const result = await runJob('/api/system/backups/delete', {ids: checked.ids, preview_token: checked.preview_token});
-      toast(`Đã xóa ${result.deleted_ids.length} bản sao lưu.`, 'ok');
+      toast(`Đã xoá ${result.deleted_ids.length} bản sao lưu.`, 'ok');
       refresh();
     } catch (e) { if (!signal.aborted) { jobStatus.textContent = 'Không hoàn tất. ' + friendlyError(e); toast(friendlyError(e), 'danger'); } }
     finally {busy = false;}
@@ -461,9 +461,9 @@ async function backups(ctx, host, d) {
     busy = true;
     try {
       const out = await deleteV2({request, signal, ids, confirm: checked => confirmDialog({
-        title: `Xóa ${checked.ids.length} bản sao lưu v2?`,
-        text: `Thu hồi ${bytes(checked.reclaim_bytes)} dữ liệu file. Không thể hoàn tác.`, confirm: 'Xóa', tone: 'danger'})});
-      if (out) { toast(`Đã xóa ${out.deleted_ids.length} bản sao lưu v2.`, 'ok'); refresh(); }
+        title: `Xoá ${checked.ids.length} bản sao lưu v2?`,
+        text: `Thu hồi ${bytes(checked.reclaim_bytes)} dữ liệu file. Không thể hoàn tác.`, confirm: 'Xoá', tone: 'danger'})});
+      if (out) { toast(`Đã xoá ${out.deleted_ids.length} bản sao lưu v2.`, 'ok'); refresh(); }
     } catch (e) { if (!signal.aborted) { jobStatus.textContent = 'Không hoàn tất. ' + friendlyError(e); toast(friendlyError(e), 'danger'); } }
     finally {busy = false;}
   }
@@ -537,7 +537,7 @@ async function backups(ctx, host, d) {
       h('input', {type: 'checkbox', checked: chosen.has(p.id), disabled: !p.available, onChange: e => { if (e.target.checked) chosen.add(p.id); else chosen.delete(p.id); }}),
       icon(PART_ICON[p.id] || 'archive', {size: 16}),
       h('div', {class: 'grow'}, h('div', {class: 'fs-sm'}, h('strong', {}, p.name), ' · ', bytes(p.bytes)), h('div', {class: 'fs-xs muted'}, p.available ? p.description : 'Chưa có dữ liệu trên máy')))));
-    const drawer = openDrawer({title: 'Sao lưu từng mục', sub: 'Chỉ chép những mục được chọn. Giữ một bản từng mục mới nhất, riêng với bản đầy đủ. Chỉ xóa bản cũ sau khi bản mới được kiểm tra thành công.', body: h('div', {class: 'card-body'}, list),
+    const drawer = openDrawer({title: 'Sao lưu từng mục', sub: 'Chỉ chép những mục được chọn. Giữ một bản từng mục mới nhất, riêng với bản đầy đủ. Chỉ xoá bản cũ sau khi bản mới được kiểm tra thành công.', body: h('div', {class: 'card-body'}, list),
       footer: [h('span', {class: 'grow'}), btn('Sao lưu mục đã chọn', {kind: 'primary', icon: 'archive', onClick: () => { if (!chosen.size) { toast('Chọn ít nhất một mục.', 'warn'); return; } drawer.close(); backupNow([...chosen]); }})]});
   }
 
@@ -591,10 +591,10 @@ async function backups(ctx, host, d) {
         h('td', {class: 'num'}, bytes(b.bytes || 0)),
         h('td', {class: 'nowrap'}, btn('Xem', {size: 'sm', kind: 'ghost', icon: 'eye', onClick: () => showDetail(b)}),
           btn('Khôi phục', {size: 'sm', kind: 'ghost', icon: 'undo', onClick: () => restore(b)}),
-          btn('Xóa', {size: 'sm', kind: 'ghost', icon: 'trash', onClick: () => deleteBackups([b.id])}))))))) : empty('Chưa có bản sao lưu', ''),
+          btn('Xoá', {size: 'sm', kind: 'ghost', icon: 'trash', onClick: () => deleteBackups([b.id])}))))))) : empty('Chưa có bản sao lưu', ''),
     {actions: [btn('Mở thư mục', {kind: 'ghost', size: 'sm', icon: 'archive', onClick: () => openTarget('backups')}),
-      btn('Xóa đã chọn', {kind: 'ghost', icon: 'trash', onClick: () => selectedBackups.size ? deleteBackups([...selectedBackups]) : toast('Chọn ít nhất một bản sao lưu.', 'warn')}),
-      btn('Xóa tất cả bản sao lưu', {kind: 'ghost', icon: 'trash', onClick: () => deleteBackups([], true)}),
+      btn('Xoá đã chọn', {kind: 'ghost', icon: 'trash', onClick: () => selectedBackups.size ? deleteBackups([...selectedBackups]) : toast('Chọn ít nhất một bản sao lưu.', 'warn')}),
+      btn('Xoá tất cả bản sao lưu', {kind: 'ghost', icon: 'trash', onClick: () => deleteBackups([], true)}),
       btn('Sao lưu từng mục…', {kind: 'ghost', icon: 'list', onClick: pickParts}),
       btn('Sao lưu dữ liệu', {kind: 'primary', icon: 'archive', onClick: () => backupNow(null)})]}),
     h('details', {class: 'card'}, h('summary', {class: 'card-body clickable'}, 'Bản sao lưu mở rộng và bản cũ (' + v2Items.length + ')'),
@@ -609,8 +609,8 @@ async function backups(ctx, host, d) {
         h('td', {class: 'num'}, bytes(b.size)),
         h('td', {}, b.verified ? 'Đã xác minh' : 'Chưa xác minh'),
         showRestoreV2 ? h('td', {}, btn('Khôi phục v2…', {kind: 'danger', size: 'sm', icon: 'undo', attrs: {'data-restore-v2': b.id}, onClick: () => restoreBackupV2(b)})) : null))))) : empty('Chưa có bản sao lưu v2', ''),
-    {actions: [v2Items.length ? btn('Xóa đã chọn', {kind: 'danger', size: 'sm', onClick: () => deleteBackupsV2(false)}) : null,
-      v2Items.length ? btn('Xóa tất cả bản cũ', {kind: 'danger', size: 'sm', onClick: () => deleteBackupsV2(true)}) : null,
+    {actions: [v2Items.length ? btn('Xoá đã chọn', {kind: 'danger', size: 'sm', onClick: () => deleteBackupsV2(false)}) : null,
+      v2Items.length ? btn('Xoá tất cả bản cũ', {kind: 'danger', size: 'sm', onClick: () => deleteBackupsV2(true)}) : null,
       btn('Xuất điểm khôi phục Studio', {kind: 'ghost', size: 'sm', icon: 'archive', onClick: exportIdb}),
       btn('Sao lưu v2 một phần…', {kind: 'ghost', icon: 'archive', onClick: () => backupV2(false)}),
       btn('Sao lưu v2 đầy đủ…', {kind: 'primary', icon: 'archive', onClick: () => backupV2(true)})].filter(Boolean)}))));

@@ -60,10 +60,10 @@ const shell = createShell({
     {group: 'Cài đặt', title: 'Nhật ký & sự cố', sub: 'Lỗi gần đây và cách xử lý', icon: 'terminal', keywords: 'log nhat ky loi su co', run: () => navigate('system', 'logs')},
     {group: 'Cài đặt', title: 'Model chép lời', sub: 'Tải model chép lời video hợp với máy', icon: 'mic', keywords: 'whisper chep loi model transcript', run: () => navigate('system', 'whisper')},
     {group: 'Trợ lý', title: 'Chính sách giá', sub: 'AI được nói giá nào, câu nào bị chặn', icon: 'tag', keywords: 'gia voucher ma chan', run: () => navigate('automation', 'chinh-sach-gia')},
-    {group: 'Trợ lý', title: 'Chọn SKU từ câu hỏi', sub: 'AI hiểu khách hỏi sản phẩm nào', icon: 'target', keywords: 'sku san pham chon', run: () => navigate('automation', 'chon-san-pham')},
+    {group: 'Trợ lý', title: 'Chọn sản phẩm từ câu hỏi', sub: 'AI hiểu khách hỏi sản phẩm nào', icon: 'target', keywords: 'sku san pham chon ma hang', run: () => navigate('automation', 'chon-san-pham')},
     {group: 'Trợ lý', title: 'Tính liều theo nhãn', sub: 'Sản phẩm nào AI tính được liều', icon: 'activity', keywords: 'lieu dung pha binh', run: () => navigate('automation', 'lieu-dung')},
     {group: 'Trợ lý', title: 'Nhà cung cấp DeepSeek', sub: 'Độ dài câu, độ sáng tạo, lời nhắc hệ thống', icon: 'bot', keywords: 'deepseek prompt temperature', run: () => navigate('automation', 'model-deepseek')},
-    {group: 'Trợ lý', title: 'Thu dữ liệu phiên LIVE', sub: 'Luồng bình luận đã ghi', icon: 'database', keywords: 'du lieu raw stream', run: () => navigate('automation', 'thu-du-lieu')},
+    {group: 'Trợ lý', title: 'Thu dữ liệu phiên LIVE', sub: 'Bình luận đã ghi lại', icon: 'database', keywords: 'du lieu raw stream', run: () => navigate('automation', 'thu-du-lieu')},
     {group: 'Trợ giúp', title: 'Xem phím tắt', sub: 'Phím ?', icon: 'keyboard', run: () => shell.showShortcuts()},
   ],
 });

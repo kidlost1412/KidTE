@@ -1,19 +1,18 @@
 {
-  "_ghi_chu": "Gợi ý mềm cho mỗi lượt trả lời trên LIVE. weight càng lớn càng hay được chọn; đặt 0 để tắt một mục. Không phải luật cứng: AI có thể bỏ nếu không hợp câu khách.",
+  "_ghi_chu": "Gợi ý mềm cho mỗi lượt trả lời trên LIVE. weight càng lớn càng hay được chọn; đặt 0 để tắt một mục. 'hop' (tuỳ chọn): chỉ dùng góc khi câu khách thuộc chủ đề price/dose/usage/recommendation/smalltalk/general; bỏ 'hop' = hợp mọi câu. Không phải luật cứng: AI có thể bỏ nếu không hợp câu khách.",
   "goc_tiep_can": [
     {"id": "vao_thang", "weight": 3, "text": "vào thẳng ý khách hỏi, gọn và chắc"},
-    {"id": "hoi_lai", "weight": 2, "text": "hỏi lại một ý cần để tư vấn đúng (cây gì, diện tích, giai đoạn)"},
-    {"id": "loi_ich", "weight": 2, "text": "nhắc một lợi ích chính của sản phẩm gắn với nhu cầu khách"},
-    {"id": "ma_uu_dai", "weight": 1, "text": "nhắc khách xem mã/ưu đãi riêng trên tài khoản"},
-    {"id": "so_sanh_nhe", "weight": 1, "text": "so sánh nhẹ với cách làm hay dòng khác để khách dễ hình dung"},
-    {"id": "kinh_nghiem", "weight": 1, "text": "kể ngắn kinh nghiệm nhà vườn hay dùng"},
-    {"id": "meo_dung", "weight": 1, "text": "thêm một mẹo dùng/thời điểm dùng hữu ích"}
+    {"id": "hoi_lai", "weight": 2, "text": "hỏi lại một ý cần để tư vấn đúng (cây gì, diện tích, giai đoạn)", "hop": ["recommendation", "usage", "general"]},
+    {"id": "loi_ich", "weight": 2, "text": "nhắc một lợi ích chính của sản phẩm gắn với nhu cầu khách", "hop": ["price", "usage", "recommendation", "general"]},
+    {"id": "meo_dung", "weight": 1, "text": "thêm một mẹo dùng/thời điểm dùng hữu ích", "hop": ["dose", "usage"]},
+    {"id": "dieu_kien_ngan", "weight": 2, "text": "nói kết luận rồi một điều kiện ngắn (cây, giai đoạn, cách pha)", "hop": ["dose", "usage"]},
+    {"id": "chot_nhe", "weight": 2, "text": "khép bằng một lời mời đặt nhẹ, tự nhiên", "hop": ["price", "recommendation"]},
+    {"id": "bat_y_khach", "weight": 3, "text": "bắt đúng một ý khách vừa nói, đáp có duyên", "hop": ["smalltalk"]}
   ],
   "kieu_mo_khep": [
     {"id": "khong_dem", "weight": 3, "text": "mở thẳng vào nội dung, không từ đệm"},
     {"id": "goi_ten", "weight": 2, "text": "mở bằng cách gọi anh/chị tự nhiên"},
-    {"id": "da_vang", "weight": 1, "text": "mở bằng dạ/vâng nhẹ nhàng"},
-    {"id": "cam_than_nhe", "weight": 1, "text": "mở bằng một câu cảm thán nhẹ, hợp ngữ cảnh (không Ơ/Ủa)"},
+    {"id": "cam_than_nhe", "weight": 1, "text": "mở bằng một câu cảm thán nhẹ, hợp ngữ cảnh (không Ơ/Ủa)", "hop": ["smalltalk", "price", "recommendation", "general"]},
     {"id": "khep_hoi", "weight": 1, "text": "khép bằng một câu hỏi ngắn"},
     {"id": "khep_tron", "weight": 2, "text": "khép gọn bằng ý chính, không thêm lời mời"}
   ]

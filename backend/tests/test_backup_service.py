@@ -57,8 +57,9 @@ def test_retention_error_keeps_published_backup_id_visible(tmp_path, monkeypatch
     assert result['retention'] == {'ok':False,'error':'OSError'}
 
 
-def test_manual_backup_keeps_only_latest_after_success(tmp_path):
+def test_manual_backup_keeps_recent_backups_and_rotates_beyond_keep(tmp_path):
     backup = service(tmp_path)
+    backup.keep = 1
     first = backup.create('fixture password')
     second = backup.create('fixture password')
     store = BackupV2(backup.root / 'backups' / 'v2')

@@ -339,7 +339,8 @@ def _read_opt_outs(db_path):
     try:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_opt_outs'").fetchone():
             return []
-        return db.execute("SELECT customer_key,display_name,opted_out_at FROM memory_opt_outs").fetchall()
+        # D5: không mang tên khách sang bản khôi phục.
+        return db.execute("SELECT customer_key,'',opted_out_at FROM memory_opt_outs").fetchall()
     finally:
         db.close()
 

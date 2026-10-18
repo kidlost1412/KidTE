@@ -11,10 +11,14 @@ import secrets as _secrets
 
 from backup_v2 import BackupV2, references_coverage
 
+# D8: giữ nhiều bản (mỗi nhóm đầy/từng phần) để lỗi phát hiện muộn vẫn còn bản tốt.
+DEFAULT_KEEP = 7
+
 
 class BackupService:
     def __init__(self, root, *, app_version, schema_version, solver_hash,
-                 reference_provider, dpapi_decrypt, additional_sources=None, privacy_db=None):
+                 reference_provider, dpapi_decrypt, additional_sources=None, privacy_db=None,
+                 keep=DEFAULT_KEEP):
         self.root = Path(root).absolute()
         self.metadata = {'app_version': app_version, 'schema_version': schema_version,
                          'solver_hash': solver_hash}
@@ -22,6 +26,7 @@ class BackupService:
         self.dpapi_decrypt = dpapi_decrypt
         self.additional_sources = additional_sources or {}
         self.privacy_db = privacy_db
+        self.keep = keep if isinstance(keep, int) and not isinstance(keep, bool) and keep >= 1 else DEFAULT_KEEP
 
     def latest_indexeddb_export(self):
         folder = self.root / 'backups' / 'indexeddb'
@@ -75,7 +80,7 @@ class BackupService:
         # Retention happens only after the new backup has passed verification.
         # A retention failure must not erase knowledge of a published backup.
         try:
-            retention = store.prune(keep=1)
+            retention = store.prune(keep=self.keep)
         except Exception as exc:
             retention = {'ok': False, 'error': type(exc).__name__}
         return {'created': True, 'backup_id': manifest['id'], 'schema_version': 2,

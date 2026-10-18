@@ -236,6 +236,8 @@ class CustomerMemory:
                 );
                 """
             )
+            # D5: bản cũ lưu tên thật của khách đã opt-out; xoá tên, giữ khoá để vẫn chặn ghi nhớ.
+            self._db.execute("UPDATE memory_opt_outs SET display_name='' WHERE display_name!=''")
             columns = {
                 row[1] for row in self._db.execute(
                     "PRAGMA table_info(interactions)"
@@ -496,18 +498,20 @@ class CustomerMemory:
                 "DELETE FROM customers WHERE customer_key = ?",
                 (ident["customer_key"],),
             )
-            self._db.execute(
-                """
-                INSERT OR REPLACE INTO memory_opt_outs
-                    (customer_key, display_name, opted_out_at)
-                VALUES (?, ?, ?)
-                """,
-                (
-                    ident["customer_key"],
-                    ident["display_name"],
-                    _now_iso(),
-                ),
-            )
+            if self.privacy is not None and self.privacy.is_forgotten(ident["customer_key"]):
+                # D5: tombstone (chỉ HMAC) đã chặn khách này ở mọi đường; không giữ thêm
+                # khoá thô/tên của người đã yêu cầu quên trong DB và bản sao lưu.
+                self._db.execute("DELETE FROM memory_opt_outs WHERE customer_key = ?",
+                                 (ident["customer_key"],))
+            else:
+                self._db.execute(
+                    """
+                    INSERT OR REPLACE INTO memory_opt_outs
+                        (customer_key, display_name, opted_out_at)
+                    VALUES (?, '', ?)
+                    """,
+                    (ident["customer_key"], _now_iso()),
+                )
             self._recall_announced.discard(ident["customer_key"])
             # Never journal the plain key/name of someone who asked to be forgotten.
             self._append_journal(

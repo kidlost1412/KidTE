@@ -313,6 +313,9 @@ class WorkspaceStore:
     def _connect_raw(self):
         connection = sqlite3.connect(str(self.db_path), timeout=10)
         connection.row_factory = sqlite3.Row
+        # Xoá thật: trang bị xoá (bình luận khách trong snapshot/thùng rác) bị ghi đè 0,
+        # không nằm lại trong tệp .sqlite3 sau khi chủ shop "quên" một khách.
+        connection.execute("PRAGMA secure_delete=ON")
         return connection
 
     @contextmanager
@@ -556,9 +559,61 @@ class WorkspaceStore:
                     if row_mentions(row, identifiers):
                         excl += db.execute("UPDATE approved_reply_examples SET legacy_excluded=1 "
                                            "WHERE example_id=?", (row["example_id"],)).rowcount
-        if corr or ex or excl:
+        history = self._forget_customer_history(key_hmac, exclude_legacy, identifiers)
+        if corr or ex or excl or history:
             self._touch("conversations", "dashboard")
-        return {"deleted": corr + ex, "excluded": excl}
+        return {"deleted": corr + ex + history, "excluded": excl}
+
+    @staticmethod
+    def _json_object(text):
+        try:
+            value = json.loads(text)
+        except (TypeError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def _belongs_to_customer(self, data, key_hmac, exclude_legacy, identifiers):
+        if not isinstance(data, dict):
+            return False
+        tag = self._row_hmac(data)
+        if tag:
+            return tag == key_hmac
+        if exclude_legacy and identifiers:
+            from privacy import row_mentions
+            return row_mentions(data, identifiers)
+        return False
+
+    def _forget_customer_history(self, key_hmac, exclude_legacy, identifiers):
+        """D4/D11: xoá bản chụp/lịch sử sửa/thùng rác của hội thoại thuộc khách bị quên.
+
+        Chỉ đụng tài nguyên khách (``_CUSTOMER_RESOURCES``). Dòng không đọc được
+        JSON hoặc không xác định được chủ thì GIỮ NGUYÊN (fail safe)."""
+        marks = ",".join("?" for _ in self._CUSTOMER_RESOURCES)
+        deleted = 0
+        with self._db() as db:
+            for row in db.execute(
+                    f"SELECT snapshot_id,data_json FROM operator_snapshots WHERE resource IN ({marks})",
+                    self._CUSTOMER_RESOURCES).fetchall():
+                if self._belongs_to_customer(self._json_object(row["data_json"]), key_hmac,
+                                             exclude_legacy, identifiers):
+                    deleted += db.execute("DELETE FROM operator_snapshots WHERE snapshot_id=?",
+                                          (row["snapshot_id"],)).rowcount
+            for row in db.execute(
+                    f"SELECT trash_id,data_json FROM trash_items WHERE resource IN ({marks})",
+                    self._CUSTOMER_RESOURCES).fetchall():
+                if self._belongs_to_customer(self._json_object(row["data_json"]), key_hmac,
+                                             exclude_legacy, identifiers):
+                    deleted += db.execute("DELETE FROM trash_items WHERE trash_id=?",
+                                          (row["trash_id"],)).rowcount
+            for row in db.execute(
+                    f"SELECT change_id,before_json,after_json FROM operator_changes WHERE resource IN ({marks})",
+                    self._CUSTOMER_RESOURCES).fetchall():
+                if any(self._belongs_to_customer(self._json_object(row[col]), key_hmac,
+                                                 exclude_legacy, identifiers)
+                       for col in ("before_json", "after_json")):
+                    deleted += db.execute("DELETE FROM operator_changes WHERE change_id=?",
+                                          (row["change_id"],)).rowcount
+        return deleted
 
     def _corrections(self, resource, record_id):
         with self._db() as db:
@@ -2731,7 +2786,7 @@ class WorkspaceStore:
         now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         with self._db() as db:
             rows = db.execute(
-                "SELECT trash_id,snapshot_id,archived_path FROM trash_items WHERE restored_at IS NULL "
+                "SELECT trash_id,resource,snapshot_id,archived_path FROM trash_items WHERE restored_at IS NULL "
                 "AND purged_at IS NULL AND expires_at<=?", ("9999" if ignore_expiry else now,),
             ).fetchall()
             if only_ids is not None:
@@ -2756,6 +2811,9 @@ class WorkspaceStore:
                     shutil.rmtree(resolved)
                 db.execute("UPDATE trash_items SET purged_at=?,data_json='{}' WHERE trash_id=?",
                            (now, trash_id))
+                if row["resource"] in self._CUSTOMER_RESOURCES:
+                    # D11: xoá vĩnh viễn thì bản chụp cùng nội dung cũng phải mất.
+                    db.execute("DELETE FROM operator_snapshots WHERE snapshot_id=?", (row["snapshot_id"],))
         if eligible:
             self._touch("dashboard")
         return {"ok": True, "purged": len(eligible)}

@@ -58,9 +58,23 @@ async function readStatus() {
   $("ai-status").textContent = (config.aiEnabled ? aiFresh ? data.shopeeAiStatus.error || data.shopeeAiStatus.label || "Đang chờ bình luận" : "Đã bật · chờ cập nhật từ trang LIVE" : "Đang tắt · bật AI để trả lời bình luận") + (activity?.at
     ? `\nLần xử lý gần nhất (${new Date(activity.at).toLocaleTimeString("vi-VN")}): ${activity.error || activity.label}` : "");
 }
-function action(id, handler, success) {
+// confirmLabel: nút nguy hiểm — bấm lần 1 chỉ "lên đạn", bấm lại trong 3 giây mới chạy.
+const armedTimers = new Map();
+function action(id, handler, success, confirmLabel) {
   $(id).addEventListener('click', async () => {
     if (busy) return;
+    if (confirmLabel) {
+      const button = $(id);
+      if (!armedTimers.has(id)) {
+        const original = button.textContent;
+        button.textContent = confirmLabel;
+        globalThis.KidTEPopupUX?.notify(`${confirmLabel} (trong 3 giây)`);
+        armedTimers.set(id, setTimeout(() => { armedTimers.delete(id); button.textContent = original; }, 3000));
+        return;
+      }
+      clearTimeout(armedTimers.get(id)); armedTimers.delete(id);
+      button.textContent = 'Tắt AI';
+    }
     busy = true;
     for (const name of ['pause','resume','ai-start','ai-stop']) $(name).disabled = true;
     try {
@@ -98,7 +112,7 @@ action("ai-start", async () => {
 action("ai-stop", async () => {
   await chrome.storage.local.set({shopeeAiRequested: false});
   await refreshStatus();
-}, 'Đã tắt trả lời tự động');
+}, 'Đã tắt trả lời tự động', 'Bấm lại để tắt AI');
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && ['shopeeConfig','shopeeAiRequested','shopeeStatus','shopeePaused','shopeeAiStatus','shopeeAiLastActivity'].some(key => key in changes)) refreshStatus().catch(() => {});
 });

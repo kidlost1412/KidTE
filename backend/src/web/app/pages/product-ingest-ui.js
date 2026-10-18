@@ -43,7 +43,8 @@ export function openProductIngest(ctx, {onDone} = {}) {
   const files = [], images = [];
   const body = h('div', {class: 'card-body col gap-4'});
   const foot = h('div', {class: 'row', style: {width: '100%'}});
-  const drawer = openDrawer({title: 'Thêm sản phẩm bằng AI', sub: 'Đưa tài liệu, ảnh nhãn hoặc địa chỉ web — AI đọc và điền hồ sơ NHÁP để bạn duyệt.', width: 760, body, footer: foot});
+  let dirtyNow = () => false; // bước 1: đã chọn tệp/nhập nguồn; bước 2: đã sửa form; sau khi lưu nháp: sạch
+  const drawer = openDrawer({title: 'Thêm sản phẩm bằng AI', sub: 'Đưa tài liệu, ảnh nhãn hoặc địa chỉ web — AI đọc và điền hồ sơ NHÁP để bạn duyệt.', width: 760, body, footer: foot, isDirty: () => dirtyNow()});
   let status = {};
   let provider = 'gemini';
   let providerTouched = false;
@@ -117,7 +118,8 @@ export function openProductIngest(ctx, {onDone} = {}) {
       field('Chữ dán', text), warn,
       notice('info', 'Một sản phẩm hoặc cả danh mục', 'Tài liệu có nhiều sản phẩm (danh mục, bảng giá…): AI liệt kê từng sản phẩm để bạn chọn cái nào tạo hồ sơ nháp. Giá và khuyến mãi không bao giờ được đọc: chúng lấy từ giỏ hàng.'));
     refreshInputs();
-    clear(foot, h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}),
+    dirtyNow = () => files.length > 0 || images.length > 0 || Boolean(url.value.trim()) || Boolean(text.value.trim());
+    clear(foot, h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.dismiss()}),
       btn('AI đọc ngay', {kind: 'primary', icon: 'sparkles', onClick: async e => {
         const button = e.currentTarget;
         if (!pm.imagesAllowed(provider) && images.length) { toast('DeepSeek không đọc được ảnh. Bỏ ảnh hoặc chọn Gemini.', 'warn'); return; }
@@ -149,6 +151,8 @@ export function openProductIngest(ctx, {onDone} = {}) {
     const entries = pm.buildProductsModels(result);
     const multi = entries.length > 1;
     let active = entries[0];
+    let edited = false;
+    dirtyNow = () => edited;
     const counter = h('span', {class: 'fs-sm'});
     const formHost = h('div', {});
     const listHost = h('div', {class: 'col', style: {gap: '2px', maxHeight: '260px', overflowY: 'auto'}});
@@ -178,7 +182,7 @@ export function openProductIngest(ctx, {onDone} = {}) {
           control.style.borderColor = row.uncertain ? 'var(--warn-text)' : '';
           control.style.background = row.uncertain ? 'color-mix(in srgb, var(--warn-text) 8%, transparent)' : '';
         };
-        control.addEventListener('input', () => { pm.markEdited(row, control.value); paint(); updateCounter(); if (row.key === 'ten_san_pham') { renderList(); updateSave(); } });
+        control.addEventListener('input', () => { edited = true; pm.markEdited(row, control.value); paint(); updateCounter(); if (row.key === 'ten_san_pham') { renderList(); updateSave(); } });
         paint();
         return holder;
       }));
@@ -207,7 +211,7 @@ export function openProductIngest(ctx, {onDone} = {}) {
         btn('Chọn hết', {size: 'sm', kind: 'ghost', onClick: () => setAll(true)}), btn('Bỏ chọn', {size: 'sm', kind: 'ghost', onClick: () => setAll(false)})), listHost) : null,
       formHost);
     renderList(); renderForm(); updateSave();
-    clear(foot, btn('Làm lại', {kind: 'ghost', onClick: stepInputs}), h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}), saveBtn);
+    clear(foot, btn('Làm lại', {kind: 'ghost', onClick: stepInputs}), h('span', {class: 'grow'}), btn('Đóng', {kind: 'ghost', onClick: () => drawer.dismiss()}), saveBtn);
 
     async function save() {
       const chosen = pm.pickedForSave(entries);
@@ -228,6 +232,7 @@ export function openProductIngest(ctx, {onDone} = {}) {
 
   // ------------------------------------------------------------ bước 3: gợi ý SKU
   function stepSuggest(outs) {
+    dirtyNow = () => false;
     const finish = () => { drawer.close(); if (onDone) onDone(outs[0].id); };
     const imageUse = new Map(outs.map(o => [o.id, !!o.image_saved]));
     const withSuggestions = outs.filter(o => (o.suggestions || []).length);

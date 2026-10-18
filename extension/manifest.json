@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kid TE - Ghim & AI Trả Lời",
-  "version": "3.11.1",
+  "version": "3.11.2",
   "description": "Tự ghim sản phẩm và tự trả lời bình luận theo từng khách qua API TikTok.",
   "icons": {
     "16": "icons/kid-te-16.png",

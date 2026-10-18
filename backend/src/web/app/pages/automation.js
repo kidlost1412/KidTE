@@ -29,15 +29,20 @@ const WAIT_REASON = {
   audio_device_error: 'mất thiết bị âm thanh',
 };
 
+// Các ô "đã sửa chưa lưu" của trang đang mở (đăng ký theo tên, vẽ lại thì ghi đè).
+const dirtyChecks = new Map();
+const trackDirty = (name, fn) => { dirtyChecks.set(name, fn); };
+
 export default {
   mount(ctx) {
     const d = disposer();
+    dirtyChecks.clear();
     if (ctx.route.sub && ABOUT[ctx.route.sub] && ctx.route.sub !== 'dong-bo-video') {
       processorPage(ctx, d, ctx.route.sub);
     } else {
       overviewPage(ctx, d);
     }
-    return {unmount: () => d.dispose()};
+    return {unmount: () => { dirtyChecks.clear(); d.dispose(); }, isDirty: () => [...dirtyChecks.values()].some(fn => { try { return fn(); } catch (_) { return false; } })};
   },
 };
 
@@ -159,7 +164,9 @@ function settingsCard(data, onSaved) {
   const changed = new Set(data.changed || []);
   const controls = {};
   const saveBtn = btn('Lưu cài đặt', {kind: 'primary', icon: 'save', disabled: true, onClick: save});
-  const dirty = () => { saveBtn.disabled = false; syncDepends(); };
+  let changedNow = false;
+  const dirty = () => { changedNow = true; saveBtn.disabled = false; syncDepends(); };
+  trackDirty('settings', () => changedNow);
 
   function control(f) {
     const v = values[f.key];
@@ -204,6 +211,7 @@ function settingsCard(data, onSaved) {
     try {
       const fresh = await request(`/api/system/processors/${encodeURIComponent(data.id)}/settings`, {method: 'POST', body: {values}});
       toast('Đã lưu — áp dụng ngay cho câu trả lời tiếp theo.', 'ok');
+      changedNow = false;
       onSaved(fresh);
     } catch (e) { saveBtn.disabled = false; toast(friendlyError(e), 'danger'); }
   }
@@ -239,6 +247,7 @@ function aiNotesCard(ctx, s, reload) {
   const counter = h('div', {class: 'fs-xs muted'});
   const update = () => { counter.textContent = `${area.value.length}/${max} ký tự`; };
   area.addEventListener('input', update); update();
+  trackDirty('notes', () => area.value !== (s.notes || ''));
   let archive = false;
   const legacyBox = h('div', {class: 'col gap-2'});
   if (legacy.has) {

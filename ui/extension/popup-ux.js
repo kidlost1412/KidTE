@@ -12,19 +12,19 @@
       return {kind: 'stale', className: 'src-stale', text: 'Mất tín hiệu nguồn' + (age !== null ? ` · đo cách đây ${age} giây` : ' · chưa có số đo')};
     }
     if (state === 'uncertain' || state === 'weak' || state === 'verifying') {
-      return {kind: 'uncertain', className: 'src-uncertain', text: 'Video đã khóa · vị trí chưa chắc chắn' + (verified !== null ? ` · kiểm chứng cách đây ${verified} giây` : '')};
+      return {kind: 'uncertain', className: 'src-uncertain', text: 'Video đã khoá · vị trí chưa chắc chắn' + (verified !== null ? ` · kiểm chứng cách đây ${verified} giây` : '')};
     }
     if (state === 'locked') {
-      return {kind: 'locked', className: 'src-locked', text: 'Video đã khóa · vị trí đã kiểm chứng' + (verified !== null ? ` · ${verified} giây trước` : '')};
+      return {kind: 'locked', className: 'src-locked', text: 'Video đã khoá · vị trí đã kiểm chứng' + (verified !== null ? ` · ${verified} giây trước` : '')};
     }
     return {kind: 'stale', className: 'src-stale', text: 'Chờ nguồn phát'};
   }
   function pinBadge(observedAtMs, title, now = Date.now()) {
     const ago = Number(observedAtMs) > 0 ? Math.round((now - Number(observedAtMs)) / 1000) : null;
     if (ago !== null && ago >= 0 && ago < 15) {
-      return {kind: 'confirmed', className: 'pin-confirmed', text: 'Pin đã xác nhận' + (title ? ` · ${title}` : '') + ` · quan sát ${ago} giây trước`};
+      return {kind: 'confirmed', className: 'pin-confirmed', text: 'Ghim đã xác nhận' + (title ? ` · ${title}` : '') + ` · quan sát ${ago} giây trước`};
     }
-    return {kind: 'unconfirmed', className: 'pin-unconfirmed', text: 'Pin chưa xác nhận' + (ago !== null && ago >= 0 ? ` · lần cuối ${ago} giây trước` : '')};
+    return {kind: 'unconfirmed', className: 'pin-unconfirmed', text: 'Ghim chưa xác nhận' + (ago !== null && ago >= 0 ? ` · lần cuối ${ago} giây trước` : '')};
   }
   if (typeof document === 'undefined') { module.exports = {videoSourceBadge, pinBadge}; return; }
   const tabs = [...document.querySelectorAll('[role="tab"]')];

@@ -89,7 +89,7 @@ const MESSAGES = {
   component_in_use: 'Gói đang được một tính năng khác sử dụng. Gỡ tính năng phụ thuộc trước.',
   component_not_installed: 'Tính năng chưa được cài trên máy.',
   update_source_mode_disabled: 'Cập nhật chưa bật ở bản mã nguồn. Hãy dùng bản cài đã đóng gói.',
-  update_trust_not_configured: 'Bản ứng dụng chưa có khóa xác minh của nhà phát hành.',
+  update_trust_not_configured: 'Bản ứng dụng chưa có khoá xác minh của nhà phát hành.',
   update_check_required: 'Hãy kiểm tra bản phát hành trước khi chọn gói.',
   update_job_busy: 'Một thao tác cập nhật đang chạy. Chờ thao tác hoàn tất.',
   update_restart_required: 'Có cập nhật đang chờ. Đóng và mở lại Kid TE hoặc hủy cập nhật chờ trước.',
@@ -102,7 +102,7 @@ const MESSAGES = {
   catalog_backoff: 'GitHub vừa từ chối kết nối. Chờ một phút rồi kiểm tra lại.',
   package_network_error: 'Tải gói bị gián đoạn. Thử lại để tiếp tục tải.',
   invalid_signature: 'Chữ ký bản phát hành không hợp lệ. Gói chưa được cài.',
-  unknown_signing_key: 'Bản phát hành được ký bằng khóa chưa được ứng dụng tin cậy.',
+  unknown_signing_key: 'Bản phát hành được ký bằng khoá chưa được ứng dụng tin cậy.',
   catalog_rollback: 'Danh sách bản cập nhật trên GitHub cũ hơn bản máy này đã ghi nhận. Bấm "Thử lại"; nếu vẫn báo, hãy cài lại bằng bộ cài Kid TE mới nhất (dữ liệu được giữ nguyên).',
   live_confirm_required: 'Đang LIVE — cần xác nhận trước khi khởi động lại.',
   update_nothing_to_apply: 'Chưa có bản nào đã tải để áp dụng.',
@@ -154,7 +154,7 @@ const MESSAGES = {
   image_size_invalid: 'Ảnh phải nhỏ hơn 10 MB.',
   image_content_invalid: 'File ảnh bị hỏng hoặc không đúng định dạng.',
   correction_fields_required: 'Thiếu nội dung hoặc lý do sửa.',
-  workspace_record_not_found: 'Bản ghi không còn tồn tại (có thể đã bị xóa).',
+  workspace_record_not_found: 'Bản ghi không còn tồn tại (có thể đã bị xoá).',
   dose_liters_invalid: 'Số lít phải từ 0 đến 10.000.',
   publish_draft_missing: 'Không tìm thấy bản duyệt đã lưu.',
   aborted: 'Đã huỷ.',
@@ -164,7 +164,7 @@ const MESSAGES = {
   model_not_installed: 'Model này chưa tải về máy.',
   model_unknown: 'Không có model này.',
   backup_parts_required: 'Chọn ít nhất một mục để sao lưu.',
-  backup_busy: 'Có thao tác sao lưu hoặc xóa đang chạy. Chờ hoàn tất rồi thử lại.',
+  backup_busy: 'Có thao tác sao lưu hoặc xoá đang chạy. Chờ hoàn tất rồi thử lại.',
   maintenance_job_busy: 'Có tác vụ đang chạy. Chờ hoàn tất rồi thử lại.',
   backup_nothing_to_save: 'Các mục đã chọn chưa có dữ liệu nào trên máy.',
   backup_parts_not_in_backup: 'Bản sao lưu này không chứa mục đã chọn.',
@@ -197,7 +197,40 @@ const MESSAGES = {
   captcha_telegram_rejected: 'Telegram không xác nhận tin nhắn thử.',
   captcha_monitor_missing: 'Thiếu script giám sát hoặc FFmpeg trong bộ cài.',
   captcha_monitor_start_failed: 'Không khởi chạy được tiến trình giám sát Telegram.',
+  insufficient_download_space: 'Ổ đĩa không đủ chỗ trống để tải gói. Giải phóng dung lượng rồi thử lại.',
+  package_size_mismatch: 'Gói tải về bị thiếu hoặc sai dung lượng. Bấm Thử lại để tải lại.',
+  package_http_error: 'Máy chủ tải gói đang lỗi. Chờ một lát rồi thử lại.',
+  catalog_http_403: 'GitHub tạm từ chối truy cập (quá nhiều lượt hoặc bị chặn mạng). Chờ vài phút rồi kiểm tra lại.',
+  catalog_http_429: 'GitHub báo có quá nhiều yêu cầu. Chờ vài phút rồi kiểm tra lại.',
+  catalog_http_500: 'GitHub đang gặp lỗi. Thử lại sau ít phút.',
+  catalog_http_502: 'GitHub đang gặp lỗi. Thử lại sau ít phút.',
+  catalog_http_503: 'GitHub đang bảo trì. Thử lại sau ít phút.',
+  empty_catalog: 'Danh mục cập nhật đang trống. Thử lại sau hoặc báo hỗ trợ.',
+  catalog_too_large: 'Danh mục cập nhật lớn bất thường nên bị từ chối. Thử lại sau hoặc báo hỗ trợ.',
+  catalog_redirect_rejected: 'Nguồn cập nhật bị chuyển hướng bất thường nên bị chặn. Thử lại sau.',
+  package_content_range_invalid: 'Máy chủ trả dữ liệu tải tiếp không hợp lệ. Bấm Thử lại để tải lại từ đầu.',
+  package_redirect_rejected: 'Nguồn gói bị chuyển hướng bất thường nên bị chặn. Thử lại sau.',
+  package_resume_rejected: 'Máy chủ không cho tải tiếp phần dở. Bấm Thử lại để tải lại từ đầu.',
+  package_too_large: 'Gói lớn hơn mức cho phép nên bị từ chối. Báo hỗ trợ.',
+  package_url_rejected: 'Địa chỉ tải gói không hợp lệ nên bị chặn. Báo hỗ trợ.',
+  redirect_destination_rejected: 'Nguồn tải bị chuyển hướng tới nơi không tin cậy nên bị chặn.',
+  unsafe_download_path: 'Đường dẫn lưu gói không an toàn nên bị chặn. Báo hỗ trợ.',
+  invalid_json: 'Danh mục cập nhật bị hỏng. Thử kiểm tra lại sau.',
+  invalid_envelope: 'Danh mục cập nhật bị hỏng. Thử kiểm tra lại sau.',
+  invalid_catalog_metadata: 'Danh mục cập nhật không hợp lệ. Thử kiểm tra lại sau.',
+  invalid_catalog_time: 'Giờ trong danh mục cập nhật không hợp lệ. Kiểm tra ngày giờ máy rồi thử lại.',
+  invalid_package_url: 'Địa chỉ gói trong danh mục không hợp lệ. Báo hỗ trợ.',
+  invalid_archive_digest: 'Gói trong danh mục thiếu mã kiểm tra nên không cài. Báo hỗ trợ.',
+  invalid_archive_size: 'Gói trong danh mục có dung lượng không hợp lệ. Báo hỗ trợ.',
+  unsupported_platform: 'Bản cập nhật này không dành cho máy của anh/chị.',
+  unsupported_core_api: 'Bản cập nhật này cần ứng dụng mới hơn. Cài lại bằng bộ cài Kid TE mới nhất.',
+  core_api_incompatible: 'Bản cập nhật này cần ứng dụng mới hơn. Cài lại bằng bộ cài Kid TE mới nhất.',
+  component_version_unavailable: 'Chưa có phiên bản phù hợp của tính năng này trong danh mục.',
+  dependency_conflict: 'Các gói cập nhật xung đột nhau. Báo hỗ trợ.',
+  missing_media_tools: 'Chưa có công cụ video. Vào Cài đặt → Cập nhật → Công cụ video để tải.',
 };
+
+export const GENERIC_ERROR = 'Chưa làm được việc này. Thử lại hoặc gửi Báo cáo hỗ trợ.';
 
 export function friendlyError(error) {
   if (!error) return 'Có lỗi không xác định.';
@@ -211,5 +244,7 @@ export function friendlyError(error) {
   // Máy chủ đã trả sẵn một câu tiếng Việt (vd kiểm tra cài đặt) thì hiện nguyên câu đó.
   // Lỗi 4xx kèm câu có khoảng trắng: máy chủ đã viết sẵn lý do thật, hiện nguyên câu đó.
   if (/\s/.test(code) && (/[^\x00-\x7f]/.test(code) || (error.status >= 400 && error.status < 500))) return code;
-  return `Không thực hiện được (${code}).`;
+  // Server có câu riêng thì dùng; không thì câu chung thân thiện, mã chỉ kèm nhỏ ở cuối để gửi hỗ trợ.
+  if (error.payload && typeof error.payload.message === 'string' && error.payload.message.trim()) return error.payload.message.trim();
+  return `${GENERIC_ERROR} (mã: ${code})`;
 }

@@ -182,8 +182,21 @@ async function command(type, extra = {}) {
   return succeeded;
 }
 
-$("#start").addEventListener("click", () => command("LIVE_RE_START"));
-$("#stop").addEventListener("click", () => command("LIVE_RE_STOP"));
+// Hai nút này làm lệch cả phiên LIVE nếu bấm nhầm: bấm lần 1 chỉ "lên đạn", bấm lại trong 3 giây mới chạy.
+function confirmTwice(button, armedLabel, run) {
+  const original = button.textContent;
+  let timer = 0;
+  const disarm = () => { clearTimeout(timer); timer = 0; button.textContent = original; delete button.dataset.armed; };
+  button.addEventListener("click", () => {
+    if (timer) { disarm(); run(); return; }
+    button.textContent = armedLabel;
+    button.dataset.armed = "1";
+    globalThis.KidTEPopupUX?.notify(`${armedLabel} (trong 3 giây)`);
+    timer = setTimeout(disarm, 3000);
+  });
+}
+confirmTwice($("#start"), "Bấm lại để đặt về 00:00", () => command("LIVE_RE_START"));
+confirmTwice($("#stop"), "Bấm lại để dừng và bỏ ghim", () => command("LIVE_RE_STOP"));
 $("#adjust-back").addEventListener("click", () => command("LIVE_RE_ADJUST", { deltaMs: -1000 }));
 $("#adjust-forward").addEventListener("click", () => command("LIVE_RE_ADJUST", { deltaMs: 1000 }));
 $("#pause").addEventListener("click", () => command(state.running ? "LIVE_RE_PAUSE" : "LIVE_RE_RESUME"));

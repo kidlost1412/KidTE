@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {LIMITS, ENDPOINT, lines, slugify, toRow, toEntry, blankRow, playbookModel, validateRows, errorText, loadPlaybook, savePlaybook, SERVER_ERRORS} from '../../src/web/app/pages/sales-playbook-model.js';
+import {ensureIds, LIMITS, ENDPOINT, lines, slugify, toRow, toEntry, blankRow, playbookModel, validateRows, errorText, loadPlaybook, savePlaybook, SERVER_ERRORS} from '../../src/web/app/pages/sales-playbook-model.js';
 
 const ENTRY = {id: 'ban_chiu', tinh_huong: 'Khách hỏi bán chịu', dau_hieu: ['bán chịu', 'cho nợ'], huong_xu_ly: 'Đùa duyên rồi chuyển COD.',
   du_kien_duoc_dung: ['thong_tin_shop.giao_hang'], cam: ['không hứa nợ thật', 'không đáp cụt']};
@@ -96,4 +96,11 @@ test('playbook entries start collapsed and toggle open on click', async () => {
   assert.match(ui, /const opened = new Set\(\)/);
   assert.match(ui, /hidden: !opened\.has\(row\)/);
   assert.match(ui, /aria-expanded/);
+});
+
+test('mã tình huống tự sinh từ tên, không lộ ra giao diện, không trùng', async () => {
+  const rows = ensureIds([{id: '', tinhHuong: 'Khách chê đắt'}, {id: '', tinhHuong: 'Khách chê đắt'}, {id: 'ban_chiu', tinhHuong: 'Bán chịu'}, {id: '', tinhHuong: '!!!'}]);
+  assert.deepEqual(rows.map(r => r.id), ['khach_che_dat', 'khach_che_dat_2', 'ban_chiu', 'tinh_huong']);
+  const ui = await readFile(new URL('../../src/web/app/pages/sales-playbook-ui.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(ui, /ma_tinh_huong|Mã \(id\)/);
 });

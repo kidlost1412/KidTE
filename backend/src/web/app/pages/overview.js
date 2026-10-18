@@ -48,7 +48,7 @@ function queuePanel(q) {
   if (!m) return null;
   const cell = (label, value, tone) => h('div', {class: 'queue-cell'}, h('small', {}, label), h('strong', {style: tone ? {color: `var(--${tone}-text)`} : null}, number(value)));
   return h('section', {class: 'card queue-panel'},
-    h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h2', {}, 'Hàng chờ AI'), h('div', {class: 'sub'}, '24 giờ gần nhất')), chip(m.mode ? 'Chế độ queue: bật' : 'Chế độ queue: tắt', m.mode ? 'ok' : 'neutral')),
+    h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h2', {}, 'Hàng chờ AI'), h('div', {class: 'sub'}, '24 giờ gần nhất')), chip(m.mode ? 'Chế độ hàng chờ: bật' : 'Chế độ hàng chờ: tắt', m.mode ? 'ok' : 'neutral')),
     h('div', {class: 'queue-cells'}, cell('Đang chờ', m.pending), cell('Chờ lâu nhất (giây)', m.oldest), cell('Hết hạn', m.expired),
       cell('Chưa rõ — cần đối soát', m.unknown, m.warn ? 'danger' : null)));
 }
@@ -66,7 +66,9 @@ export default {
       pageHead('Trung tâm LIVE', 'Hai nguồn phát độc lập. Một nơi quản lý khách hàng, kiến thức và vận hành.',
         [btn('Mở hộp thư', {kind: 'primary', icon: 'message', onClick: () => ctx.navigate('inbox')})]),
       // Màn rộng: trợ lý + công tắc bên trái, thẻ nguồn xếp dọc bên phải (pages.css .live-top).
-      h('div', {class: 'live-top'}, wizard.el, heroSlot), kpiSlot, queueSlot,
+      // "Cần xử lý" nằm ngay màn hình đầu (1366x768) — khách bị bỏ sót là thứ cần thấy nhất khi LIVE.
+      kpiSlot,
+      h('div', {class: 'live-top'}, wizard.el, heroSlot), queueSlot,
       h('div', {class: 'overview-grid'},
         h('section', {class: 'card'}, h('header', {class: 'card-head'}, h('div', {class: 'grow'}, h('h2', {}, 'Việc cần làm trong Hộp thư'), h('div', {class: 'sub'}, 'Khách hỏi mà chưa ai trả lời và chưa được dạy AI — mới nhất trước')),
           btn('Mở hàng “Cần xử lý”', {kind: 'ghost', size: 'sm', icon: 'arrowRight', onClick: () => ctx.navigate('inbox', 'todo')})), pendingSlot),
@@ -118,7 +120,7 @@ export default {
         kpi('Cần xử lý', number(todo), 'Khách hỏi, chưa ai trả lời hay dạy AI', 'alert', () => ctx.navigate('inbox', 'todo'), todo ? 'danger' : null),
         kpi('Duyệt câu AI', number(session.review || 0), `AI đã gửi ${number(session.ai_replied || 0)} câu — xem, nắn lại cho đúng giọng`, 'sparkles', () => ctx.navigate('inbox', 'review')),
         kpi('Trí nhớ AI', number((learning && learning.active) || 0), learning && learning.suggested ? `${learning.suggested} điều AI đề xuất chờ bạn duyệt` : 'điều AI đã được dạy và đang dùng', 'layers', () => ctx.navigate('brain'), learning && learning.suggested ? 'warn' : null),
-        kpi('Giỏ TikTok có hồ sơ', `${number(catalog.mapped || 0)}/${number(catalog.total || 0)}`, catalog.unmapped ? `${catalog.unmapped} SP AI chưa được phép tư vấn` : 'AI tư vấn được mọi SP', 'box', () => ctx.navigate('catalog', catalog.unmapped ? 'mapping' : 'products'), catalog.unmapped ? 'warn' : null));
+        kpi('Giỏ TikTok có hồ sơ', `${number(catalog.mapped || 0)}/${number(catalog.total || 0)}`, catalog.unmapped ? `${catalog.unmapped} sản phẩm AI chưa được phép tư vấn` : 'AI tư vấn được mọi sản phẩm', 'box', () => ctx.navigate('catalog', catalog.unmapped ? 'mapping' : 'products'), catalog.unmapped ? 'warn' : null));
 
       const rows = dash.recent_activity || [];
       clear(activitySlot, rows.length ? rows.map(row => {

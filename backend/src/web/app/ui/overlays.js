@@ -1,6 +1,9 @@
 import {h} from '../core/dom.js';
 import {icon} from '../core/icons.js';
 import {btn} from './kit.js';
+import {makeGuardedDismiss, DISCARD_TITLE, DISCARD_TEXT} from '../core/dirty-guard.js';
+
+const askDiscard = () => confirmDialog({title: DISCARD_TITLE, text: DISCARD_TEXT, confirm: 'Đóng, bỏ thay đổi', cancel: 'Ở lại', tone: 'danger'});
 
 // ---------------- Toast ----------------
 let toastHost = null;
@@ -46,7 +49,7 @@ document.addEventListener('keydown', trapKeys, true);
 export function isOverlayOpen() { return stack.length > 0; }
 
 /** Mở modal; trả {close, node}. onDismiss gọi khi bấm nền / Esc. */
-export function openModal({title, description, body, footer, size = '', onDismiss, dismissible = true, labelledBy} = {}) {
+export function openModal({title, description, body, footer, size = '', onDismiss, dismissible = true, labelledBy, isDirty} = {}) {
   const previous = document.activeElement;
   const titleId = labelledBy || ('m' + Math.random().toString(36).slice(2, 8));
   const modal = h('div', {class: `modal ${size}`, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId},
@@ -63,8 +66,12 @@ export function openModal({title, description, body, footer, size = '', onDismis
       overlay.remove();
       if (previous && previous.focus) try { previous.focus({preventScroll: true}); } catch (_) { /* */ }
     },
-    dismiss() { if (!dismissible) return; entry.close(); if (onDismiss) onDismiss(); },
+    dismiss() {
+      if (!dismissible) return;
+      guarded();
+    },
   };
+  const guarded = makeGuardedDismiss({isDirty, ask: askDiscard, proceed: () => { entry.close(); if (onDismiss) onDismiss(); }});
   overlay.addEventListener('mousedown', e => { if (e.target === overlay) entry.dismiss(); });
   stack.push(entry);
   document.body.append(overlay);
@@ -114,7 +121,7 @@ export function promptDialog({title, text, label, value = '', placeholder = '', 
 }
 
 // ---------------- Drawer ----------------
-export function openDrawer({title, sub, body, footer, width = 560, onClose} = {}) {
+export function openDrawer({title, sub, body, footer, width = 560, onClose, isDirty} = {}) {
   const previous = document.activeElement;
   const shade = h('div', {class: 'drawer-overlay'});
   const panel = h('aside', {class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, style: {width: `min(${width}px, 96vw)`}},
@@ -125,8 +132,9 @@ export function openDrawer({title, sub, body, footer, width = 560, onClose} = {}
   const entry = {
     node: panel,
     close() { const i = stack.indexOf(entry); if (i >= 0) stack.splice(i, 1); shade.remove(); panel.remove(); previous?.focus?.({preventScroll: true}); },
-    dismiss() { entry.close(); if (onClose) onClose(); },
+    dismiss() { guarded(); },
   };
+  const guarded = makeGuardedDismiss({isDirty, ask: askDiscard, proceed: () => { entry.close(); if (onClose) onClose(); }});
   shade.addEventListener('mousedown', () => entry.dismiss());
   stack.push(entry);
   document.body.append(shade, panel);

@@ -1,4 +1,5 @@
 import {aiStatus} from './core/ai-status.js';
+import {connectionLost, shortPill, OFFLINE_LABEL, OFFLINE_TITLE} from './core/status-model.js';
 import {h, clear, isTypingTarget} from './core/dom.js';
 import {icon} from './core/icons.js';
 import {fold, relative} from './core/format.js';
@@ -119,14 +120,15 @@ export function createShell({navigate, commands, goBack = () => false, canGoBack
   function syncToTop() { toTop.hidden = main.scrollTop <= TO_TOP_AFTER; }
   setCollapsed(collapsed);
 
-  function pill(label, tone, onClick, {title, live} = {}) {
-    return h('button', {class: 'status-pill' + (live ? ' live-on' : ''), type: 'button', title: title || label, onClick},
-      h('i', {class: 'status-dot ' + tone}), h('span', {class: 'pill-label'}, label));
+  function pill(label, tone, onClick, {title, live, short} = {}) {
+    return h('button', {class: 'status-pill' + (live ? ' live-on' : ''), type: 'button', title: title || label, 'aria-label': label, onClick},
+      h('i', {class: 'status-dot ' + tone}), h('span', {class: 'pill-label'}, label),
+      short ? h('span', {class: 'pill-short', 'aria-hidden': 'true'}, short) : null);
   }
 
   function setStatus(dash, error) {
-    if (error && !dash) {
-      clear(statusStrip, pill('Mất kết nối với Kid TE', 'danger', () => location.reload(), {title: 'Không liên lạc được với Kid TE. Bấm để tải lại.'}));
+    if (connectionLost(error)) {
+      clear(statusStrip, pill(OFFLINE_LABEL, 'danger', () => location.reload(), {title: OFFLINE_TITLE, short: 'Mất kết nối ✗'}));
       return;
     }
     const ext = (dash && dash.extension) || {};
@@ -141,12 +143,15 @@ export function createShell({navigate, commands, goBack = () => false, canGoBack
         const channel = dash?.live_channels?.[platform] || {}, ext = channel.extension || {};
         const live = ext.connected && ext.live_running;
         const name = platform === 'shopee' ? 'Shopee' : 'TikTok';
-        return pill(`${name}: ${live ? 'LIVE' : ext.connected ? 'đã nối' : 'chưa nối'}`, live ? 'live' : 'warn',
-          () => navigate('system', 'live'), {live, title: `${name} · ${channel.position?.available ? 'đã nhận diện video riêng' : 'chờ nguồn riêng'}`});
+        const tone = live ? 'live' : 'warn';
+        return pill(`${name}: ${live ? 'LIVE' : ext.connected ? 'đã nối' : 'chưa nối'}`, tone,
+          () => navigate('system', 'live'), {live, short: shortPill(name, live || ext.connected ? 'ok' : 'warn'), title: `${name} · ${channel.position?.available ? 'đã nhận diện video riêng' : 'chờ nguồn riêng'}`});
       }),
-      pill(ai.deepseek_available ? 'DeepSeek sẵn sàng' : aiStatus(ai).checking ? aiStatus(ai).text : 'AI chưa sẵn sàng', aiStatus(ai).kind, () => navigate('system', 'setup')),
-      pill(captcha.running ? 'CAPTCHA đang quét' : captcha.key_rejected ? 'CAPTCHA: key lỗi' : 'CAPTCHA chưa chạy',
-        captcha.running ? 'ok' : captcha.key_rejected ? 'danger' : 'warn', () => navigate('captcha')));
+      pill(ai.deepseek_available ? 'DeepSeek sẵn sàng' : aiStatus(ai).checking ? aiStatus(ai).text : 'AI chưa sẵn sàng', aiStatus(ai).kind, () => navigate('system', 'setup'),
+        {short: shortPill('AI', ai.deepseek_available ? 'ok' : aiStatus(ai).kind)}),
+      pill(captcha.running ? 'CAPTCHA đang quét' : captcha.key_rejected ? 'CAPTCHA: khoá lỗi' : 'CAPTCHA chưa chạy',
+        captcha.running ? 'ok' : captcha.key_rejected ? 'danger' : 'warn', () => navigate('captcha'),
+        {short: shortPill('CAPTCHA', captcha.running ? 'ok' : captcha.key_rejected ? 'danger' : 'warn')}));
     navButtons.forEach(({badge, item, button}) => {
       const value = item.badge ? item.badge(dash) : 0;
       const show = Boolean(value) && value !== '0';

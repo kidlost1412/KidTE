@@ -12,7 +12,7 @@ for (const [i, ux] of variants.entries()) {
   test(`${name}: locked có chữ, class và tuổi đo`, () => {
     const b = ux.videoSourceBadge({state: 'locked', available: true, verification_age_s: 4.2, lock_id: 'x'});
     assert.equal(b.kind, 'locked'); assert.equal(b.className, 'src-locked');
-    assert.match(b.text, /Video đã khóa · vị trí đã kiểm chứng · 4 giây trước/);
+    assert.match(b.text, /Video đã khoá · vị trí đã kiểm chứng · 4 giây trước/);
   });
   test(`${name}: uncertain khác locked`, () => {
     const b = ux.videoSourceBadge({state: 'uncertain', available: false, verification_age_s: 41});
@@ -27,9 +27,9 @@ for (const [i, ux] of variants.entries()) {
   test(`${name}: pin đã xác nhận theo tuổi quan sát`, () => {
     const now = 100000;
     const ok = ux.pinBadge(now - 3000, 'Đạm Cá', now);
-    assert.equal(ok.className, 'pin-confirmed'); assert.match(ok.text, /^Pin đã xác nhận · Đạm Cá · quan sát 3 giây trước/);
+    assert.equal(ok.className, 'pin-confirmed'); assert.match(ok.text, /^Ghim đã xác nhận · Đạm Cá · quan sát 3 giây trước/);
     const old = ux.pinBadge(now - 40000, 'Đạm Cá', now);
-    assert.equal(old.className, 'pin-unconfirmed'); assert.match(old.text, /^Pin chưa xác nhận · lần cuối 40 giây trước/);
+    assert.equal(old.className, 'pin-unconfirmed'); assert.match(old.text, /^Ghim chưa xác nhận · lần cuối 40 giây trước/);
     assert.equal(ux.pinBadge(0, '', now).kind, 'unconfirmed');
   });
 }

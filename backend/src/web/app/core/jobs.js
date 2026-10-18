@@ -8,7 +8,7 @@ export async function waitJob(jobId, {signal, onProgress = () => {}, intervalMs 
     if (['failed', 'interrupted'].includes(job.state)) {
       throw new Error(job.state === 'interrupted'
         ? 'Tác vụ bị gián đoạn. Kiểm tra trạng thái trước khi thực hiện lại.'
-        : job.error === 'backup_busy' ? 'Có thao tác sao lưu hoặc xóa đang chạy. Chờ hoàn tất rồi thử lại.'
+        : job.error === 'backup_busy' ? 'Có thao tác sao lưu hoặc xoá đang chạy. Chờ hoàn tất rồi thử lại.'
         : 'Tác vụ thất bại: ' + (job.error || 'unknown'));
     }
     await new Promise((resolve, reject) => {

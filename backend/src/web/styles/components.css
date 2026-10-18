@@ -17,6 +17,11 @@
   .btn.primary:active:not(:disabled) { transform: translateY(1px); }
 }
 .btn:disabled { opacity: .5; }
+.btn.busy { cursor: progress; position: relative; }
+.btn.busy::after { content: ''; width: 12px; height: 12px; margin-left: 6px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: btn-spin .7s linear infinite; }
+.btn.icon.busy::after { margin: 0; position: absolute; }
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn.busy::after { animation-duration: 2s; } }
 .btn.primary { --btn-bg: var(--brand); --btn-fg: var(--brand-on); --btn-bd: var(--brand-border); box-shadow: var(--shadow-1); }
 .btn.primary:hover:not(:disabled) { background: var(--brand-hover); border-color: var(--brand-hover); }
 .btn.danger { --btn-bg: var(--danger); --btn-fg: var(--danger-on); --btn-bd: var(--danger); }

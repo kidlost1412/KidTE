@@ -68,10 +68,10 @@ test('backup UI previews deletion, waits for job and renders at three sizes/DPI'
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.screenshot({path:path.join(artifacts, `backups-${width}-dpi${dpi*100}.png`), fullPage:true});
       await select.check();
-      await page.getByRole('button', {name:'Xóa đã chọn', exact:true}).click();
+      await page.getByRole('button', {name:'Xoá đã chọn', exact:true}).click();
       await page.getByRole('dialog').waitFor();
       assert.equal(calls.length, 1, 'preview must not delete');
-      await page.getByRole('dialog').getByRole('button', {name:'Xóa', exact:true}).click();
+      await page.getByRole('dialog').getByRole('button', {name:'Xoá', exact:true}).click();
       await page.getByText('Chưa có bản sao lưu', {exact:true}).waitFor();
       assert.deepEqual(calls[1], ['delete', {ids:['fixture-one'], preview_token:'verified'}]);
       assert.deepEqual(errors, []);

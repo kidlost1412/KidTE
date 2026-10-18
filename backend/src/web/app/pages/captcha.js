@@ -77,8 +77,8 @@ export default {
           {footer: save}),
           card('Cảnh báo Telegram và video', h('div', {class: 'card-body col gap-3'},
             telegramStatus,
-            h('p', {class: 'fs-sm muted'}, 'Khi solver ghi nhận CAPTCHA mới, tiến trình riêng quay vùng cửa sổ TikTok Studio trong 30 giây. Video chờ gửi được giữ tối đa 7 ngày; chỉ xóa sau khi Telegram xác nhận nhận thành công. Kho quay giới hạn 5 GB; khi đầy sẽ dừng quay và solver vẫn tiếp tục.'),
-            field('Bot token', botToken, {hint: 'Để trống nếu chỉ sửa Chat ID đã lưu.'}),
+            h('p', {class: 'fs-sm muted'}, 'Khi solver ghi nhận CAPTCHA mới, tiến trình riêng quay vùng cửa sổ TikTok Studio trong 30 giây. Video chờ gửi được giữ tối đa 7 ngày; chỉ xoá sau khi Telegram xác nhận nhận thành công. Kho quay giới hạn 5 GB; khi đầy sẽ dừng quay và solver vẫn tiếp tục.'),
+            field('Mã bot Telegram', botToken, {hint: 'Để trống nếu chỉ sửa Chat ID đã lưu.'}),
             helperLink('Tạo bot (BotFather)', 'telegram_botfather'),
             field('Chat ID', chatId),
             h('div', {class: 'col gap-2'},
@@ -120,7 +120,7 @@ export default {
         if (!active) return;
         keyStatus.textContent = state.configured ? 'Key đã lưu và được mã hóa. Để thay key, nhập key mới bên dưới.' : 'Chưa lưu SadCaptcha API key.';
         telegramStatus.textContent = state.telegram_configured ?
-          `Bot token đã lưu · Chat ID ${state.telegram_chat_hint || 'đã lưu'}.` : 'Chưa lưu bot token và Chat ID.';
+          `Mã bot Telegram đã lưu · Chat ID ${state.telegram_chat_hint || 'đã lưu'}.` : 'Chưa lưu mã bot Telegram và Chat ID.';
         const model = healthModel(state);
         clear(status,
           healthCard(model),

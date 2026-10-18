@@ -321,3 +321,63 @@ def test_main_returns_before_taking_lock_on_stray_background_start(monkeypatch):
     monkeypatch.setattr(app_entry, "background_stray_start", lambda *a, **k: True)
     monkeypatch.setattr(app_entry, "SingleInstanceLock", lambda *a, **k: pytest.fail("lock taken"))
     assert app_entry.main() == 0
+
+
+def test_ui_failure_stops_background_serving_so_fallback_can_serve_once():
+    events = []
+
+    class Server(_Server):
+        def serve_forever(self, *_):
+            events.append("serve")
+            import time
+            while "shutdown" not in events:
+                time.sleep(0.01)
+
+        def shutdown(self):
+            events.append("shutdown")
+
+    class BrokenWebview:
+        @staticmethod
+        def create_window(*_a, **_k):
+            raise RuntimeError("WebView2 missing")
+
+    assert app_entry.run_desktop_ui(Server(), "http://127.0.0.1:8793/app",
+                                    webview_module=BrokenWebview) is False
+    assert events == ["serve", "shutdown"]
+
+
+def test_browser_fallback_opens_ui_notifies_and_keeps_serving():
+    events = []
+
+    class Server(_Server):
+        def serve_forever(self, *_):
+            events.append("serve")
+
+    logger = mock.Mock()
+    notified = []
+    app_entry.browser_fallback(Server(), "http://127.0.0.1:8793/app", logger,
+                               opener=lambda url: events.append(("open", url)) or True,
+                               notify=lambda: notified.append(True))
+    assert events == [("open", "http://127.0.0.1:8793/app"), "serve"]
+    import time
+    for _ in range(100):
+        if notified:
+            break
+        time.sleep(0.01)
+    assert notified == [True]
+
+
+def test_second_open_with_broken_webview_opens_browser_instead_of_silence(tmp_path):
+    old_argv = sys.argv
+    try:
+        sys.argv = ["app_entry.py"]
+        with mock.patch.object(app_entry, "ROOT", tmp_path), \
+             mock.patch.object(app_entry.SingleInstanceLock, "acquire", side_effect=app_entry.InstanceAlreadyRunning("busy")), \
+             mock.patch.object(app_entry, "notify_existing_instance", return_value=False), \
+             mock.patch.object(app_entry, "existing_backend_ready", return_value=True), \
+             mock.patch.object(app_entry, "run_client_ui", return_value=False), \
+             mock.patch.object(app_entry, "open_browser", return_value=True) as browser:
+            assert app_entry.main() == 0
+            browser.assert_called_once_with("http://127.0.0.1:8793/app")
+    finally:
+        sys.argv = old_argv

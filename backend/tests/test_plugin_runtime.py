@@ -106,16 +106,34 @@ def test_snapshot_logs_crash_detected_when_previously_running_goes_stale(tmp_pat
     logger = _RecordingLogger()
     supervisor = ScriptedSupervisor()
     demo = manifest(tmp_path, "demo")
-    runtime = PluginRuntimeManager({"demo": demo}, supervisor, logger=logger)
+    now = [0.0]
+    runtime = PluginRuntimeManager({"demo": demo}, supervisor, logger=logger, clock=lambda: now[0])
 
     supervisor.status_value = {"state": "running", "pid": 5, "attached": True}
     runtime.snapshot()
+    now[0] = 3600.0
     supervisor.status_value = {"state": "stopped", "reason": "stale_pid"}
     runtime.snapshot()
 
     events = [r["event"] for r in logger.records]
     assert events == ["service_reattached_after_restart", "service_crash_detected"]
     assert logger.records[1]["reason"] == "stale_pid"
+
+
+def test_stale_pid_right_after_core_restart_is_not_reported_as_crash(tmp_path):
+    """O8: PID cũ của lần chạy lõi trước chết ngay sau khi nối lại -> nhãn riêng."""
+    logger = _RecordingLogger()
+    supervisor = ScriptedSupervisor()
+    demo = manifest(tmp_path, "demo")
+    now = [0.0]
+    runtime = PluginRuntimeManager({"demo": demo}, supervisor, logger=logger, clock=lambda: now[0])
+    supervisor.status_value = {"state": "running", "pid": 5, "attached": True}
+    runtime.snapshot()
+    now[0] = 5.0
+    supervisor.status_value = {"state": "stopped", "reason": "stale_pid"}
+    runtime.snapshot()
+    events = [r["event"] for r in logger.records]
+    assert events == ["service_reattached_after_restart", "service_stale_after_core_restart"]
 
 
 def test_start_logs_restart_limit_reached(tmp_path):

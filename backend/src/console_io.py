@@ -24,20 +24,88 @@ class _NullWriter:
         pass
 
 
+CONSOLE_LOG_MAX_BYTES = 5 * 1024 * 1024
+CONSOLE_LOG_BACKUPS = 3
+
+
+def rotate_file(path, *, backups=CONSOLE_LOG_BACKUPS):
+    """console.log -> console.log.1 -> ... -> console.log.<backups> (bỏ bản cũ nhất)."""
+    path = os.fspath(path)
+    for index in range(backups - 1, 0, -1):
+        older = f"{path}.{index}"
+        if os.path.exists(older):
+            os.replace(older, f"{path}.{index + 1}")
+    if os.path.exists(path):
+        os.replace(path, f"{path}.1")
+
+
+class RotatingTextStream:
+    """Luồng văn bản ghi vào tệp, tự xoay vòng khi vượt ``max_bytes`` (O6).
+
+    stdout và stderr dùng CHUNG một đối tượng: Windows không cho đổi tên tệp
+    đang mở bởi handle khác, nên chỉ được có một handle tới console.log.
+    """
+    encoding = "utf-8"
+
+    def __init__(self, path, *, max_bytes=CONSOLE_LOG_MAX_BYTES, backups=CONSOLE_LOG_BACKUPS):
+        import threading
+
+        self.path = os.fspath(path)
+        self.max_bytes = max_bytes
+        self.backups = backups
+        self._lock = threading.Lock()
+        if os.path.exists(self.path) and os.path.getsize(self.path) >= max_bytes:
+            try:
+                rotate_file(self.path, backups=backups)
+            except OSError:
+                pass  # tệp đang bị chương trình khác giữ: ghi tiếp, không mất log
+        self._stream = open(self.path, "a", encoding="utf-8", errors="replace", buffering=1)
+
+    def write(self, text):
+        if not isinstance(text, str):
+            return 0
+        with self._lock:
+            written = self._stream.write(text)
+            if self._stream.tell() >= self.max_bytes:
+                self._rotate()
+            return written
+
+    def _rotate(self):
+        self._stream.close()
+        try:
+            rotate_file(self.path, backups=self.backups)
+        except OSError:
+            pass  # không xoay được (tệp bị khoá): ghi tiếp vào tệp cũ, không mất log
+        self._stream = open(self.path, "a", encoding="utf-8", errors="replace", buffering=1)
+
+    def flush(self):
+        with self._lock:
+            self._stream.flush()
+
+    def isatty(self):
+        return False
+
+    def reconfigure(self, **_kwargs):
+        pass
+
+    def fileno(self):
+        return self._stream.fileno()
+
+
 def ensure_std_streams(log_path=None):
     """Bản đóng gói console=False: sys.stdout/stderr là None. Gán luồng thay thế
-    (file log nếu mở được, không thì bộ ghi rỗng) để print()/logging không lỗi."""
+    (file log xoay vòng nếu mở được, không thì bộ ghi rỗng) để print()/logging không lỗi."""
+    shared = None
     for name in ("stdout", "stderr"):
         if getattr(sys, name, None) is not None:
             continue
-        stream = None
-        if log_path:
+        if shared is None and log_path:
             try:
                 os.makedirs(os.path.dirname(os.fspath(log_path)), exist_ok=True)
-                stream = open(log_path, "a", encoding="utf-8", errors="replace", buffering=1)
+                shared = RotatingTextStream(log_path)
             except OSError:
-                stream = None
-        setattr(sys, name, stream or _NullWriter())
+                shared = None
+        setattr(sys, name, shared or _NullWriter())
     if sys.stdin is None:
         sys.stdin = open(os.devnull, "r", encoding="utf-8")
 

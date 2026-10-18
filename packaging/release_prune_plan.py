@@ -11,8 +11,11 @@ Rules:
   DELETE  everything else
   KEEP    releases without a tag (never touched: not understood, so not pruned)
 
+Safety: every existing feed release (tag updates-*) must come with its catalog via --feed TAG=PATH,
+otherwise the script exits 3 and nothing is decided/deleted.
+
 Run as a script:
-  python -I release_prune_plan.py --releases R.json --catalog C.json [--catalog C2.json]
+  python -I release_prune_plan.py --releases R.json [--catalog C.json] --feed updates-beta-p4=P4.json
          [--keep-core 2] [--plan-out P.json]
 """
 
@@ -28,6 +31,26 @@ CATALOG_URL_RE = re.compile(r"/releases/download/([^/\s\"'\\]+)/")
 CORE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-p[34](?:[.\-_].*)?$")
 INSTALLER_RE = re.compile(r"(?i)setup.*\.exe$")
 FEED_PREFIX = "updates-"
+
+
+class PlanError(Exception):
+    """Dữ liệu không đủ tin cậy để quyết định xoá: DỪNG, không xoá gì."""
+
+
+def check_feeds(releases: Iterable[Dict[str, Any]], feed_catalogs: Dict[str, Any]) -> None:
+    """Mỗi release feed (tag updates-*) đang tồn tại PHẢI có catalog đã tải và đọc được.
+
+    Thiếu một catalog = không biết tag nào còn được tham chiếu = có thể xoá nhầm tag runtime/app.
+    """
+    for release in releases:
+        tag = release.get("tag_name") or ""
+        if not tag.startswith(FEED_PREFIX):
+            continue
+        catalog = feed_catalogs.get(tag)
+        if not isinstance(catalog, dict) or not isinstance(((catalog.get("signed") or catalog).get("components")), list):
+            raise PlanError("feed %s: khong co catalog doc duoc - dung, khong xoa gi" % tag)
+        if not referenced_tags(catalog):
+            raise PlanError("feed %s: catalog khong tham chieu tag nao - dung, khong xoa gi" % tag)
 
 
 def referenced_tags(catalog: Any) -> Set[str]:
@@ -140,11 +163,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Plan which old Kid TE releases to delete.")
     parser.add_argument("--releases", required=True, help="JSON list of GitHub release objects")
     parser.add_argument("--catalog", action="append", default=[], help="signed catalog JSON (repeatable)")
+    parser.add_argument("--feed", action="append", default=[], metavar="TAG=PATH",
+                        help="catalog của feed updates-* đã tải (repeatable); feed nào tồn tại mà thiếu -> dừng")
     parser.add_argument("--keep-core", type=int, default=2)
     parser.add_argument("--plan-out", default="", help="write plan JSON here")
     args = parser.parse_args(argv)
 
-    if not args.catalog:
+    if not args.catalog and not args.feed:
         print("LOI: can it nhat mot catalog", file=sys.stderr)
         return 2
     with open(args.releases, "r", encoding="utf-8") as handle:
@@ -154,7 +179,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         with open(path, "r", encoding="utf-8") as handle:
             catalogs.append(json.load(handle))
 
-    plan = build_plan(releases, catalogs, keep_core=args.keep_core)
+    feed_catalogs = {}
+    for item in args.feed:
+        tag, sep, path = item.partition("=")
+        if not sep or not tag or not path:
+            print("LOI: --feed can dang TAG=PATH", file=sys.stderr)
+            return 2
+        with open(path, "r", encoding="utf-8") as handle:
+            feed_catalogs[tag] = json.load(handle)
+    try:
+        check_feeds(releases, feed_catalogs)
+    except PlanError as exc:
+        print("LOI: %s" % exc, file=sys.stderr)
+        return 3
+    plan = build_plan(releases, [*catalogs, *feed_catalogs.values()], keep_core=args.keep_core)
     _print_table(plan)
     if args.plan_out:
         with open(args.plan_out, "w", encoding="utf-8") as handle:

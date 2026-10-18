@@ -4,6 +4,8 @@ Examples:
   python packaging/update_release.py package dist/KidTE --component app --out app.zip   (also: runtime, extensions)
   python packaging/update_release.py keygen --private-key %LOCALAPPDATA%\\KidTE\\release-key.dpapi --public-key release-public.json
   python packaging/update_release.py sign catalog-payload.json --private-key ... --out kidte-catalog-v2.json
+  python packaging/update_release.py renew-catalog --published published.json --out renew-dir   (gia han, khong build)
+  python packaging/update_release.py verify-renewed renew-dir/kidte-catalog-v2.json --published published.json
 
 The keygen command protects the raw Ed25519 private key with Windows DPAPI for
 the current user and writes only public metadata beside it.
@@ -243,6 +245,45 @@ def check_release_catalog(catalog_path: Path, release_dir: Path, head_commit: st
     return problems
 
 
+def renew_catalog(published_path: Path, out_dir: Path, *, days=90, channel="beta", trusted_keys=None, now=None):
+    """A3: tao payload CHUA KY gia han tu catalog dang cong bo (noi dung goi y het, sequence+1, han moi).
+
+    Catalog dang cong bo phai co chu ky hop le theo TRUSTED_KEYS; chi chap nhan loi het han
+    (day chinh la truong hop can gia han). Ghi <out_dir>/catalog-payload.json.
+    """
+    import build_catalog
+    raw = Path(published_path).read_bytes()
+    verify_catalog(raw, _trusted_keys(trusted_keys), channel=channel, allow_expired=True)
+    payload = build_catalog.renew_payload(_parse(raw), now=now, days=days)
+    target = Path(out_dir) / "catalog-payload.json"
+    _atomic_write(target, (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+    return {"sequence": payload["sequence"], "issued_at": payload["issued_at"],
+            "expires_at": payload["expires_at"], "payload": str(target)}
+
+
+def check_renewed_catalog(renewed_path: Path, published_path: Path, *, channel="beta", trusted_keys=None, now=None):
+    """Tra danh sach loi (tieng Viet) neu catalog da ky KHONG phai ban gia han dung cua catalog dang cong bo."""
+    from update_catalog import CatalogError
+    trusted = _trusted_keys(trusted_keys)
+    try:
+        old = verify_catalog(Path(published_path).read_bytes(), trusted, channel=channel, allow_expired=True)
+    except (CatalogError, ValueError, TypeError) as exc:
+        return [f"Catalog dang cong bo khong qua kiem chu ky ({exc})."]
+    try:
+        new = verify_catalog(Path(renewed_path).read_bytes(), trusted, channel=channel,
+                             minimum_sequence=int(old["sequence"]) + 1, now=now)
+    except (CatalogError, ValueError, TypeError) as exc:
+        return [f"Catalog gia han khong qua verify_catalog(minimum_sequence={int(old['sequence']) + 1}) ({exc})."]
+    problems = []
+    if new["sequence"] != old["sequence"] + 1:
+        problems.append(f"Sequence {new['sequence']} khong phai {old['sequence']} + 1.")
+    if new["components"] != old["components"]:
+        problems.append("Noi dung cac thanh phan khac catalog dang cong bo (gia han khong duoc doi goi).")
+    if new["expires_at"] <= old["expires_at"]:
+        problems.append(f"Han moi {new['expires_at']} khong sau han cu {old['expires_at']}.")
+    return problems
+
+
 def package_directory(source: Path, output: Path, component="core"):
     if component not in COMPONENT_POLICIES:
         raise ValueError("unsupported component")
@@ -363,6 +404,15 @@ def main(argv=None):
     cp.add_argument("--head", required=True)
     cp.add_argument("--tag", default="")
     cp.add_argument("--repository", default="")
+    rn = sub.add_parser("renew-catalog")
+    rn.add_argument("--published", required=True, type=Path)
+    rn.add_argument("--out", required=True, type=Path, help="thu muc ghi catalog-payload.json")
+    rn.add_argument("--days", type=int, default=90)
+    rn.add_argument("--channel", default="beta")
+    vr = sub.add_parser("verify-renewed")
+    vr.add_argument("catalog", type=Path)
+    vr.add_argument("--published", required=True, type=Path)
+    vr.add_argument("--channel", default="beta")
     pk = sub.add_parser("package")
     pk.add_argument("source", type=Path)
     pk.add_argument("--out", required=True, type=Path)
@@ -372,6 +422,16 @@ def main(argv=None):
         print(json.dumps({"key_id": keygen(args.private_key, args.public_key), "public_metadata": str(args.public_key)}))
     elif args.command == "sign":
         sign_catalog(args.payload, args.private_key, args.out)
+    elif args.command == "renew-catalog":
+        print(json.dumps(renew_catalog(args.published, args.out, days=args.days, channel=args.channel)))
+    elif args.command == "verify-renewed":
+        problems = check_renewed_catalog(args.catalog, args.published, channel=args.channel)
+        for line in problems:
+            sys.stdout.buffer.write(("LỖI: " + line + "\n").encode("utf-8"))
+        sys.stdout.flush()
+        if problems:
+            raise SystemExit(1)
+        print("OK")
     elif args.command == "check-publish":
         problems = check_release_catalog(args.catalog, args.release_dir, args.head,
                                          tag=args.tag, repository=args.repository)

@@ -154,6 +154,10 @@ export async function updates(ctx, host, owner) {
         main.push(notice('danger', 'Chưa cập nhật được', friendlyError({code: state.error}),
           btn('Thử lại', {kind: 'primary', size: 'sm', disabled: state.busy, onClick: () => act('check', {channel})})));
       }
+      if (state.catalog_expiring_soon) {
+        const left = Math.max(0, state.catalog_days_left ?? 0);
+        main.push(h('div', {class: 'muted fs-sm'}, `Danh mục cập nhật còn ${left} ngày là hết hạn. Hãy báo người quản trị gia hạn để máy vẫn nhận được bản mới.`));
+      }
       if (state.busy && state.operation === 'install' && view) main.push(progressBar(view));
       else if (state.busy) main.push(notice('info', state.operation === 'initial_setup' ? 'Đang tự thiết lập máy mới…' : phases[state.operation] || 'Đang xử lý…', state.initial_setup ? 'Tự nhận diện phần cứng và tải các tính năng cần thiết. Chỉ khởi động lại một lần khi hoàn tất.' : ''));
       if (restarting) {

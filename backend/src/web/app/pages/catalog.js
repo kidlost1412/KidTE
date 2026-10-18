@@ -358,6 +358,7 @@ function mountProfiles(ctx, host, d) {
     const history = detail.history || [];
     const drawer = openDrawer({
       title: data.ten_san_pham || id, sub: `${id} · ${data.mapped_skus || 0} sản phẩm đang dùng hồ sơ này`, width: 720,
+      isDirty: () => Object.values(controls).some(([control, , initial]) => control.value !== initial),
       body: h('div', {class: 'card-body col gap-4'},
         data.image_url || data.featured_image_url ? h('img', {src: data.image_url || profileThumbUrl(id), alt: '', style: {maxHeight: '180px', objectFit: 'contain', background: '#fff', borderRadius: '12px', border: '1px solid var(--border)'}}) : null,
         composition.length ? h('div', {class: 'col'}, h('div', {class: 'section-title'}, 'Thành phần đăng ký (chỉ đọc)'), h('ul', {class: 'list-lines'}, composition.map(line => h('li', {}, line)))) : null,
@@ -376,7 +377,7 @@ function mountProfiles(ctx, host, d) {
         h('span', {class: 'grow'}),
         btn('Bổ sung bằng Google', {icon: 'search', attrs: {title: 'Tra Google để điền các mục còn trống (thành phần, cách dùng, cây trồng, lưu ý). Anh/chị xem nguồn và duyệt trước khi lưu.'},
           onClick: () => openProfileEnrich(id, {name: data.ten_san_pham || id, onApplied: () => { drawer.close(); invalidateCatalog(); load(); }})}),
-        btn('Đóng', {kind: 'ghost', onClick: () => drawer.close()}),
+        btn('Đóng', {kind: 'ghost', onClick: () => drawer.dismiss()}),
         btn('Lưu hồ sơ', {kind: 'primary', icon: 'save', onClick: async () => {
           const changes = {};
           Object.entries(controls).forEach(([key, [control, type, initial]]) => {

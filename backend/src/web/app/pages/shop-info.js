@@ -2,14 +2,16 @@ import {h, clear, disposer} from '../core/dom.js';
 import {request, friendlyError} from '../core/api.js';
 import {btn, errorBox, skeletonRows, pageHead, field, input, textarea, card} from '../ui/kit.js';
 import {toast} from '../ui/overlays.js';
+import {createDirtyTracker} from '../core/dirty-guard.js';
 
 export default {
   mount(ctx) {
     const d = disposer();
-    const host = h('div', {style: {marginTop: '16px'}}, shopInfoCard());
+    const shop = shopInfoCard();
+    const host = h('div', {style: {marginTop: '16px'}}, shop.node);
     clear(ctx.shell.main, h('div', {class: 'page'},
       pageHead('Thông tin shop', 'Thông tin công khai AI dùng khi khách hỏi địa chỉ, hotline và giao hàng.'), host));
-    return {unmount: () => d.dispose()};
+    return {unmount: () => d.dispose(), isDirty: shop.isDirty};
   },
 };
 
@@ -17,9 +19,10 @@ export default {
 function shopInfoCard() {
   const body = h('div', {class: 'card-body form-grid'}, skeletonRows(3, 40));
   const inputs = {};
+  const tracker = createDirtyTracker(() => Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value.trim()])));
   const save = btn('Lưu thông tin shop', {kind: 'primary', icon: 'save', onClick: async () => {
     const values = Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value.trim()]));
-    try { await request('/api/system/shop-info', {method: 'POST', body: {values}}); toast('Đã lưu — AI dùng ngay cho câu tiếp theo.', 'ok'); }
+    try { await request('/api/system/shop-info', {method: 'POST', body: {values}}); toast('Đã lưu — AI dùng ngay cho câu tiếp theo.', 'ok'); tracker.reset(); }
     catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   request('/api/system/shop-info').then(out => {
@@ -30,7 +33,8 @@ function shopInfoCard() {
           : input({value: out.values[key] || '', placeholder: hint});
         return field(label, inputs[key]);
       }));
+    tracker.reset();
   }).catch(e => clear(body, errorBox(friendlyError(e))));
-  return card('Thông tin shop', body, {sub: 'Địa chỉ, hotline, giao hàng', footer: save});
+  return {node: card('Thông tin shop', body, {sub: 'Địa chỉ, hotline, giao hàng', footer: save}), isDirty: tracker.isDirty};
 }
 

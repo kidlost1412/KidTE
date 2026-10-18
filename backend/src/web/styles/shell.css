@@ -42,6 +42,7 @@
 .command-trigger span { flex: 1; text-align: left; }
 .status-strip { display: flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0; }
 .status-pill { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface); font-size: var(--fs-xs); font-weight: 650; color: var(--text-2); white-space: nowrap; }
+.status-pill .pill-short { display: none; }
 .status-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .status-pill.live-on { border-color: color-mix(in srgb, var(--live) 40%, transparent); background: var(--live-soft); color: var(--live); }
 .topbar .btn.icon { flex: none; }
@@ -83,6 +84,7 @@
   .shell .brand { justify-content: center; padding: 0; }
   .shell .nav-item .nav-dot { display: block; position: absolute; top: 7px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
   .status-pill .pill-label { display: none; }
+  .status-pill .pill-short { display: inline; }
   .page { padding: 18px 18px 56px; }
 }
 

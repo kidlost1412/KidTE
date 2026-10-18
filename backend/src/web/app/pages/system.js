@@ -55,15 +55,16 @@ export default {
     clear(ctx.shell.main, h('div', {class: 'page'},
       pageHead('Cài đặt & hệ thống', 'AI dùng chung, nguồn LIVE riêng cho TikTok và Shopee, chép lời, sao lưu và khôi phục.'),
       tabs(TABS, tab, id => ctx.navigate('system', id)), host));
-    ({setup, live: liveSettings, audio, whisper, updates, diagnostics, backups, trash, logs, appearance})[tab](ctx, host, d);
-    return {unmount: () => d.dispose()};
+    let dirtyFn = null; // tab nào có biểu mẫu thì đăng ký hàm "đã sửa chưa lưu"
+    ({setup, live: liveSettings, audio, whisper, updates, diagnostics, backups, trash, logs, appearance})[tab](ctx, host, d, fn => { dirtyFn = fn; });
+    return {unmount: () => d.dispose(), isDirty: () => (dirtyFn ? Boolean(dirtyFn()) : false)};
   },
 };
 
 // ---------------------------------------------------------------- Cài đặt
-async function setup(ctx, host) {
+async function setup(ctx, host, _d, registerDirty = () => {}) {
   let s;
-  try { s = await request('/api/settings'); } catch (e) { clear(host, errorBox(friendlyError(e), () => setup(ctx, host))); return; }
+  try { s = await request('/api/settings'); } catch (e) { clear(host, errorBox(friendlyError(e), () => setup(ctx, host, _d, registerDirty))); return; }
   const dash = ctx.store.get().dashboard || {};
   const labels = s.model_labels || {};
   const model = select((s.models || []).map(m => [m, labels[m] || m]), s.selected_model);
@@ -90,9 +91,9 @@ async function setup(ctx, host) {
     if (typed) body.api_key = typed;
     try {
       await request('/api/settings', {method: 'POST', body});
-      key.value = ''; toast('Đã lưu cài đặt AI.', 'ok');
+      key.value = ''; s.selected_model = body.model; toast('Đã lưu cài đặt AI.', 'ok');
       if (typed) { await runKeyCheck('deepseek', dsStatus, ''); return; }   // hiện kết quả kiểm khoá ngay dưới nút, không vẽ lại trang
-      setup(ctx, host);
+      setup(ctx, host, _d, registerDirty);
     } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   const gemKey = input({type: 'password', placeholder: s.gemini_key_configured ? '•••••••• (đã cấu hình — để trống nếu không đổi)' : 'Dán khoá Gemini (AIza…)', autocomplete: 'off'});
@@ -138,15 +139,15 @@ async function setup(ctx, host) {
     if (!Object.keys(body).length) { toast('Chưa có gì để lưu.', 'info'); return; }
     try {
       await request('/api/settings', {method: 'POST', body});
-      gemKey.value = ''; toast('Đã lưu cài đặt Gemini.', 'ok');
+      gemKey.value = ''; s.gemini_model = chosen; toast('Đã lưu cài đặt Gemini.', 'ok');
       if (typed) { await runKeyCheck('gemini', gemStatus, ''); }
-      setup(ctx, host);
+      setup(ctx, host, _d, registerDirty);
     } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   const userIds = input({value: s.tiktok_user_ids || '', placeholder: 'vd 7496342894195278856, …'});
   const uniqueIds = input({value: s.tiktok_unique_ids || '', placeholder: 'vd tenshopcuaban, …'});
   const saveTiktok = btn('Lưu tài khoản', {kind: 'primary', icon: 'save', onClick: async () => {
-    try { await request('/api/settings', {method: 'POST', body: {tiktok_user_ids: userIds.value, tiktok_unique_ids: uniqueIds.value}}); toast('Đã lưu. Bình luận của các tài khoản này được coi là của chủ shop.', 'ok'); } catch (e) { toast(friendlyError(e), 'danger'); }
+    try { await request('/api/settings', {method: 'POST', body: {tiktok_user_ids: userIds.value, tiktok_unique_ids: uniqueIds.value}}); s.tiktok_user_ids = userIds.value; s.tiktok_unique_ids = uniqueIds.value; toast('Đã lưu. Bình luận của các tài khoản này được coi là của chủ shop.', 'ok'); } catch (e) { toast(friendlyError(e), 'danger'); }
   }});
   const source = input({value: s.knowledge_source || '', placeholder: 'Đường dẫn file gói kiến thức (.json) hoặc thư mục chia sẻ'});
   const pkgOut = h('div', {class: 'col gap-3'});
@@ -164,11 +165,15 @@ async function setup(ctx, host) {
           } catch (e) { clear(seedOut, notice('danger', 'Không đọc được gói đi kèm', friendlyError(e))); }
         }}),
         btn('Cập nhật', {kind: 'primary', onClick: async () => {
-          try { await request('/api/knowledge/update', {method: 'POST', body: {seed: true}}); toast('Đã cập nhật hồ sơ chính thức. Có thể “Hoàn tác lần cập nhật”.', 'ok'); setup(ctx, host); }
+          try { await request('/api/knowledge/update', {method: 'POST', body: {seed: true}}); toast('Đã cập nhật hồ sơ chính thức. Có thể “Hoàn tác lần cập nhật”.', 'ok'); setup(ctx, host, _d, registerDirty); }
           catch (e) { toast(friendlyError(e), 'danger'); }
         }})))) : null;
   const seedOut = h('div', {class: 'col gap-3'});
   const ext = dash.extension || {};
+  // Cảnh báo rời trang khi còn chỗ đã gõ/chọn mà chưa bấm Lưu (khoá API, model, tài khoản chủ shop).
+  registerDirty(() => model.value !== s.selected_model || key.value.trim() !== '' || gemKey.value.trim() !== '' ||
+    chosenGeminiModel(gemModel.value, gemCustom.value) !== (s.gemini_model || '') ||
+    userIds.value !== (s.tiktok_user_ids || '') || uniqueIds.value !== (s.tiktok_unique_ids || ''));
 
   clear(host, h('div', {class: 'settings-grid'},
     card('Về ứng dụng', h('div', {class: 'card-body col gap-3'},

@@ -1,17 +1,18 @@
 import {h} from '../core/dom.js';
 import {icon} from '../core/icons.js';
 import {initials, hashHue} from '../core/format.js';
+import {withBusyLock} from '../core/busy.js';
 
-export function btn(label, {kind = '', size = '', icon: iconName = '', onClick, title, type = 'button', disabled, kbd, attrs = {}} = {}) {
+export function btn(label, {kind = '', size = '', icon: iconName = '', onClick, title, type = 'button', disabled, kbd, lock = true, attrs = {}} = {}) {
   const classes = ['btn', kind, size, !label && iconName ? 'icon' : ''].filter(Boolean).join(' ');
-  return h('button', {class: classes, type, title: title || (label ? null : attrs['aria-label']), disabled, onClick, ...attrs},
+  return h('button', {class: classes, type, title: title || (label ? null : attrs['aria-label']), disabled, onClick: lock ? withBusyLock(onClick) : onClick, ...attrs},
     iconName ? icon(iconName) : null,
     label ? h('span', {}, label) : null,
     kbd ? h('span', {class: 'kbd'}, kbd) : null);
 }
 
 export function iconBtn(iconName, label, onClick, {kind = 'ghost', size = '', disabled, attrs = {}} = {}) {
-  return h('button', {class: ['btn', 'icon', kind, size].filter(Boolean).join(' '), type: 'button', title: label, 'aria-label': label, disabled, onClick, ...attrs}, icon(iconName));
+  return h('button', {class: ['btn', 'icon', kind, size].filter(Boolean).join(' '), type: 'button', title: label, 'aria-label': label, disabled, onClick: withBusyLock(onClick), ...attrs}, icon(iconName));
 }
 
 export function chip(label, tone = '', {iconName, dot = false, title, size = ''} = {}) {

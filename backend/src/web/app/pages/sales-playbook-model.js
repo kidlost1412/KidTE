@@ -8,8 +8,8 @@ export const SERVER_ERRORS = {
   playbook_entries_invalid: 'Dữ liệu sổ tay không đúng dạng.',
   playbook_entry_invalid: 'Có một mục sai dạng.',
   playbook_too_many_entries: `Tối đa ${LIMITS.entries} tình huống.`,
-  playbook_id_invalid: 'Mã tình huống chỉ gồm chữ thường không dấu, số, gạch dưới (tối đa 40 ký tự).',
-  playbook_id_duplicate: 'Có hai tình huống trùng mã.',
+  playbook_id_invalid: 'Tên tình huống chưa dùng được. Hãy đặt tên ngắn, có chữ hoặc số.',
+  playbook_id_duplicate: 'Có hai tình huống trùng tên. Hãy đặt tên khác nhau.',
   playbook_tinh_huong_invalid: 'Tình huống cần ghi ngắn gọn (tối đa 100 ký tự).',
   playbook_dau_hieu_invalid: 'Mỗi tình huống cần ít nhất một dấu hiệu (tối đa 16 cụm, mỗi cụm 40 ký tự).',
   playbook_huong_xu_ly_invalid: 'Hướng xử lý cần có và tối đa 500 ký tự.',
@@ -24,6 +24,20 @@ export const lines = text => [...new Set(String(text || '').split(/\r?\n|;/).map
 export function slugify(text) {
   return String(text || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase()
     .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, LIMITS.id);
+}
+
+/** Mã nội bộ tự sinh từ tên tình huống cho hàng mới (người dùng không thấy mã). Không đụng mã đã có. */
+export function ensureIds(rows) {
+  const used = new Set(rows.map(r => String(r.id || '').trim()).filter(Boolean));
+  rows.forEach(row => {
+    if (String(row.id || '').trim()) return;
+    const base = slugify(row.tinhHuong) || 'tinh_huong';
+    let id = base, n = 2;
+    while (used.has(id)) { const suffix = '_' + n++; id = base.slice(0, LIMITS.id - suffix.length) + suffix; }
+    used.add(id);
+    row.id = id;
+  });
+  return rows;
 }
 
 // Mục từ API -> hàng soạn thảo (các danh sách thành văn bản mỗi dòng một ý).

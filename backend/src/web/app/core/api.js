@@ -197,7 +197,40 @@ const MESSAGES = {
   captcha_telegram_rejected: 'Telegram không xác nhận tin nhắn thử.',
   captcha_monitor_missing: 'Thiếu script giám sát hoặc FFmpeg trong bộ cài.',
   captcha_monitor_start_failed: 'Không khởi chạy được tiến trình giám sát Telegram.',
+  insufficient_download_space: 'Ổ đĩa không đủ chỗ trống để tải gói. Giải phóng dung lượng rồi thử lại.',
+  package_size_mismatch: 'Gói tải về bị thiếu hoặc sai dung lượng. Bấm Thử lại để tải lại.',
+  package_http_error: 'Máy chủ tải gói đang lỗi. Chờ một lát rồi thử lại.',
+  catalog_http_403: 'GitHub tạm từ chối truy cập (quá nhiều lượt hoặc bị chặn mạng). Chờ vài phút rồi kiểm tra lại.',
+  catalog_http_429: 'GitHub báo có quá nhiều yêu cầu. Chờ vài phút rồi kiểm tra lại.',
+  catalog_http_500: 'GitHub đang gặp lỗi. Thử lại sau ít phút.',
+  catalog_http_502: 'GitHub đang gặp lỗi. Thử lại sau ít phút.',
+  catalog_http_503: 'GitHub đang bảo trì. Thử lại sau ít phút.',
+  empty_catalog: 'Danh mục cập nhật đang trống. Thử lại sau hoặc báo hỗ trợ.',
+  catalog_too_large: 'Danh mục cập nhật lớn bất thường nên bị từ chối. Thử lại sau hoặc báo hỗ trợ.',
+  catalog_redirect_rejected: 'Nguồn cập nhật bị chuyển hướng bất thường nên bị chặn. Thử lại sau.',
+  package_content_range_invalid: 'Máy chủ trả dữ liệu tải tiếp không hợp lệ. Bấm Thử lại để tải lại từ đầu.',
+  package_redirect_rejected: 'Nguồn gói bị chuyển hướng bất thường nên bị chặn. Thử lại sau.',
+  package_resume_rejected: 'Máy chủ không cho tải tiếp phần dở. Bấm Thử lại để tải lại từ đầu.',
+  package_too_large: 'Gói lớn hơn mức cho phép nên bị từ chối. Báo hỗ trợ.',
+  package_url_rejected: 'Địa chỉ tải gói không hợp lệ nên bị chặn. Báo hỗ trợ.',
+  redirect_destination_rejected: 'Nguồn tải bị chuyển hướng tới nơi không tin cậy nên bị chặn.',
+  unsafe_download_path: 'Đường dẫn lưu gói không an toàn nên bị chặn. Báo hỗ trợ.',
+  invalid_json: 'Danh mục cập nhật bị hỏng. Thử kiểm tra lại sau.',
+  invalid_envelope: 'Danh mục cập nhật bị hỏng. Thử kiểm tra lại sau.',
+  invalid_catalog_metadata: 'Danh mục cập nhật không hợp lệ. Thử kiểm tra lại sau.',
+  invalid_catalog_time: 'Giờ trong danh mục cập nhật không hợp lệ. Kiểm tra ngày giờ máy rồi thử lại.',
+  invalid_package_url: 'Địa chỉ gói trong danh mục không hợp lệ. Báo hỗ trợ.',
+  invalid_archive_digest: 'Gói trong danh mục thiếu mã kiểm tra nên không cài. Báo hỗ trợ.',
+  invalid_archive_size: 'Gói trong danh mục có dung lượng không hợp lệ. Báo hỗ trợ.',
+  unsupported_platform: 'Bản cập nhật này không dành cho máy của anh/chị.',
+  unsupported_core_api: 'Bản cập nhật này cần ứng dụng mới hơn. Cài lại bằng bộ cài Kid TE mới nhất.',
+  core_api_incompatible: 'Bản cập nhật này cần ứng dụng mới hơn. Cài lại bằng bộ cài Kid TE mới nhất.',
+  component_version_unavailable: 'Chưa có phiên bản phù hợp của tính năng này trong danh mục.',
+  dependency_conflict: 'Các gói cập nhật xung đột nhau. Báo hỗ trợ.',
+  missing_media_tools: 'Chưa có công cụ video. Vào Cài đặt → Cập nhật → Công cụ video để tải.',
 };
+
+export const GENERIC_ERROR = 'Chưa làm được việc này. Thử lại hoặc gửi Báo cáo hỗ trợ.';
 
 export function friendlyError(error) {
   if (!error) return 'Có lỗi không xác định.';
@@ -211,5 +244,7 @@ export function friendlyError(error) {
   // Máy chủ đã trả sẵn một câu tiếng Việt (vd kiểm tra cài đặt) thì hiện nguyên câu đó.
   // Lỗi 4xx kèm câu có khoảng trắng: máy chủ đã viết sẵn lý do thật, hiện nguyên câu đó.
   if (/\s/.test(code) && (/[^\x00-\x7f]/.test(code) || (error.status >= 400 && error.status < 500))) return code;
-  return `Không thực hiện được (${code}).`;
+  // Server có câu riêng thì dùng; không thì câu chung thân thiện, mã chỉ kèm nhỏ ở cuối để gửi hỗ trợ.
+  if (error.payload && typeof error.payload.message === 'string' && error.payload.message.trim()) return error.payload.message.trim();
+  return `${GENERIC_ERROR} (mã: ${code})`;
 }

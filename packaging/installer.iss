@@ -54,6 +54,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; ucrtbase.dll) vi tu Windows 10 chung la mot phan cua he dieu hanh. Ung dung
 ; cung da can WebView2 va faster-whisper/ctranslate2, deu khong nham Win 7/8.1.
 MinVersion=10.0
+; Không để Restart Manager tự đóng KidTELauncher.exe: Job Object sẽ giết luôn lõi
+; giữa phiên LIVE. [Code] kiểm mutex KidTE.Running và hỏi người dùng tự đóng.
+CloseApplications=no
 
 [Languages]
 Name: "vi"; MessagesFile: "compiler:Default.isl"
@@ -117,9 +120,45 @@ Type: filesandordirs; Name: "{app}\App"
 [Code]
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8CF58DC0-2347-4A62-BE48-5C1104E6740F}_is1';
+  // Tạo bởi KidTELauncher.exe và KidTE.exe (instance_lock.RUNNING_MUTEX).
+  RunningMutex = 'KidTE.Running.8CF58DC0';
+  MinFreeBytes = 10737418240; // 10 GB: gói tự tải + model chép lời + video
 
 var
   FreshInstall: Boolean;
+
+// C9: không bao giờ đóng/giết Kid TE thay người dùng (có thể đang LIVE).
+// Trả True khi Kid TE đã tắt; False khi người dùng chọn huỷ.
+function WaitForKidTEClosed(Action: String): Boolean;
+begin
+  Result := True;
+  while CheckForMutexes(RunningMutex) do
+  begin
+    if SuppressibleMsgBox('Kid TE đang chạy.' + #13#10#13#10 +
+        'Nếu đang LIVE, hãy đợi hết phiên LIVE. Sau đó đóng cửa sổ Kid TE ' +
+        '(nếu không thấy cửa sổ: mở Kid TE rồi đóng, hoặc khởi động lại máy).' + #13#10#13#10 +
+        'Bấm Retry khi đã đóng Kid TE để ' + Action + '; bấm Cancel để dừng.',
+        mbInformation, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+end;
+
+function WebView2FailureText(Probe: String): String;
+begin
+  if Pos('FAIL|download|', Probe) = 1 then
+    Result := 'Không tải được WebView2: máy đang không có mạng hoặc mạng chặn trang của Microsoft.'
+  else if Pos('FAIL|signature|', Probe) = 1 then
+    Result := 'Tệp WebView2 tải về không có chữ ký hợp lệ của Microsoft nên đã bị bỏ để an toàn.'
+  else if (Pos('FAIL|launch|', Probe) = 1) or (Pos('FAIL|verification|', Probe) = 1) then
+    Result := 'Bộ cài WebView2 của Microsoft đã chạy nhưng chưa cài xong (có thể bị phần mềm diệt virus chặn).'
+  else if Pos('FAIL|detection|', Probe) = 1 then
+    Result := 'Không kiểm tra được WebView2 trên máy này.'
+  else
+    Result := 'Chưa xác nhận được WebView2 đã cài.';
+end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
@@ -130,6 +169,11 @@ var
 begin
   Result := '';
   NeedsRestart := False;
+  if not WaitForKidTEClosed('tiếp tục cài') then
+  begin
+    Result := 'Đã dừng cài đặt vì Kid TE vẫn đang chạy. Dữ liệu không bị thay đổi; hãy chạy lại bộ cài khi đã đóng Kid TE.';
+    Exit;
+  end;
   FreshInstall := not FileExists(ExpandConstant('{app}\App\KidTELauncher.exe')) and
                   not DirExists(ExpandConstant('{app}\DuLieu'));
   Log('Checking for the Microsoft WebView2 Runtime prerequisite.');
@@ -162,15 +206,20 @@ begin
   else if ExitCode <> 0 then
     Log('WebView2 prerequisite helper exit code: ' + IntToStr(ExitCode));
 
+  // Chuỗi thô (FAIL|stage|...) chỉ ghi vào nhật ký cài đặt, không hiện cho khách (C12).
   Log('WebView2 prerequisite failed: ' + ProbeResult);
-  Result := 'Kid TE cần Microsoft Edge WebView2 Runtime, nhưng chưa xác nhận được runtime đã cài thành công.' + #13#10#13#10 +
-    ProbeResult + #13#10#13#10 +
-    'Bộ cài Evergreen Bootstrapper chính thức của Microsoft:' + #13#10 +
-    'https://go.microsoft.com/fwlink/p/?LinkId=2124703' + #13#10#13#10 +
-    'Nếu lỗi ở bước download, kiểm tra kết nối mạng rồi chạy lại bộ cài. ' +
-    'Để cài ngoại tuyến, cài trước Evergreen Standalone Runtime x64 từ:' +
-    'https://developer.microsoft.com/en-us/microsoft-edge/webview2/' + #13#10#13#10 +
-    'Sau khi cài WebView2, chạy lại bộ cài Kid TE.';
+  if SuppressibleMsgBox('Kid TE dùng Microsoft Edge WebView2 để mở cửa sổ ứng dụng.' + #13#10#13#10 +
+      WebView2FailureText(ProbeResult) + #13#10#13#10 +
+      'Bạn vẫn có thể cài tiếp: khi chưa có WebView2, Kid TE sẽ mở giao diện bằng trình duyệt ' +
+      'và nhắc cách cài. Để cài WebView2 sau (khi có mạng), tải tại:' + #13#10 +
+      'https://go.microsoft.com/fwlink/p/?LinkId=2124703' + #13#10 +
+      'Máy không có mạng: cài bản "Evergreen Standalone Installer x64" chép từ máy khác, tại:' + #13#10 +
+      'https://developer.microsoft.com/microsoft-edge/webview2/' + #13#10#13#10 +
+      'Bấm Yes để cài tiếp Kid TE, No để dừng.',
+      mbConfirmation, MB_YESNO, IDYES) = IDYES then
+    Result := ''
+  else
+    Result := 'Đã dừng cài đặt. Hãy cài Microsoft Edge WebView2 Runtime rồi chạy lại bộ cài Kid TE.';
 end;
 
 function PreviousRoot(): String;
@@ -244,9 +293,54 @@ begin
   end;
 end;
 
+function StartsWithDir(Dir, Prefix: String): Boolean;
+begin
+  Prefix := RemoveBackslash(Prefix);
+  Result := (Prefix <> '') and
+            ((CompareText(Dir, Prefix) = 0) or
+             (Pos(UpperCase(AddBackslash(Prefix)), UpperCase(AddBackslash(Dir))) = 1));
+end;
+
+// C8: thư mục rủi ro cho SQLite + video: đồng bộ đám mây, ổ mạng, ổ tháo rời.
+function RiskyDirReason(Dir: String): String;
+var
+  Drive: String;
+  Kind: UINT;
+begin
+  Result := '';
+  if Copy(Dir, 1, 2) = '\\' then
+  begin
+    Result := 'Đây là thư mục mạng (\\máy\thư mục). Mất mạng giữa LIVE sẽ làm hỏng dữ liệu.';
+    Exit;
+  end;
+  if (Pos('\ONEDRIVE', UpperCase(Dir)) > 0) or
+     StartsWithDir(Dir, GetEnv('OneDrive')) or
+     StartsWithDir(Dir, GetEnv('OneDriveConsumer')) or
+     StartsWithDir(Dir, GetEnv('OneDriveCommercial')) then
+  begin
+    Result := 'Thư mục này nằm trong OneDrive. OneDrive đồng bộ/khoá tệp liên tục có thể làm hỏng ' +
+              'cơ sở dữ liệu khách hàng và chiếm hàng chục GB video.';
+    Exit;
+  end;
+  if StartsWithDir(Dir, ExpandConstant('{userdesktop}')) or
+     StartsWithDir(Dir, ExpandConstant('{userdocs}')) then
+  begin
+    Result := 'Desktop/Documents thường được OneDrive tự đồng bộ, dễ làm hỏng cơ sở dữ liệu và ' +
+              'đầy dung lượng đám mây.';
+    Exit;
+  end;
+  Drive := AddBackslash(ExtractFileDrive(Dir));
+  Kind := GetDriveType(Drive);
+  if Kind = 4 then
+    Result := 'Ổ ' + Drive + ' là ổ mạng. Mất mạng giữa LIVE sẽ làm hỏng dữ liệu.'
+  else if Kind = 2 then
+    Result := 'Ổ ' + Drive + ' là ổ tháo rời (USB/thẻ nhớ). Rút ra khi đang chạy sẽ làm hỏng dữ liệu.';
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Dir: String;
+  Dir, Reason: String;
+  FreeBytes, TotalBytes: Int64;
 begin
   Result := True;
   if CurPageID <> wpSelectDir then
@@ -258,12 +352,40 @@ begin
     MsgBox('Không cài vào Program Files: Kid TE cần ghi dữ liệu ngay cạnh chương trình. ' +
            'Hãy chọn một thư mục khác, ví dụ D:\KidTE.', mbError, MB_OK);
     Result := False;
-  end
-  else if not CanWrite(Dir) then
+    Exit;
+  end;
+  Reason := RiskyDirReason(Dir);
+  if (Reason <> '') and
+     (SuppressibleMsgBox(Reason + #13#10#13#10 +
+        'Nên chọn thư mục trên ổ cứng của máy, ví dụ D:\KidTE.' + #13#10#13#10 +
+        'Bấm Yes để vẫn cài vào đây, No để chọn thư mục khác.',
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDYES) <> IDYES) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  if GetSpaceOnDisk64(AddBackslash(ExtractFileDrive(Dir)), FreeBytes, TotalBytes) and
+     (FreeBytes < MinFreeBytes) and
+     (SuppressibleMsgBox('Ổ ' + ExtractFileDrive(Dir) + ' chỉ còn khoảng ' +
+        IntToStr(FreeBytes div 1073741824) + ' GB trống.' + #13#10#13#10 +
+        'Kid TE cần thêm khoảng 10 GB cho các gói tự tải, model chép lời và video. ' +
+        'Ổ đầy giữa LIVE có thể làm hỏng dữ liệu.' + #13#10#13#10 +
+        'Bấm Yes để vẫn cài vào đây, No để chọn ổ khác.',
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDYES) <> IDYES) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  if not CanWrite(Dir) then
   begin
     MsgBox('Không ghi được vào thư mục này. Hãy chọn thư mục khác.', mbError, MB_OK);
     Result := False;
   end;
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := WaitForKidTEClosed('tiếp tục gỡ cài đặt');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

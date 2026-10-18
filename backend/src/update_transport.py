@@ -23,6 +23,27 @@ class TransportError(RuntimeError):
     pass
 
 
+# Lỗi tạm thời của mạng: tự thử lại (tải tiếp từ .part), giống tải model Whisper.
+_RETRYABLE = {"package_network_error", "package_connection_reset", "package_network_timeout",
+              "package_size_mismatch", "package_http_429", "package_http_500", "package_http_502",
+              "package_http_503", "package_http_504"}
+DOWNLOAD_RETRIES = 6
+
+
+def _network_code(exc):
+    """Đổi lỗi mạng thô (ConnectionResetError [Errno 10054]...) thành mã có tên."""
+    import http.client
+    import socket
+
+    reason = getattr(exc, "reason", None)
+    inner = reason if isinstance(reason, BaseException) else exc
+    if isinstance(inner, (TimeoutError, socket.timeout)):
+        return "package_network_timeout"
+    if isinstance(inner, (ConnectionError, http.client.IncompleteRead, http.client.RemoteDisconnected)):
+        return "package_connection_reset"
+    return "package_network_error"
+
+
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Reject unsafe redirect destinations before urllib makes the next request."""
 
@@ -46,7 +67,8 @@ def _allowed_url(url, package=False):
 
 
 class GitHubTransport:
-    def __init__(self, repository=REPOSITORY, opener=None, timeout=20, clock=time.monotonic, *, series="p2"):
+    def __init__(self, repository=REPOSITORY, opener=None, timeout=20, clock=time.monotonic, *, series="p2",
+                 sleep=time.sleep, download_retries=DOWNLOAD_RETRIES):
         if repository != REPOSITORY:
             raise ValueError("unsupported_repository")
         self.repository = repository
@@ -59,6 +81,8 @@ class GitHubTransport:
         self._etag = {}
         self._cache = {}
         self._retry_after = {}
+        self.sleep = sleep
+        self.download_retries = download_retries
 
     def fetch_catalog(self, channel="stable", cached=None):
         if channel not in {"stable", "beta"}:
@@ -129,6 +153,24 @@ class GitHubTransport:
         return digest.hexdigest()
 
     def download(self, url, destination, expected_sha256, expected_bytes, progress=None):
+        """Tải có thử lại: lỗi mạng tạm thời thì chờ (1, 2, 4... tối đa 30 s) rồi tải
+        tiếp từ ``.part``; có tiến triển thì đếm lại số lần thử."""
+        attempt, last_have = 0, -1
+        partial = Path(destination).with_name(Path(destination).name + ".part")
+        while True:
+            try:
+                return self._download_once(url, destination, expected_sha256, expected_bytes, progress)
+            except TransportError as exc:
+                if str(exc) not in _RETRYABLE:
+                    raise
+                have = partial.stat().st_size if partial.is_file() else 0
+                attempt = 0 if have > last_have else attempt + 1
+                last_have = have
+                if attempt >= self.download_retries:
+                    raise
+                self.sleep(min(30, 2 ** attempt))
+
+    def _download_once(self, url, destination, expected_sha256, expected_bytes, progress=None):
         if not _allowed_url(url, package=True):
             raise TransportError("package_url_rejected")
         if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256) or type(expected_bytes) is not int or not 1 <= expected_bytes <= _MAX_ASSET:
@@ -168,10 +210,10 @@ class GitHubTransport:
             if exc.code == 416 and offset:
                 self._check_local_path(partial)
                 partial.unlink(missing_ok=True)
-                return self.download(url, target, expected_sha256, expected_bytes, progress)
-            raise TransportError("package_network_error") from exc
+                return self._download_once(url, target, expected_sha256, expected_bytes, progress)
+            raise TransportError(f"package_http_{exc.code}") from exc
         except (OSError, TimeoutError) as exc:
-            raise TransportError("package_network_error") from exc
+            raise TransportError(_network_code(exc)) from exc
         with response:
             if not self._check_final_url(response):
                 raise TransportError("package_redirect_rejected")
@@ -195,7 +237,14 @@ class GitHubTransport:
             chunk_total = 0
             with open(partial, mode) as out:
                 while True:
-                    chunk = response.read(_CHUNK)
+                    try:
+                        chunk = response.read(_CHUNK)
+                    except Exception as exc:  # noqa: BLE001 - every read failure becomes a named code
+                        import http.client
+                        if not isinstance(exc, (OSError, TimeoutError, http.client.HTTPException)):
+                            raise
+                        out.flush()
+                        raise TransportError(_network_code(exc)) from exc
                     if not chunk:
                         break
                     total += len(chunk)

@@ -166,3 +166,54 @@ def test_download_rejects_assets_over_github_limit(tmp_path):
             "https://github.com/kidlost1412/KidTE/releases/download/v1/a.zip",
             tmp_path / "a.zip", "a" * 64, 2 * 1024**3 + 1,
         )
+
+
+class _BrokenResponse(Response):
+    """Trả một phần rồi rớt kết nối như Windows (WinError 10054)."""
+    def __init__(self, data, **kwargs):
+        super().__init__(data, **kwargs)
+        self._sent = False
+
+    def read(self, count=-1):
+        if self._sent:
+            raise ConnectionResetError(10054, "An existing connection was forcibly closed")
+        self._sent = True
+        return self._stream.read(4)
+
+
+def test_download_retries_and_resumes_after_connection_reset(tmp_path):
+    content = b"release-archive-long"
+    sleeps = []
+    opener = Opener([
+        _BrokenResponse(content),
+        Response(content[4:], status=206, headers={"Content-Range": f"bytes 4-{len(content)-1}/{len(content)}"}),
+    ])
+    target = tmp_path / "package.zip"
+    GitHubTransport(opener=opener, sleep=sleeps.append).download(
+        "https://github.com/kidlost1412/KidTE/releases/download/v1/a.zip",
+        target, hashlib.sha256(content).hexdigest(), len(content),
+    )
+    assert target.read_bytes() == content
+    assert opener.requests[1].get_header("Range") == "bytes=4-"
+    assert sleeps == [1]
+
+
+def test_download_gives_up_with_named_code_after_retries(tmp_path):
+    sleeps = []
+    opener = Opener([ConnectionResetError(10054, "reset") for _ in range(10)])
+    with pytest.raises(TransportError, match="^package_connection_reset$"):
+        GitHubTransport(opener=opener, sleep=sleeps.append, download_retries=3).download(
+            "https://github.com/kidlost1412/KidTE/releases/download/v1/a.zip",
+            tmp_path / "a.zip", "a" * 64, 5,
+        )
+    assert sleeps == [1, 2, 4]
+    assert len(opener.requests) == 4
+
+
+def test_download_http_404_is_named_and_not_retried(tmp_path):
+    opener = Opener([urllib.error.HTTPError("https://github.com/f", 404, "nf", {}, None)])
+    with pytest.raises(TransportError, match="package_http_404"):
+        GitHubTransport(opener=opener, sleep=lambda _s: None).download(
+            "https://github.com/kidlost1412/KidTE/releases/download/v1/a.zip",
+            tmp_path / "a.zip", "a" * 64, 5,
+        )

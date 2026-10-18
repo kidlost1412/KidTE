@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import sys
@@ -20,6 +21,7 @@ BASELINE_COMPONENTS = {"core", *SPLIT_COMPONENTS}
 LAUNCHER_CAPS_NEEDED = "split-components"
 AUTO_CHECK_DELAY_SECONDS = 60
 AUTO_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
+UPDATE_FAILURE_FILE = "update-failure.json"  # ghi bởi update_launcher khi tự lùi bản
 logger = logging.getLogger("kidte.update")
 
 
@@ -199,7 +201,42 @@ class UpdateManager:
                 result["extension_reload"] = read_notice(self.app_root)
             except Exception:  # noqa: BLE001 - a notice problem never breaks the state
                 pass
+        failure = self.last_update_failure()
+        result["last_update_failure"] = failure
+        if failure:
+            # Bản đã lỗi khi khởi động: vẫn hiện để người dùng TỰ bấm thử lại,
+            # nhưng đánh dấu để giao diện không mời cập nhật như bản mới bình thường.
+            for row in available:
+                if row["id"] in ("app", "core") and row["version"] == failure.get("failed_version"):
+                    row["previously_failed"] = True
         return result
+
+    def last_update_failure(self):
+        """C5: bản cập nhật bị launcher tự lùi lần gần nhất (App/update-failure.json)."""
+        if self.app_root is None:
+            return None
+        path = self.app_root / UPDATE_FAILURE_FILE
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            logger.warning("update failure record unreadable: %s", exc)
+            return None
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning("update failure record invalid: %s", exc)
+            return None
+        if not isinstance(value, dict):
+            return None
+        failed, restored = value.get("failed_version"), value.get("restored_version")
+        reason = {"startup_timeout": "khởi động quá lâu",
+                  "validation_failed": "tệp gói không hợp lệ"}.get(value.get("reason_code"), "lỗi khi khởi động")
+        message = (f"Bản {failed or 'mới'} {reason}, Kid TE đã tự quay về bản {restored or 'trước'}. "
+                   "Dữ liệu không bị ảnh hưởng. Bạn có thể bấm Cập nhật để thử lại.")
+        return {"failed_version": failed, "restored_version": restored,
+                "reason_code": value.get("reason_code"), "at": value.get("at"), "message": message}
 
     def action(self, action, payload):
         if not isinstance(payload, dict):
@@ -209,6 +246,10 @@ class UpdateManager:
                 from extension_sync import clear_notice
                 clear_notice(self.app_root)
             return {"ok": True, "extension_reload": None}
+        if action == "ack_update_failure":
+            if self.app_root is not None:
+                (self.app_root / UPDATE_FAILURE_FILE).unlink(missing_ok=True)
+            return {"ok": True, "last_update_failure": None}
         if action not in {"check", "plan", "install", "remove", "rollback", "cancel"}:
             raise ValueError("update_action_not_found")
         store = self._get_store()

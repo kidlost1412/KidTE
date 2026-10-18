@@ -13,12 +13,14 @@ from pathlib import Path
 
 from config import CHAT_HOST, CHAT_PORT, INSTALL_ROOT, IS_FROZEN, LOG_DIR, PLUGINS_DIR, ROOT
 from console_io import ensure_std_streams, force_utf8_console, hide_child_consoles
-from instance_lock import InstanceAlreadyRunning, SingleInstanceLock
+from instance_lock import InstanceAlreadyRunning, SingleInstanceLock, hold_running_mutex
 from launch_origin import record, started_by_user
 import auto_backup
 import data_retention
 import problems
 from port_diagnostics import owners_for_port
+from user_dialogs import open_browser, port_busy_message
+import crash_log
 from plugin_registry import discover_plugins
 from plugin_runtime import PluginRuntimeManager
 from runtime_layout import prepare_user_layout
@@ -66,7 +68,38 @@ def run_desktop_ui(server, url, *, webview_module=None):
                 worker.join(timeout=3)
             return True
         print(f"[kid-te] KHÔNG MỞ ĐƯỢC GIAO DIỆN: {type(exc).__name__}: {exc}")
+        if worker is not None and worker.is_alive():
+            # Dừng vòng phục vụ nền để nơi gọi chạy lại nó ở luồng chính (không
+            # được có hai serve_forever cùng lúc trên một server).
+            server.shutdown()
+            worker.join(timeout=3)
         return False
+
+
+def show_core_error(body, *, detail=""):
+    """C15: lõi đóng băng không có console -> lỗi phải hiện thành hộp thoại."""
+    print(f"[kid-te] {body}")
+    if not IS_FROZEN:
+        return
+    from user_dialogs import show_error
+    show_error("Kid TE", body, log_path=LOG_DIR / "console.log", detail=detail)
+
+
+def browser_fallback(server, url, logger, *, opener=None, notify=None):
+    """C2: cửa sổ WebView2 không mở được -> mở giao diện bằng trình duyệt mặc định,
+    báo người dùng cách sửa, rồi tiếp tục phục vụ (không chạy ẩn im lặng)."""
+    from user_dialogs import WEBVIEW2_MESSAGE, open_browser, show_warning
+
+    opened = (opener or open_browser)(url)
+    logger.warning(f"opened={opened} {url}", extra={"event": "desktop_ui_browser_fallback"})
+    message = WEBVIEW2_MESSAGE.format(url=url)
+    if not opened:
+        message += f"\n\nKhông tự mở được trình duyệt: hãy tự mở trình duyệt và vào {url}"
+    if notify is None and IS_FROZEN:
+        notify = lambda: show_warning("Kid TE: không mở được cửa sổ", message)  # noqa: E731
+    if notify is not None:
+        threading.Thread(target=notify, daemon=True, name="kid-te-ui-fallback-notice").start()
+    server.serve_forever(0.3)
 
 
 def run_client_ui(url, *, webview_module=None):
@@ -223,12 +256,26 @@ def main() -> int:
         if notify_existing_instance(args.host, args.port):
             print("[kid-te] Đã đưa cửa sổ Kid TE đang chạy lên trước.")
             return 0
-        if not args.no_ui and existing_backend_ready(args.host, args.port) and run_client_ui(url):
+        backend_ready = existing_backend_ready(args.host, args.port)
+        if not args.no_ui and backend_ready and run_client_ui(url):
             print("[kid-te] Đã mở cửa sổ kết nối với Kid TE đang chạy nền.")
             return 0
+        if backend_ready and open_browser(url):
+            # C2: WebView2 hỏng -> không thoát im lặng, đưa giao diện lên trình duyệt.
+            print(f"[kid-te] Đã mở Kid TE đang chạy trong trình duyệt: {url}")
+            return 0
         print("[kid-te] Phiên giữ khóa chưa phục vụ cổng web. Đóng phiên cũ rồi mở lại Kid TE.")
+        show_core_error(
+            "Kid TE đang chạy ở một phiên khác (có thể đang khởi động, đang tắt dở, hoặc ở tài "
+            "khoản Windows khác) nhưng chưa mở được giao diện.\n\n"
+            "Hãy đợi khoảng 1 phút rồi mở lại. Nếu vẫn vậy, khởi động lại máy tính.",
+            detail=str(exc))
         return 2
 
+    try:
+        hold_running_mutex()  # bộ cài/gỡ hỏi đóng Kid TE thay vì giết giữa LIVE (C9)
+    except Exception as exc:  # noqa: BLE001 - installer hint only, never blocks startup
+        print(f"[kid-te] Không tạo được mutex báo đang chạy: {type(exc).__name__}: {exc}")
     engine = None
     server = None
     auto_scheduler = None
@@ -237,7 +284,12 @@ def main() -> int:
     restart_requested = False
     logger = configure_logger("core", LOG_DIR)
     configure_logger("http", LOG_DIR, console=False)
-    if lock.stale_lock:
+    crash_log.install(LOG_DIR, logger)
+    if lock.stale_lock and lock.stale_lock.get("corrupt"):
+        logger.warning(f"corrupt={lock.stale_lock.get('corrupt')}",
+                       extra={"event": "stale_corrupt_lock_replaced"})
+        print("[kid-te] Tệp khoá cũ bị hỏng (thường do mất điện). Đã thay an toàn.")
+    elif lock.stale_lock:
         # Lần chạy trước kết thúc mà không qua được khối dọn dẹp (bị kill cứng,
         # mất điện, hoặc sập). Nó không ghi được dòng log nào, nên nếu không
         # ghi ở đây thì lần chạy đó biến mất hoàn toàn khỏi lịch sử.
@@ -293,6 +345,11 @@ def main() -> int:
                           f"{owner['process']} (PID {owner['pid']}) giữ. Không tự tắt tiến trình này.")
             else:
                 print("[kid-te] Không xác định được tiến trình giữ cổng; không tự tắt tiến trình nào.")
+            logger.error(f"{args.host}:{args.port} {exc} owners={owners}",
+                         extra={"event": "port_bind_failed"})
+            # Chạy qua launcher thì launcher hiện hộp thoại (mã 3); tự chạy thì báo ở đây.
+            if not os.environ.get("KIDTE_LAUNCH_NONCE"):
+                show_core_error(port_busy_message(args.port, owners), detail=str(exc))
             return 3
 
         def stop(signum=None, _frame=None):
@@ -368,10 +425,10 @@ def main() -> int:
         if args.no_ui:
             server.serve_forever(0.3)
         elif not run_desktop_ui(server, f"http://{args.host}:{args.port}/app"):
-            logger.error("pywebview không mở được; chạy console",
+            logger.error("pywebview không mở được; mở giao diện bằng trình duyệt",
                          extra={"event": "desktop_ui_failed"})
-            print("[kid-te] Backend vẫn chạy trong console. Mở đường dẫn Ứng dụng ở trên.")
-            server.serve_forever(0.3)
+            print("[kid-te] Backend vẫn chạy. Mở giao diện bằng trình duyệt mặc định.")
+            browser_fallback(server, f"http://{args.host}:{args.port}/app", logger)
     finally:
         # Dừng theo thứ tự và GHI LẠI. Trước đây khối này không ghi gì, nên
         # một lần tắt bình thường cũng không để lại dấu vết nào trong log.

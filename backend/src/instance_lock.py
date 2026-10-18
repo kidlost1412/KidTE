@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,43 @@ class InstanceLockError(RuntimeError):
 
 class InstanceAlreadyRunning(InstanceLockError):
     """Một phiên còn sống hoặc lock không an toàn để cướp."""
+
+
+# Tệp khoá rỗng/hỏng (mất điện giữa lúc tạo, phần mềm diệt virus cắt) không có
+# PID để kiểm. Bản mới ghi khoá nguyên khối (tệp tạm + link) nên tệp hỏng chỉ có
+# thể là di sản; chỉ chờ một khoảng ngắn phòng bản cũ đang ghi dở rồi thay.
+CORRUPT_LOCK_GRACE_SECONDS = 10.0
+
+
+# Bộ cài/bộ gỡ (installer.iss, CheckForMutexes) dùng tên này để biết Kid TE đang
+# chạy và hỏi người dùng đóng an toàn thay vì để Windows giết giữa phiên LIVE.
+RUNNING_MUTEX = "KidTE.Running.8CF58DC0"
+_held_mutexes = []
+
+
+def hold_running_mutex(name: str = RUNNING_MUTEX):
+    """Giữ mutex có tên suốt đời tiến trình (Windows); trả handle hoặc None."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.windll.kernel32
+    kernel.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel.CreateMutexW.restype = wintypes.HANDLE
+    handle = kernel.CreateMutexW(None, False, name)
+    if handle:
+        _held_mutexes.append(handle)
+    return handle or None
+
+
+def corrupt_lock_is_stale(path, *, now=None, grace=CORRUPT_LOCK_GRACE_SECONDS) -> bool:
+    """True khi tệp khoá hỏng đã đủ cũ để coi là khoá của lần chạy đã chết."""
+    try:
+        age = (time.time() if now is None else now) - Path(path).stat().st_mtime
+    except OSError:
+        return False
+    return age >= grace
 
 
 def _now() -> str:
@@ -113,7 +151,7 @@ class SingleInstanceLock:
             "process_identity": _process_identity(os.getpid()),
         }
         try:
-            descriptor = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+            self._create_exclusive(payload)
         except FileExistsError:
             existing = self._read_existing()
             pid = existing.get("pid") if isinstance(existing, dict) else 0
@@ -123,7 +161,7 @@ class SingleInstanceLock:
                 ) from None
             # Chỉ xóa file lock thuộc đúng thư mục runtime sau khi PID đã chết.
             # Không kill theo PID và không đụng cổng do tiến trình lạ giữ.
-            truoc_do = existing if isinstance(existing, dict) else None
+            truoc_do = existing if isinstance(existing, dict) and existing.get("corrupt") != "missing" else None
             try:
                 self.path.unlink()
             except FileNotFoundError:
@@ -132,23 +170,51 @@ class SingleInstanceLock:
             # Giữ lại sau khi acquire() đệ quy, vì lần gọi đó đặt lại thuộc tính.
             self.stale_lock = truoc_do
             return
+
+    def _create_exclusive(self, payload) -> None:
+        """Tạo khoá NGUYÊN KHỐI: ghi đủ nội dung vào tệp tạm rồi link sang tên khoá
+        (link thất bại nếu khoá đã có). Không bao giờ để lại khoá rỗng."""
+        data = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+        temporary = self.path.with_name(f"{self.path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+        with open(temporary, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
         try:
-            os.write(descriptor, (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+            os.link(temporary, self.path)
+            return
+        except FileExistsError:
+            raise
+        except (OSError, NotImplementedError, AttributeError):
+            pass  # hệ tệp không hỗ trợ hard link (FAT/exFAT): dùng O_EXCL như cũ
+        finally:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+        descriptor = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+        try:
+            os.write(descriptor, data)
         finally:
             os.close(descriptor)
 
     def _read_existing(self) -> dict:
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {"pid": 0, "corrupt": "missing"}
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            # File hỏng không chứng minh có thể khởi động thêm một bản. Cần
-            # người vận hành dọn sau khi chắc chắn không có phiên đang chạy.
-            raise InstanceAlreadyRunning(
-                f"Không đọc được lock hiện có: {self.path}. Không tự xóa an toàn."
-            ) from None
-        if not isinstance(value, dict):
-            raise InstanceAlreadyRunning(f"Lock hiện có không hợp lệ: {self.path}")
-        return value
+            value = None
+        if isinstance(value, dict):
+            return value
+        # Rỗng/hỏng: không có PID nào còn sống được ghi trong đó. Đủ cũ thì là
+        # khoá của lần chạy đã chết (mất điện giữa lúc tạo) -> thay an toàn;
+        # mới tinh thì có thể bản cũ đang ghi dở -> chưa cướp.
+        if corrupt_lock_is_stale(self.path):
+            return {"pid": 0, "corrupt": "unreadable"}
+        raise InstanceAlreadyRunning(
+            f"Tệp khoá {self.path} đang được tạo dở; thử mở lại Kid TE sau vài giây."
+        ) from None
 
     def release(self) -> None:
         if not self.token:
@@ -157,7 +223,7 @@ class SingleInstanceLock:
             existing = self._read_existing()
         except InstanceAlreadyRunning:
             return
-        if existing.get("token") == self.token:
+        if existing.get("token") == self.token and self.path.exists():
             try:
                 self.path.unlink()
             except FileNotFoundError:

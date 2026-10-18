@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 from service_supervisor import ServiceSpec
@@ -26,7 +27,13 @@ REASON_TEXT = {
 
 
 class PluginRuntimeManager:
-    def __init__(self, manifests, supervisor, *, safe_mode=False, logger=None):
+    # O8: dịch vụ "nối lại" từ lần chạy lõi trước rồi chết ngay sau đó là PID cũ
+    # của lần chạy trước (bị Job Object của lõi cũ dọn), không phải sập lúc chạy.
+    STALE_AFTER_RESTART_SECONDS = 120.0
+
+    def __init__(self, manifests, supervisor, *, safe_mode=False, logger=None, clock=time.monotonic):
+        self.clock = clock
+        self._attached_at = {}
         self.manifests = dict(manifests or {})
         self.supervisor = supervisor
         self.safe_mode = bool(safe_mode)
@@ -68,13 +75,19 @@ class PluginRuntimeManager:
         if previous == current:
             return
         if current == "running" and runtime.get("attached"):
+            self._attached_at[plugin_id] = self.clock()
             self._log("service_reattached_after_restart", plugin_id,
                       pid=runtime.get("pid"), uptime_s=runtime.get("uptime_s"))
         elif previous == "running" and runtime.get("reason") in (
             "stale_pid", "pid_identity_mismatch",
         ):
-            self._log("service_crash_detected", plugin_id,
-                      reason=runtime.get("reason"))
+            attached_at = self._attached_at.pop(plugin_id, None)
+            if attached_at is not None and self.clock() - attached_at < self.STALE_AFTER_RESTART_SECONDS:
+                self._log("service_stale_after_core_restart", plugin_id,
+                          reason=runtime.get("reason"))
+            else:
+                self._log("service_crash_detected", plugin_id,
+                          reason=runtime.get("reason"))
 
     @staticmethod
     def _video_service_env():

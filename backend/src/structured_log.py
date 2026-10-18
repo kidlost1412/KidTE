@@ -14,11 +14,23 @@ _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(api[_ -]?key|authorization|bearer|token|secret)\b\s*[:=]\s*([^\s,;]+)"
 )
 _KEY_LIKE = re.compile(r"(?i)\bsk-[a-z0-9_-]{8,}\b")
+# Các dạng khoá phổ biến không có "api_key=" đứng trước (B8): Gemini (AIza...),
+# token bot Telegram (123456:AA...), GitHub, Slack, AWS, JWT.
+_KNOWN_KEYS = re.compile(
+    r"AIza[0-9A-Za-z_-]{30,}"
+    r"|(?<![\w:])\d{6,12}:[A-Za-z0-9_-]{30,}"
+    r"|\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{30,}"
+    r"|\bgithub_pat_[A-Za-z0-9_]{30,}"
+    r"|\bxox[abpors]-[A-Za-z0-9-]{10,}"
+    r"|\bAKIA[0-9A-Z]{16}\b"
+    r"|\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+)
 
 
 def redact(value) -> str:
     text = str(value)
     text = _SECRET_ASSIGNMENT.sub(lambda match: f"{match.group(1)}=[REDACTED]", text)
+    text = _KNOWN_KEYS.sub("[REDACTED]", text)
     return _KEY_LIKE.sub("[REDACTED]", text)
 
 

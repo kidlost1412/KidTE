@@ -341,3 +341,17 @@ def test_install_fails_with_precise_message_when_repair_impossible(tmp_path):
     assert "core 1.0.0" in state["error"] and "KidTE.exe" in state["error"]
     assert store.load_pending() is None
     assert (core_dir / "KidTE.exe").read_bytes() == b"tampered"  # untouched when repair fails
+
+
+def test_state_reports_launcher_rollback_and_ack_clears_it(tmp_path):
+    root = tmp_path / "App"
+    root.mkdir()
+    (root / "update-failure.json").write_text(json.dumps({
+        "failed_version": "1.15.16", "restored_version": "1.15.15",
+        "reason_code": "startup_timeout", "at": "2026-10-18T01:00:00Z"}), encoding="utf-8")
+    manager = UpdateManager(root, trusted_keys={}, launcher_caps="split-components")
+    failure = manager.state()["last_update_failure"]
+    assert failure["failed_version"] == "1.15.16" and failure["restored_version"] == "1.15.15"
+    assert "Bản 1.15.16" in failure["message"] and "1.15.15" in failure["message"]
+    assert manager.action("ack_update_failure", {})["ok"] is True
+    assert manager.state()["last_update_failure"] is None

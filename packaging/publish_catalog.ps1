@@ -8,7 +8,9 @@
   2. update_release.py verify-renewed: signature (pinned TRUSTED_KEYS), verify_catalog(minimum_sequence = old+1),
      sequence = old+1, components IDENTICAL to the published ones, later expiry.
   3. update_release.py check-publish (empty release dir): every component URL must already exist on GitHub (anonymous HEAD).
-  4. Replaces ONLY the asset kidte-catalog-v2.json on the feed tag (upload new, delete old, rename).
+  4. Replaces ONLY the asset kidte-catalog-v2.json on the feed tag, never leaving the feed without a catalog:
+     upload as .new, rename old to .bak, rename new to the main name, re-download + sha256, then delete .bak
+     (any failure renames .bak back to the main name).
      No version tag is created, no git push, no other asset touched.
   5. Re-downloads anonymously and compares sha256.
 
@@ -92,7 +94,18 @@ try {
     $feed = $null
     try { $feed = Invoke-Gh 'GET' "$Api/releases/tags/$CatalogTag" -Anonymous }
     catch { Fail "khong doc duoc release feed $CatalogTag ($($_.Exception.Message)); khong tao tag moi" }
+    $bakName = "$CatalogName.bak"
     $old = $feed.assets | Where-Object { $_.name -eq $CatalogName } | Select-Object -First 1
+    $bak = $feed.assets | Where-Object { $_.name -eq $bakName } | Select-Object -First 1
+    if (-not $old -and $bak) {
+        # Lan chay truoc dung giua chung sau khi doi ten ban cu: tra lai ten chinh truoc tien.
+        if ($DryRun) { Fail "feed $CatalogTag dang thieu $CatalogName nhung con $bakName; chay lai KHONG co -WhatIf de khoi phuc ten" }
+        Say "feed thieu $CatalogName nhung con $bakName (lan truoc dung giua chung): khoi phuc ten ban cu"
+        Invoke-Gh 'PATCH' "$Api/releases/assets/$($bak.id)" @{ name = $CatalogName } | Out-Null
+        $feed = Invoke-Gh 'GET' "$Api/releases/tags/$CatalogTag" -Anonymous
+        $old = $feed.assets | Where-Object { $_.name -eq $CatalogName } | Select-Object -First 1
+        $bak = $null
+    }
     if (-not $old) { Fail "feed $CatalogTag chua co $CatalogName - day khong phai viec gia han; dung publish_release.ps1" }
     $publishedPath = Join-Path $work 'published.json'
     Download-Anonymous $old.browser_download_url $publishedPath
@@ -121,25 +134,57 @@ try {
         Say 'WhatIf: ket thuc, khong ghi gi.'
         return
     }
+    # R9: feed khong bao gio mat catalog. Thu tu: tai ban moi ten tam -> doi ban cu sang
+    # ten du phong -> doi ban moi thanh ten chinh -> tai lai khop sha256 -> moi xoa du phong.
+    # Loi giua chung: tra ten chinh cho ban cu.
     $tmpName = "$CatalogName.new"
     foreach ($s in @($feed.assets | Where-Object { $_.name -eq $tmpName })) { Invoke-Gh 'DELETE' "$Api/releases/assets/$($s.id)" | Out-Null }
+    if ($bak) {
+        # Du phong sot lai tu lan truoc (ban chinh van con): xoa de khong trung ten.
+        Invoke-Gh 'DELETE' "$Api/releases/assets/$($bak.id)" | Out-Null
+    }
     $url = "https://uploads.github.com/repos/$Repo/releases/$($feed.id)/assets?name=$([uri]::EscapeDataString($tmpName))"
     $headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'kidte-publish-catalog'; Authorization = "Bearer $(Get-Token)" }
     $uploaded = Invoke-RestMethod -Method Post -Uri $url -Headers $headers -InFile $catalogPath -ContentType 'application/octet-stream' -TimeoutSec 600
-    Invoke-Gh 'DELETE' "$Api/releases/assets/$($old.id)" | Out-Null
-    Invoke-Gh 'PATCH' "$Api/releases/assets/$($uploaded.id)" @{ name = $CatalogName } | Out-Null
-    Say "da thay $CatalogName tren $CatalogTag"
-
-    # ------------------------------------------------------------------ 5. kiem tra lai (khong dang nhap)
-    $dest = Join-Path $work 'after.json'
-    $expectedHash = Get-Sha256 $catalogPath
-    $ok = $false
-    $waited = 0
-    foreach ($delay in @(0, 2, 4, 8, 16, 30)) {
-        if ($delay -gt 0) { Say "catalog chua khop, doi $delay giay roi kiem lai..."; Start-Sleep -Seconds $delay; $waited += $delay }
-        try { Download-Anonymous ("https://github.com/$Repo/releases/download/$CatalogTag/$CatalogName" + "?cb=" + [guid]::NewGuid().ToString('N')) $dest } catch { continue }
-        if ((Test-Path -LiteralPath $dest) -and (Get-Sha256 $dest) -eq $expectedHash) { $ok = $true; break }
+    if ([int64]$uploaded.size -ne (Get-Item -LiteralPath $catalogPath).Length) {
+        Invoke-Gh 'DELETE' "$Api/releases/assets/$($uploaded.id)" | Out-Null
+        Fail "ban tai len $tmpName sai kich thuoc ($($uploaded.size)); catalog cu giu nguyen"
     }
-    if (-not $ok) { Fail "catalog tren $CatalogTag khong khop sha256 sau $waited giay" }
+
+    $oldRenamed = $false
+    $newIsMain = $false
+    $expectedHash = Get-Sha256 $catalogPath
+    try {
+        Invoke-Gh 'PATCH' "$Api/releases/assets/$($old.id)" @{ name = $bakName } | Out-Null
+        $oldRenamed = $true
+        Invoke-Gh 'PATCH' "$Api/releases/assets/$($uploaded.id)" @{ name = $CatalogName } | Out-Null
+        $newIsMain = $true
+        Say "da dua ban moi len ten $CatalogName; ban cu tam giu ten $bakName"
+
+        # ------------------------------------------------------------------ 5. kiem tra lai (khong dang nhap)
+        $dest = Join-Path $work 'after.json'
+        $ok = $false
+        $waited = 0
+        foreach ($delay in @(0, 2, 4, 8, 16, 30)) {
+            if ($delay -gt 0) { Say "catalog chua khop, doi $delay giay roi kiem lai..."; Start-Sleep -Seconds $delay; $waited += $delay }
+            try { Download-Anonymous ("https://github.com/$Repo/releases/download/$CatalogTag/$CatalogName" + "?cb=" + [guid]::NewGuid().ToString('N')) $dest }
+            catch { Say "tai lai chua duoc: $($_.Exception.Message)"; continue }
+            if ((Test-Path -LiteralPath $dest) -and (Get-Sha256 $dest) -eq $expectedHash) { $ok = $true; break }
+        }
+        if (-not $ok) { throw "catalog tren $CatalogTag khong khop sha256 sau $waited giay" }
+    } catch {
+        $reason = $_.Exception.Message
+        Say "LOI giua chung ($reason): khoi phuc catalog cu"
+        try {
+            if ($newIsMain) { Invoke-Gh 'PATCH' "$Api/releases/assets/$($uploaded.id)" @{ name = "$CatalogName.failed" } | Out-Null }
+            if ($oldRenamed) { Invoke-Gh 'PATCH' "$Api/releases/assets/$($old.id)" @{ name = $CatalogName } | Out-Null }
+            Invoke-Gh 'DELETE' "$Api/releases/assets/$($uploaded.id)" | Out-Null
+        } catch {
+            Fail "KHOI PHUC THAT BAI ($($_.Exception.Message)). Vao GitHub release $CatalogTag, doi ten $bakName thanh $CatalogName bang tay NGAY. Loi goc: $reason"
+        }
+        Fail "khong thay duoc catalog ($reason); da khoi phuc catalog cu tren $CatalogTag"
+    }
+    try { Invoke-Gh 'DELETE' "$Api/releases/assets/$($old.id)" | Out-Null }
+    catch { Say "CANH BAO: chua xoa duoc $bakName ($($_.Exception.Message)); lan chay sau se tu xoa. Catalog moi da dung." }
     Say "HOAN TAT: $CatalogTag sequence $newSequence, het han $($newCatalog.signed.expires_at)"
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }

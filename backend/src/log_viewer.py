@@ -34,6 +34,7 @@ EVENT_TEXT = {
                                       "Kiểm tra thiết bị âm thanh ở Cài đặt → Âm thanh, rồi bật lại."),
     "service_crash_detected": ("Dịch vụ đồng bộ video bị tắt bất thường", "Bật lại ở Trợ lý tự động."),
     "service_reattached_after_restart": ("Đã nối lại dịch vụ đang chạy", ""),
+    "service_stale_after_core_restart": ("Dọn dịch vụ cũ của lần chạy trước", ""),
     "safe_mode_changed": ("Đổi chế độ an toàn", ""),
     "api_error": ("Một thao tác bị lỗi bên trong ứng dụng",
                   "Thao tác vừa làm không thành công. Lặp lại nhiều lần thì bấm \"Sao chép cho kỹ thuật\"."),

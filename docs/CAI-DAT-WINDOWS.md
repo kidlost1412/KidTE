@@ -2,11 +2,11 @@
 
 Cần Windows 10/11 64-bit. Không cần quyền quản trị.
 
-Với bản 1.14.257, dùng [bộ cài P3 r1](https://github.com/kidlost1412/KidTE/releases/tag/v1.14.257-p3-r1). Bộ cài 257 ban đầu bị lỗi đọc kết quả WebView2 và chưa đạt nghiệm thu cài mới.
+Áp dụng cho Kid TE 1.15.x (dòng gói P4: chương trình tách thành runtime + app + tiện ích Chrome, cập nhật từng phần trong app).
 
-Từ bộ cài 1.14.257 r1, trình cài kiểm tra Microsoft Edge WebView2 trước khi cài Kid TE. Nếu máy chưa có runtime này, trình cài tải bootstrapper từ Microsoft, xác minh chữ ký rồi cài bằng quyền người dùng hiện tại; lần này cần kết nối mạng. Máy đã có WebView2 không tải lại. Khi tải/cài runtime thất bại, trình cài báo bước lỗi và dừng để anh xử lý rồi chạy lại. Muốn cài ngoại tuyến, cài trước **Evergreen Standalone Installer x64** từ [trang WebView2 của Microsoft](https://developer.microsoft.com/en-us/microsoft-edge/webview2/). Runtime được Windows quản lý riêng, không nằm trong thư mục Kid TE. Dung lượng bộ cài không bao gồm runtime tải riêng khi máy thiếu.
+**WebView2**: Kid TE mở cửa sổ bằng Microsoft Edge WebView2. Bộ cài tự kiểm tra; máy thiếu thì tải bộ cài nhỏ của Microsoft, xác minh chữ ký rồi cài bằng quyền người dùng hiện tại (cần mạng). Nếu không cài được (máy không có mạng, mạng chặn), bộ cài giải thích bằng tiếng Việt và cho chọn **cài tiếp**: khi chưa có WebView2, Kid TE mở giao diện bằng trình duyệt mặc định và nhắc cách cài. Máy không có mạng: chép **Evergreen Standalone Installer x64** từ [trang WebView2 của Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/) sang và cài trước.
 
-P3 cài lõi nhỏ trước. Công cụ video, giải CAPTCHA/monitor, đồng bộ video và bộ chép lời được tải riêng ở **Cài đặt → Cập nhật**; NVIDIA và model cũng tải riêng. Bản thử dùng kênh **Thử nghiệm**. Khi nâng từ P2, cài installer P3 một lần để nâng launcher rồi mới tải các tính năng này.
+**Lần mở đầu tiên** (cần mạng): Kid TE tự tải các gói tính năng — công cụ video, giải CAPTCHA, đồng bộ video, phân tích/chép lời video; máy có card NVIDIA phù hợp thì tải thêm gói tăng tốc. Tiến độ xem ở **Cài đặt → Cập nhật**. Xong thì đóng và mở lại app khi được nhắc. Model chép lời tải riêng ở trang **Chép lời** (chọn model đánh dấu "Hợp với máy này").
 
 Trình giải CAPTCHA nằm trong `App\packages\captcha-solver\<phiên bản>\Captcha`.
 Mở Kid TE → **Giải CAPTCHA** để nhập SadCaptcha key. Windows sẽ hỏi quyền
@@ -19,17 +19,30 @@ trang rồi khởi động lại solver. Key và token cần nhập lại trên 
 
 ## Cài đặt
 
-1. Tải bộ cài CPU và `SHA256SUMS.txt` từ [GitHub Releases chính thức](https://github.com/kidlost1412/KidTE/releases), rồi chạy bộ cài. Với 1.14.257, tên file là `KidTE-Setup-1.14.257-cpu-p3-r1.exe`. Bản P3 hiện là bản thử nghiệm để nghiệm thu từng đợt.
+1. Tải bộ cài `KidTE-Setup-<phiên bản>-cpu-p4....exe` và `SHA256SUMS.txt` từ [GitHub Releases chính thức](https://github.com/kidlost1412/KidTE/releases), rồi chạy bộ cài. **Đóng Kid TE trước** (nếu đang LIVE thì đợi hết phiên): bộ cài/bộ gỡ thấy Kid TE đang chạy sẽ dừng lại chờ anh tự đóng, không tự tắt app.
 2. **Windows hiện màn hình xanh "Windows protected your PC" (SmartScreen)**: bấm
    **More info → Run anyway**. Việc này bình thường với phần mềm nội bộ chưa mua chữ ký
    số (xem cuối trang). Muốn chắc file không bị sửa: đối chiếu mã SHA-256 trong file
    `SHA256SUMS.txt` cùng release (PowerShell:
    `Get-FileHash .\KidTE-Setup-*.exe`).
 3. **Chọn thư mục cài** — mặc định là thư mục đã cài trước đó, nếu chưa có thì `D:\KidTE` khi D là ổ đĩa cố định (không phải ổ Windows, CD/DVD hoặc ổ tháo rời), không thì
-   `%LOCALAPPDATA%\KidTE`. Nên chọn ổ còn nhiều chỗ trống. Không cài vào Program Files
-   (bộ cài sẽ từ chối, vì app cần ghi dữ liệu ngay cạnh chương trình).
-4. Mở Kid TE → **Cài đặt → Cập nhật → Thử nghiệm**: cài **Bộ chép lời trên máy** nếu cần phân tích video; **Công cụ video** được chọn tự động theo phụ thuộc. Đóng và mở lại app để áp dụng. Sau đó ở **Chép lời**, tải model được đánh dấu "Hợp với máy này" (một lần, cần mạng). Dán khoá DeepSeek ở **Cài đặt** nếu dùng AI; cài tiện ích Chrome theo
+   `%LOCALAPPDATA%\KidTE`. Không cài vào Program Files (bộ cài từ chối). Bộ cài **cảnh báo** khi chọn
+   thư mục trong OneDrive, Desktop/Documents (thường bị OneDrive đồng bộ), ổ mạng, USB/thẻ nhớ, hoặc ổ
+   còn dưới 10 GB trống — những chỗ này dễ làm hỏng dữ liệu khách hàng; nên chọn thư mục khác.
+4. Mở Kid TE và đợi phần tự tải gói tính năng (xem trên). Dán khoá DeepSeek ở **Cài đặt** nếu dùng AI; cài tiện ích Chrome theo
    `CAI-DAT-TIEN-ICH-CHROME.md`.
+
+## Khi Kid TE không mở được
+
+- **Hộp thoại "Kid TE không khởi động được"**: đọc dòng hướng dẫn trong hộp thoại; bấm **Yes** để mở thư mục chứa
+  `launcher-startup.log` (trong `App`). Gửi tệp đó cho hỗ trợ nếu vẫn lỗi.
+- **Cổng 8793 bị chiếm**: hộp thoại nêu tên chương trình đang giữ cổng. Đóng chương trình đó, hoặc khởi động lại máy rồi mở Kid TE trước.
+- **Không thấy cửa sổ, chỉ mở trình duyệt**: WebView2 bị thiếu/hỏng. Cài lại WebView2 từ
+  https://go.microsoft.com/fwlink/p/?LinkId=2124703 rồi tắt hẳn và mở lại Kid TE. Trong lúc đó vẫn dùng được Kid TE qua trình duyệt tại `http://127.0.0.1:8793/app`.
+- **Kid TE tự tắt bất thường**: app tự mở lại tối đa 3 lần trong 10 phút; quá số đó sẽ báo lỗi. Hãy khởi động lại máy; nếu lặp lại, vào **Chẩn đoán → Tạo gói hỗ trợ** và gửi tệp zip (gói đã che khoá API, số điện thoại, email và tên người dùng Windows; không tự gửi đi đâu).
+- **Cập nhật xong bị quay về bản cũ**: bản mới khởi động lỗi hoặc quá lâu nên Kid TE tự quay về bản trước (dữ liệu không đổi); trang **Cập nhật** ghi lý do. Có thể bấm cập nhật lại; nếu lần trước do khởi động quá lâu, lần thử lại được chờ lâu hơn.
+- **Phần mềm diệt virus** chặn/cách ly `KidTE.exe` hoặc `KidTELauncher.exe`: khôi phục tệp và thêm thư mục cài Kid TE vào danh sách loại trừ; nếu tệp bị xoá, chạy lại bộ cài vào đúng thư mục cũ (dữ liệu giữ nguyên).
+- **Mất điện khi đang mở app**: lần mở sau Kid TE tự dọn tệp khoá cũ; không cần xoá tay.
 
 ## Mọi thứ nằm trong MỘT thư mục
 
@@ -43,7 +56,7 @@ trang rồi khởi động lại solver. Key và token cần nhập lại trên 
         backups\          bản sao lưu
         logs\             nhật ký + luồng bình luận từng phiên LIVE
 
-- **Cập nhật bản mới**: chạy bộ cài mới — nó tự nhận đúng thư mục cũ, chỉ thay `App`.
+- **Cập nhật bản mới**: trong app, **Cài đặt → Cập nhật → Cập nhật → Khởi động lại ngay** (không làm khi đang LIVE). Chạy bộ cài mới cũng được: nó tự nhận đúng thư mục cũ, chỉ thay `App`.
 - **Đổi từ Live Re sang Kid TE**: đóng ứng dụng sau phiên LIVE rồi chạy bộ cài Kid TE.
   Bộ cài dùng chung mã nâng cấp, tìm thư mục `DuLieu` hiện có và giữ nguyên dữ liệu.
   Nếu bản ghi cài đặt Windows trỏ tới thư mục đã bị xoá, hãy nhìn lại đường dẫn
@@ -69,7 +82,7 @@ kho đã có. Mở lần đầu,
 người dùng tự làm theo thứ tự (trang **Chẩn đoán** liệt kê đủ và gợi ý cách sửa từng mục):
 
 1. **Cài đặt**: dán khoá DeepSeek; điền **Thông tin shop** (tên, địa chỉ, hotline, giao hàng).
-2. **Cài đặt → Cập nhật → Thử nghiệm**: chọn những gói tính năng cần dùng, đóng/mở lại app để áp dụng; sau đó ở **Chép lời**, tải model được đánh dấu "Hợp với máy này".
+2. **Cài đặt → Cập nhật**: kiểm các gói tính năng đã tự tải xong (đóng/mở lại app khi được nhắc); sau đó ở **Chép lời**, tải model được đánh dấu "Hợp với máy này".
 3. Cài tiện ích Chrome rồi mở TikTok LIVE Manager; tiện ích tự đọc giỏ hàng.
 4. **Sản phẩm**: kiểm hồ sơ chính thức và liên kết với sản phẩm trong giỏ. Với sản phẩm
    chưa có hồ sơ, bấm **Tạo hồ sơ cho sản phẩm này**, điền công dụng, cách dùng, liều lượng
@@ -86,7 +99,7 @@ Chi tiết mã, dữ liệu và cài đặt thực tế của máy vận hành n
 
 ## Về chữ ký số (SmartScreen)
 
-Kiểm bộ cài1.14.240 bằng Get-AuthenticodeSignature cho trạng thái NotSigned.
+Bộ cài và các tệp `.exe` của Kid TE hiện chưa ký số (Get-AuthenticodeSignature báo NotSigned).
 Mức phí và điều kiện cấp chứng chỉ phải kiểm tại thời điểm phát hành; không dùng
 ước lượng cũ làm giá hiện hành. Với vài máy trong nội bộ shop, **quyết định hiện tại là chưa ký**: bấm
 "Run anyway" một lần mỗi máy + đối chiếu SHA-256 là đủ. Khi phát hành rộng cho khách

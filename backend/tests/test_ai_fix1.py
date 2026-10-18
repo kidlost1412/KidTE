@@ -207,3 +207,11 @@ def test_shopee_missing_price_invites_cart_instead_of_silence(tmp_path):
         assert "giỏ hàng" in answer["reply"] and not re.search(r"ds*(?:k|đ|nghìn|ngàn)", answer["reply"])
     finally:
         engine.close()
+
+
+# K5 -- "2" chỉ nhận khi lượt trước là câu hỏi lại còn chờ
+def test_awaiting_answer_detects_clarify_turn():
+    import server as server_module
+    assert server_module._awaiting_answer([{"conversation_state": {"awaiting_fields": ["variant"]}}])
+    assert not server_module._awaiting_answer([{"conversation_state": {"awaiting_fields": []}}])
+    assert not server_module._awaiting_answer([])

@@ -478,6 +478,13 @@ class StandaloneServerTests(unittest.TestCase):
         self.assertIn("pha chung", hint)
         self.assertLess(len(hint), 400)
 
+    def test_single_char_comment_only_answers_a_pending_clarify(self):
+        # Rà soát 17/10 K5: "2" của khách lạ vẫn bỏ; không gọi model.
+        result = self.engine.handle(comment("2", "short-1"))
+        self.assertFalse(result["should_send"])
+        self.assertEqual(result["reason"], "invalid_comment")
+        self.assertEqual(self.responder.calls, [])
+
     def test_unknown_product_recommendation_still_answers(self):
         # Rà soát 17/10 P2: không khớp hồ sơ -> model gợi ý từ danh mục hoặc hỏi thêm, không im lặng.
         result = self.engine.handle(comment(

@@ -520,6 +520,12 @@ class _V2Writers:
 _V2_WRITERS = _V2Writers()
 
 
+def _awaiting_answer(turns):
+    """Lượt gần nhất của khách là câu shop hỏi lại (chọn SP/dung tích/số lượng) còn chờ trả lời."""
+    state = (turns[0].get("conversation_state") if turns and isinstance(turns[0], dict) else None) or {}
+    return isinstance(state, dict) and bool(state.get("awaiting_fields"))
+
+
 class ReplyEngine:
     def __init__(
         self,
@@ -3151,7 +3157,9 @@ class ReplyEngine:
         sec_uid = clean(payload.get("sec_uid"), 240)
         unique_id = clean(payload.get("unique_id"), 160)
         nickname = clean(payload.get("nickname") or unique_id or "Khách", 160)
-        if len(comment) < 2 or not (user_id or sec_uid or unique_id):
+        # K5: "2", "5" có thể là câu trả lời cho câu hỏi lại vừa gửi — xét sau khi có lượt trước.
+        short_reply = len(comment) == 1 and comment.isalnum()
+        if (len(comment) < 2 and not short_reply) or not (user_id or sec_uid or unique_id):
             return {"ok": True, "should_send": False, "reason": "invalid_comment"}
         if (user_id in TIKTOK_HOST_USER_IDS or unique_id.casefold() in TIKTOK_HOST_UNIQUE_IDS
                 or _is_room_host(payload.get("live_context"), user_id, sec_uid, unique_id)):
@@ -3206,6 +3214,8 @@ class ReplyEngine:
             ref.get('interaction_id', ''), room_id=live.get('room_id', ''))
         if not recompose and customer_card.recent_duplicate(turns, original_comment):
             return self._tracked_result({"ok": True, "should_send": False, "reason": "duplicate_question"})
+        if short_reply and not _awaiting_answer(turns):
+            return {"ok": True, "should_send": False, "reason": "invalid_comment"}
         comment, pending_question = resolve_question(comment, turns)
         if pending_question:
             self.memory.note_resolved_question(ref.get('interaction_id', ''), comment)

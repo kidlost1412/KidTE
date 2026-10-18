@@ -351,6 +351,31 @@ require("./comments.js");
   assert.equal(debug.getQueue().length - truocGuiLai, 2,
     "câu khác của cùng khách vẫn phải nhận");
 
+  // K4 (rà soát 17/10): câu trước bị bỏ (không trả lời) thì khách hỏi lại phải được nhận.
+  debug.setRuntimeForTest({ roomId: "phong-D" });
+  debug.acceptComment({ comment: "con hang khong", comment_id: "k4-1", user_id: "u4",
+    unique_id: "khach4", nickname: "Khách 4" });
+  debug.dropQueuedForTest("k4-1");
+  const truocHoiLai = debug.getQueue().length;
+  debug.acceptComment({ comment: "con hang khong", comment_id: "k4-2", user_id: "u4",
+    unique_id: "khach4", nickname: "Khách 4" });
+  assert.equal(debug.getQueue().length - truocHoiLai, 1,
+    "câu trước chưa được trả lời thì câu hỏi lại phải được nhận");
+  debug.markAnsweredForTest({ comment_id: "k4-2", user_id: "u4" });
+  debug.dropQueuedForTest("k4-2");
+  debug.acceptComment({ comment: "con hang khong", comment_id: "k4-3", user_id: "u4",
+    unique_id: "khach4", nickname: "Khách 4" });
+  assert.equal(debug.getQueue().length - truocHoiLai, 0,
+    "câu trước đã được trả lời thì hỏi lại trong 3 phút chỉ trả lời một lần");
+
+  // K5: "2" chỉ nhận khi khách vừa được shop trả lời/hỏi lại.
+  const truocSo = debug.getQueue().length;
+  debug.acceptComment({ comment: "2", comment_id: "k5-1", user_id: "u5", unique_id: "khach5", nickname: "Khách 5" });
+  assert.equal(debug.getQueue().length - truocSo, 0, "bình luận 1 ký tự của khách lạ vẫn bỏ");
+  debug.markAnsweredForTest({ comment_id: "k5-0", user_id: "u5" });
+  debug.acceptComment({ comment: "2", comment_id: "k5-2", user_id: "u5", unique_id: "khach5", nickname: "Khách 5" });
+  assert.equal(debug.getQueue().length - truocSo, 1, "khách vừa được hỏi lại trả lời '2' phải được nhận");
+
   debug.setRuntimeForTest({enabled:false});
   await debug.waitForAiPersistence();
   const savedPending = storage.liveReAiPending.map(row=>({...row}));

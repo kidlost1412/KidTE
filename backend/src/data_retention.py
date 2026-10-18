@@ -1,7 +1,7 @@
 """Dọn định kỳ dữ liệu thô/log cũ trong ``<ROOT>\\logs`` (D10).
 
 Chỉ xoá các TỆP nhật ký thô quá hạn, theo lô nhỏ, ở nền:
-  - raw (mặc định 90 ngày): ``logs/raw_stream/stream_YYYYMMDD.jsonl`` (ngày ở tên tệp VÀ
+  - raw (mặc định 365 ngày): ``logs/raw_stream/stream_YYYYMMDD.jsonl`` (ngày ở tên tệp VÀ
     thời điểm sửa cuối đều phải quá hạn), ``logs/customer_sessions/**/customers_*.jsonl``.
   - log (mặc định 30 ngày): ``logs/missing_answers/missing_*.jsonl`` và các tệp log đã xoay
     (``*.jsonl.N`` / ``*.log.N``) ở ngay thư mục ``logs``.
@@ -21,7 +21,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_RAW_DAYS = 90
+# 365: customer_history dùng raw_stream làm "khách này từng hỏi gì" cho AI; giữ đủ lâu để khách quay lại không bị coi là lạ.
+DEFAULT_RAW_DAYS = 365
 DEFAULT_LOG_DAYS = 30
 MIN_DAYS = 7
 BATCH_SIZE = 20

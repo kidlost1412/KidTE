@@ -242,6 +242,14 @@ def test_plan_and_run_delete_only_expired_raw_and_logs(tmp_path):
         assert f[kept].exists(), kept
 
 
+def test_default_raw_retention_keeps_four_month_old_history(tmp_path):
+    root, f = _make(tmp_path)
+    data_retention.run_once(root, now=NOW, pause_s=0)      # mặc định 365 ngày raw
+    for kept in ('raw_old', 'journal_old', 'journal_shopee_old'):
+        assert f[kept].exists(), kept
+    assert not f['missing_old'].exists() and not f['rot_old'].exists()
+
+
 def test_zero_days_disables_a_group(tmp_path):
     root, f = _make(tmp_path)
     data_retention.run_once(root, raw_days=0, log_days=30, now=NOW, pause_s=0)
@@ -335,7 +343,7 @@ def test_batches_release_lock_each_time_and_stop_when_busy(tmp_path):
 def test_policy_from_env(monkeypatch):
     monkeypatch.delenv('KIDTE_RETENTION_RAW_DAYS', raising=False)
     monkeypatch.delenv('KIDTE_RETENTION_LOG_DAYS', raising=False)
-    assert data_retention.policy_from_env() == {'raw_days': 90, 'log_days': 30}
+    assert data_retention.policy_from_env() == {'raw_days': 365, 'log_days': 30}
     monkeypatch.setenv('KIDTE_RETENTION_RAW_DAYS', '2')
     monkeypatch.setenv('KIDTE_RETENTION_LOG_DAYS', 'abc')
     assert data_retention.policy_from_env() == {'raw_days': 7, 'log_days': 30}

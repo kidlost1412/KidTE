@@ -161,3 +161,27 @@ def test_gift_basis_only_from_promotion_data_and_not_negated():
     assert eng._invented_promo(_reply("Shop tặng kèm 1 chai nha"), {}, approved)
     assert eng._invented_promo(_reply("Shop giảm 5% cho anh nha"), {}, approved)
     assert eng._invented_promo(_reply("Shop tặng kèm 1 chai nha"), {"promotion": "Mua 2 tặng 1 chai"}, {}) == ""
+
+
+# P8 -- sổ tay tình huống không khớp từ khoá thô
+def test_playbook_does_not_misfire_on_farming_words():
+    import sales_playbook
+    assert "doi_tra_hu_hong" not in sales_playbook.match("cây bị hư rễ thì dùng gì")
+    assert "ai_hay_nguoi" not in sales_playbook.match("tưới tự động pha được không")
+    assert "che_dat_xin_giam" not in sales_playbook.match("cây mắc bệnh nấm")
+    assert "cong_kich_lua_dao" not in sales_playbook.match("ko tặng quà hả shop")
+    assert "doi_tra_hu_hong" in sales_playbook.match("hàng bị hư rồi shop ơi")
+    assert "cong_kich_lua_dao" in sales_playbook.match("shop lừa đảo")
+    assert "che_dat_xin_giam" in sales_playbook.match("mắc quá shop")
+
+
+# H3 -- tên cây theo ranh giới từ
+def test_crop_extraction_uses_word_boundaries():
+    from customer_memory import extract_customer_facts
+    for text in ("shop cam kết hàng thật không", "đạt tiêu chuẩn không", "ngày mai giao được không",
+                 "điều kiện đổi trả sao", "camera mờ quá"):
+        assert "cay_trong" not in extract_customer_facts(text), text
+    assert extract_customer_facts("vườn cam bị vàng lá")["cay_trong"] == "cam"
+    assert extract_customer_facts("tôi trồng tiêu 2 ha")["cay_trong"] == "hồ tiêu"
+    assert extract_customer_facts("cây mai nhà tôi rụng lá")["cay_trong"] == "mai"
+    assert extract_customer_facts("trồng điều ở Bình Phước")["cay_trong"] == "điều"

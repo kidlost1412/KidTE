@@ -74,6 +74,7 @@ def _text(result):
 def test_valid_rule_computed(tmp_path):
     db = _db(tmp_path)
     rid = _rule(db, "shopee:20")
+    _rule(db, "shopee:20", amount=40)          # hai quy tắc -> model phải chọn
     r = Responder([_sel(rid)])
     engine = _engine(tmp_path, r, _source(db))
     try:
@@ -81,7 +82,7 @@ def test_valid_rule_computed(tmp_path):
         assert result["should_send"] is True
         main = r.calls[-1][0]
         assert main["verified_dose_calculations"][0]["calculated_ml"] == 12.5
-        assert r.calls[0][0]["dose_rule_options"][0]["rule_id"] == rid
+        assert rid in [o["rule_id"] for o in r.calls[0][0]["dose_rule_options"]]
         assert not any(h in str(result) for h in DOSE_HANDOFFS)
     finally:
         engine.close()
@@ -116,6 +117,7 @@ def test_unapproved_rule_rejected(tmp_path):
 def test_single_correction(tmp_path):
     db = _db(tmp_path)
     rid = _rule(db, "shopee:20")
+    _rule(db, "shopee:20", amount=40)
     r = Responder([_sel("DR-nope"), _sel(rid)])
     engine = _engine(tmp_path, r, _source(db))
     try:
@@ -152,5 +154,20 @@ def test_no_rules_or_no_source_unchanged(tmp_path):
     try:
         _ask(engine, "c2")
         assert all(c[0].get("ask") != "select_dose_rule" for c in r2.calls)
+    finally:
+        engine.close()
+
+
+def test_single_usable_rule_is_picked_by_code_without_model_call(tmp_path):
+    """C2: chỉ một quy tắc dùng được -> mã chọn thẳng, không tốn lần gọi model chọn rule."""
+    db = _db(tmp_path)
+    _rule(db, "shopee:20")
+    r = Responder([])
+    engine = _engine(tmp_path, r, _source(db))
+    try:
+        result = _ask(engine)
+        assert result["should_send"] is True
+        assert not [c for c in r.calls if c[0].get("ask") == "select_dose_rule"]
+        assert r.calls[-1][0]["verified_dose_calculations"][0]["calculated_ml"] == 12.5
     finally:
         engine.close()

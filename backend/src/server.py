@@ -460,6 +460,33 @@ _model_processor = load_processor(
 )
 DeepSeekResponder = _model_processor.DeepSeekResponder
 
+# Rà soát 17/10 C4: số đo chi phí của MỘT lượt = cộng mọi lần gọi model (cổng liều, trả lời, gọi lại...).
+TURN_BUDGET_S = 25.0       # C8: hạn tổng mọi lần gọi model của một lượt TikTok
+_COST_KEYS = ("prompt_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
+              "completion_tokens", "reasoning_tokens", "model_ms")
+_PRECISE_WORDS = re.compile(r"\b(cach ly|thoi gian cach ly|bao lau thi thu hoach)\b")
+
+
+def _sum_model_metrics(base, calls):
+    """metrics của lần gọi cuối + tổng chi phí mọi lần gọi trong lượt (không ghi đè)."""
+    metrics = dict(base or {})
+    calls = [m for m in calls if isinstance(m, dict) and m]
+    if len(calls) <= 1 and (not calls or calls[0] is base):
+        return metrics
+    for key in _COST_KEYS:
+        metrics[key] = sum(int(m.get(key) or 0) for m in calls)
+    metrics["model_calls"] = sum(int(m.get("model_calls") or 1) for m in calls)
+    return metrics
+
+
+def _sampling_kind(comment, intents, context):
+    """P9: lượt giá/liều/cách ly/pha trộn/quà -> 'precise' (nhiệt độ thấp); còn lại để cài đặt chủ shop."""
+    intents = intents or {}
+    if (intents.get("dose") or intents.get("mixing") or intents.get("price") or intents.get("promotion")
+            or (context or {}).get("verified_dose_calculations") or _PRECISE_WORDS.search(fold(comment or ""))):
+        return "precise"
+    return ""
+
 # Khối nhiệm vụ cho các lời gọi DeepSeek phụ (APP_BRIEF luôn đứng đầu, xem ai_context.py).
 _DOSE_TASK = _task_block(
     "Chọn quy tắc liều",
@@ -2891,8 +2918,33 @@ class ReplyEngine:
             logging.getLogger("kid-te.core").warning("playbook stable failed", exc_info=True)
         return context
 
+    def _add_stock_facts(self, context, live, product, recommendations):
+        """`ton_kho` (SP đang bàn) và `ton_kho_sp_dang_ghim` (nếu khác) — dữ kiện thật, không bịa số."""
+        try:
+            products = [item for item in live.get("products") or [] if isinstance(item, dict)]
+            threshold = _model_processor.SETTINGS.get("nguong_sap_het", context_budget.LOW_STOCK_DEFAULT)
+            current_id = clean((product or {}).get("product_id"), 160)
+            alternatives = []
+            for rec in recommendations or []:
+                item = rec.get("live_product") if isinstance(rec, dict) else None
+                if (isinstance(item, dict) and clean(item.get("product_id"), 160) != current_id
+                        and (context_budget._stock_number(item) or 0) > 0):
+                    alternatives.append(self._item_short_name(item))
+            fact = context_budget.stock_fact(product, products, threshold, alternatives)
+            if fact:
+                context["ton_kho"] = fact
+            pin_id = clean(live.get("pin_id"), 160)
+            if pin_id and pin_id != current_id:
+                pinned = next((item for item in products if clean(item.get("product_id"), 160) == pin_id), None)
+                pinned_fact = context_budget.stock_fact(pinned, products, threshold)
+                if pinned_fact:
+                    context["ton_kho_sp_dang_ghim"] = pinned_fact
+        except Exception:
+            logging.getLogger("kid-te.core").warning("stock facts failed", exc_info=True)
+        return context
+
     def _reply_context(self, comment, live, sel, memory_context, *, video=None, mark_used=True,
-                       history=None, memory_prompt=None, persona_id=""):
+                       history=None, memory_prompt=None, persona_id="", customer_key=""):
         """Ngữ cảnh gửi model. Trả (context, price_signal). persona_id: thử với người trực khác (chỉ "Thử AI")."""
         learning = getattr(self, "learning", None)
         product, approved, intents = sel["product"], sel["approved"], sel["intents"]
@@ -2912,7 +2964,7 @@ class ReplyEngine:
         shown_intents = {**intents, **(sel.get("router_intents") or {})}
         if context_budget.enabled("intent_fields"):
             try:
-                shown_approved = context_budget.project_profile(approved, shown_intents)
+                shown_approved = context_budget.project_profile(approved, shown_intents, comment)
                 shown_relevant = context_budget.trim_recommendations(
                     recommendations, shop_id, shown_intents, self._item_short_name)
             except Exception:
@@ -2953,6 +3005,9 @@ class ReplyEngine:
             ),
             "catalog_scope_warning": self._scope_warning(live),
         }
+        # H2: tồn kho thật CHỈ ở phần theo lượt (đổi liên tục, không vào nền cố định để giữ cache).
+        context["current_product"].pop("stock_num", None)
+        self._add_stock_facts(context, live, product, recommendations)
         if learning is not None:
             learned = learning.relevant(
                 comment, product_ids=shared_learning_product_ids(self.knowledge, sel.get("record"),
@@ -2967,7 +3022,7 @@ class ReplyEngine:
         if recent:
             context["cau_da_gui_gan_day"] = recent
             context["tranh_mo_dau"] = reply_variety.openings(recent, words=2)
-        hint = self._reply_angle_hint()
+        hint = self._reply_angle_hint(reply_angles.topics_from_intents(shown_intents), customer_key)
         if hint:
             context["goi_y_luot_nay"] = hint
         if history:
@@ -3087,7 +3142,7 @@ class ReplyEngine:
             return []
 
     def _smalltalk_context(self, live, memory_context, *, video=None, comment="", turns=None, card=None,
-                           reading=None):
+                           reading=None, customer_key=""):
         """Ngữ cảnh làn xã giao.
 
         Cờ persona_all_lanes BẬT: cùng nền cố định như làn đầy đủ (giọng, quy tắc đã học, sổ tay, danh mục
@@ -3124,7 +3179,7 @@ class ReplyEngine:
         if recent:
             context["cau_da_gui_gan_day"] = recent
             context["tranh_mo_dau"] = reply_variety.openings(recent, words=2)
-        hint = self._reply_angle_hint()
+        hint = self._reply_angle_hint(("smalltalk",), customer_key)
         if hint:
             context["goi_y_luot_nay"] = hint
         if isinstance(video, dict):
@@ -3275,7 +3330,8 @@ class ReplyEngine:
             try:
                 context = self._smalltalk_context(
                     live, memory_context, video=payload.get("video_context"), comment=comment, turns=turns,
-                    card=card, reading=router.reading(routed.get("result")))
+                    card=card, reading=router.reading(routed.get("result")),
+                    customer_key=ref.get("customer_key", ""))
                 price_signal = {}
             except Exception:
                 logging.getLogger("kid-te.core").warning("smalltalk context failed", exc_info=True)
@@ -3283,7 +3339,7 @@ class ReplyEngine:
         if context is None:
             context, price_signal = self._reply_context(
                 comment, live, sel, memory_context, video=payload.get("video_context"), mark_used=True,
-                history=history,
+                history=history, customer_key=ref.get("customer_key", ""),
                 memory_prompt=self.memory.context_for_reply(
                     ref.get("customer_key", ""), ref.get("interaction_id", ""), nickname,
                     include_turns=False) if history else None,
@@ -3328,51 +3384,29 @@ class ReplyEngine:
         started = time.monotonic()
         if promotion_clarification:
             context['promotion_status'] = 'Chưa có chương trình được duyệt cho SKU này. Phần khách hỏi quà/ưu đãi: nói cần kiểm tra quà tặng, không bịa quà; không hỏi lại loại hoặc số lượng đã rõ. Nếu câu khách còn hỏi ý khác (liều, công dụng, giá gốc) thì vẫn trả lời phần đó bình thường.'
-        try:
-            dose_gate = self._tiktok_dose_gate(nickname, comment, context, sel, intents, max_body)
-        except Exception:
-            logging.getLogger('kid-te.core').warning('tiktok dose gate failed', exc_info=True)
-            dose_gate = None
-        if dose_gate and dose_gate.get('handoff'):
-            result = {'action': 'reply', 'reply': dose_selection.dose_handoff(), 'metrics': {}}
-        else:
-            result = self.responder.reply(nickname, comment, context, max_body)
-            if dose_gate and dose_gate.get('rows') and result.get('action') == 'reply':
-                if not dose_selection.reply_dose_numbers_ok(clean(result.get('reply'), 2000), dose_gate['rows']):
-                    result = self.responder.reply(nickname, comment, context, max_body,
-                        correction='Chỉ được nêu liều đúng bằng verified_dose_calculations; không tự tính hay nêu số liều khác.')
-                    if (result.get('action') != 'reply'
-                            or not dose_selection.reply_dose_numbers_ok(clean(result.get('reply'), 2000), dose_gate['rows'])):
-                        result = {'action': 'reply', 'reply': dose_selection.dose_handoff(), 'metrics': {}}
-        own_replies = [clean(t.get("response"), 300) for t in reversed(turns or [])
-                       if isinstance(t, dict) and t.get("delivery_status") == "sent" and t.get("response")]
-        correction = self._combined_correction(
-            self._policy_violation(comment, result, price_signal),
-            self._invented_price(result, live, sel["approved"], price_signal),
-            self._invented_promo(result, sel.get("product"), sel["approved"]),
-            self._variety_correction(result, own_replies))
-        if dose_gate and dose_gate.get('handoff'):
-            correction = ''
-        retried = False
-        if correction:
-            # Chỉ thử lại một lần, và chỉ ở những lượt hiếm/đắt giá này. Thà
-            # tốn thêm một lượt gọi còn hơn bác con số khách đang nhìn thấy.
-            retried = True
-            drafted = result
-            result = self.responder.reply(
-                nickname, comment, context, max_body, correction=correction,
-            )
-            if result.get("action") != "reply":
-                result = drafted
-            result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
-            result = self._drop_invented_price(result, live, sel["approved"], price_signal, sel.get("product"))
-            if (self._policy_violation(comment, result, price_signal)
-                    or self._invented_price(result, live, sel["approved"], price_signal)
-                    or reply_variety.admits_fault(result.get("reply"))):
-                logging.getLogger("kid-te.core").warning(
-                    "TikTok reply advisory interaction_id=%s", ref.get('interaction_id', ''),
-                    extra={"event":"ai_reply_advisory"})
-        metrics = dict(result.get("metrics") or {})
+        model_calls = []          # C4: metrics từng lần gọi model trong lượt
+
+        def ask_model(*args, **kwargs):
+            answer = self.responder.reply(*args, **kwargs)
+            model_calls.append((answer or {}).get("metrics") or {})
+            return answer
+        if not smalltalk_lane:
+            context["_sampling"] = _sampling_kind(comment, intents, context)
+        # C8: hạn tổng cho mọi lần gọi model của lượt (gồm thử lại) để không giữ hàng chờ 40–60 giây.
+        with _model_processor.turn_budget(TURN_BUDGET_S):
+            result, dose_gate, retried = self._tiktok_model_turn(
+                ask_model, nickname, comment, context, sel, intents, max_body, price_signal, live, turns)
+        if retried == "advisory":
+            logging.getLogger("kid-te.core").warning(
+                "TikTok reply advisory interaction_id=%s", ref.get('interaction_id', ''),
+                extra={"event":"ai_reply_advisory"})
+        retried = bool(retried)
+        if any(str(r) == "deepseek_TurnDeadline" for r in result.get("missing_fields") or ()):
+            logging.getLogger("kid-te.core").warning(
+                "TikTok turn dropped: over %ss total model budget interaction_id=%s calls=%d",
+                TURN_BUDGET_S, ref.get('interaction_id', ''), len(model_calls),
+                extra={"event": "ai_turn_deadline"})
+        metrics = _sum_model_metrics(result.get("metrics"), model_calls)
         metrics["total_ms"] = int((time.monotonic() - started) * 1000)
         metrics["intents"] = sorted(name for name, on in intents.items() if on)
         metrics["retried"] = retried
@@ -3527,7 +3561,53 @@ class ReplyEngine:
             logging.getLogger("kid-te.core").warning("sku ambiguity check failed", exc_info=True)
             return False
 
-    def _tiktok_dose_gate(self, nickname, comment, context, sel, intents, max_body):
+    def _tiktok_model_turn(self, ask, nickname, comment, context, sel, intents, max_body, price_signal, live,
+                           turns):
+        """Cổng liều -> trả lời -> (nếu cần) gọi lại một lần. Trả (result, dose_gate, retried);
+        retried = "advisory" khi bản gọi lại vẫn còn vi phạm (chỉ ghi nhật ký, không chặn)."""
+        try:
+            dose_gate = self._tiktok_dose_gate(nickname, comment, context, sel, intents, max_body, ask=ask)
+        except Exception:
+            logging.getLogger('kid-te.core').warning('tiktok dose gate failed', exc_info=True)
+            dose_gate = None
+        if dose_gate and dose_gate.get('handoff'):
+            result = {'action': 'reply', 'reply': dose_selection.dose_handoff(), 'metrics': {}}
+        else:
+            result = ask(nickname, comment, context, max_body)
+            if dose_gate and dose_gate.get('rows') and result.get('action') == 'reply':
+                if not dose_selection.reply_dose_numbers_ok(clean(result.get('reply'), 2000), dose_gate['rows']):
+                    result = ask(nickname, comment, context, max_body,
+                        correction='Chỉ được nêu liều đúng bằng verified_dose_calculations; không tự tính hay nêu số liều khác.')
+                    if (result.get('action') != 'reply'
+                            or not dose_selection.reply_dose_numbers_ok(clean(result.get('reply'), 2000), dose_gate['rows'])):
+                        result = {'action': 'reply', 'reply': dose_selection.dose_handoff(), 'metrics': {}}
+        own_replies = [clean(t.get("response"), 300) for t in reversed(turns or [])
+                       if isinstance(t, dict) and t.get("delivery_status") == "sent" and t.get("response")]
+        correction = self._combined_correction(
+            self._policy_violation(comment, result, price_signal),
+            self._invented_price(result, live, sel["approved"], price_signal),
+            self._invented_promo(result, sel.get("product"), sel["approved"]),
+            self._variety_correction(result, own_replies))
+        if dose_gate and dose_gate.get('handoff'):
+            correction = ''
+        retried = False
+        if correction:
+            # Chỉ thử lại một lần, và chỉ ở những lượt hiếm/đắt giá này. Thà
+            # tốn thêm một lượt gọi còn hơn bác con số khách đang nhìn thấy.
+            retried = True
+            drafted = result
+            result = ask(nickname, comment, context, max_body, correction=correction)
+            if result.get("action") != "reply":
+                result = drafted
+            result = self._drop_invented_promo(result, sel.get("product"), sel["approved"])
+            result = self._drop_invented_price(result, live, sel["approved"], price_signal, sel.get("product"))
+            if (self._policy_violation(comment, result, price_signal)
+                    or self._invented_price(result, live, sel["approved"], price_signal)
+                    or reply_variety.admits_fault(result.get("reply"))):
+                retried = "advisory"
+        return result, dose_gate, retried
+
+    def _tiktok_dose_gate(self, nickname, comment, context, sel, intents, max_body, ask=None):
         """D05: model picks rule_id among APPROVED rules; code verifies + computes. None = no approved rules."""
         if not intents.get("dose"):
             return None
@@ -3550,11 +3630,13 @@ class ReplyEngine:
             return None
         system = _model_processor.compose_system(_DOSE_TASK, dose_selection.DOSE_RULE_NOTE)
 
-        def call(ask, correction):
+        reply = ask or self.responder.reply
+
+        def call(request, correction):
             kwargs = {"system_override": system}
             if correction:
                 kwargs["correction"] = correction
-            return self.responder.reply(nickname, comment, ask, max_body, **kwargs)
+            return reply(nickname, comment, request, max_body, **kwargs)
         return dose_selection.select_dose_rule(
             call, _dose_processor, usable, liters, "TikTok LIVE", context.get("conversation"), context)
 
@@ -3592,6 +3674,7 @@ class ReplyEngine:
         template = "Anh/chị đang hỏi sản phẩm hoặc dung tích nào ạ?"
         count = dose_selection.clarify_count_for(counts, family_id)
         # Luôn hỏi model (có recent_turns); trước đây lượt 3+ lặp câu mẫu.
+        model_metrics = {}
         if True:
             text = ""
             try:
@@ -3604,6 +3687,7 @@ class ReplyEngine:
                     max(1, limit - tag_len),
                     system_override=_model_processor.compose_system(_CLARIFY_TASK, _CLARIFY_RULE))
                 fallback_reason = "model_action_not_reply"
+                model_metrics = (result.get("metrics") if isinstance(result, dict) else None) or {}
                 if isinstance(result, dict) and result.get("action") == "reply":
                     body = clean(result.get("reply"), 2000)
                     if not body:
@@ -3632,6 +3716,7 @@ class ReplyEngine:
         with self._lock:
             self._pending_reply_bodies[reply_id] = text
         metrics = {"reply_source": "clarification", "clarify_count": new_counts.get(family_id, 0),
+                   **{k: model_metrics[k] for k in _COST_KEYS + ("model", "model_calls") if k in model_metrics},
                    **(extra_metrics or {})}
         if clarify_fallback:
             metrics["clarify_fallback"] = clarify_fallback
@@ -3943,16 +4028,17 @@ class ReplyEngine:
                 "reason": "" if result.get("action") == "reply" else "model_skipped",
                 "missing_fields": result.get("missing_fields") or [], "metrics": metrics, "explain": explain}
 
-    def _reply_angle_hint(self):
-        """Gợi ý góc/cách mở mỗi lượt (phần theo lượt, không phá cache phần tĩnh)."""
+    def _reply_angle_hint(self, topics=(), customer_key=""):
+        """Gợi ý góc/cách mở hợp nội dung câu khách (phần theo lượt, không phá cache phần tĩnh)."""
         try:
             if not context_budget.enabled("reply_angles"):
                 return ""
             picker = getattr(self, "_angle_picker", None)
             if picker is None:
                 picker = self._angle_picker = reply_angles.AnglePicker()
-            return picker.hint()
+            return picker.hint(topics=topics, customer=customer_key)
         except Exception:  # noqa: BLE001 - gợi ý hỏng không được chặn câu trả lời
+            logging.getLogger("kid-te.core").warning("reply angle hint failed", exc_info=True)
             return ""
 
     def _recent_sent_replies(self, max_age_s=1200, limit=6):

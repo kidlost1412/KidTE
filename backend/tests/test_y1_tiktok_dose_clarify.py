@@ -192,6 +192,7 @@ def test_pinned_or_explicit_product_does_not_clarify(engine):
     assert not _clarify_calls(engine)
 
 
-def test_unknown_recommendation_stays_silent(engine):
+def test_unknown_recommendation_answers_without_sku_clarify(engine):
+    # Rà soát 17/10 P2: không im lặng nữa; model gợi ý/hỏi thêm, không đi đường hỏi lại SKU.
     out = _ask(engine, "r1", "Có loại nào phòng nấm rễ và tuyến trùng không?")
-    assert not out["should_send"] and not _clarify_calls(engine)
+    assert out["should_send"] and not _clarify_calls(engine)

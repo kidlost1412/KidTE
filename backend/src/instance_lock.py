@@ -25,6 +25,28 @@ class InstanceAlreadyRunning(InstanceLockError):
 CORRUPT_LOCK_GRACE_SECONDS = 10.0
 
 
+# Bộ cài/bộ gỡ (installer.iss, CheckForMutexes) dùng tên này để biết Kid TE đang
+# chạy và hỏi người dùng đóng an toàn thay vì để Windows giết giữa phiên LIVE.
+RUNNING_MUTEX = "KidTE.Running.8CF58DC0"
+_held_mutexes = []
+
+
+def hold_running_mutex(name: str = RUNNING_MUTEX):
+    """Giữ mutex có tên suốt đời tiến trình (Windows); trả handle hoặc None."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.windll.kernel32
+    kernel.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel.CreateMutexW.restype = wintypes.HANDLE
+    handle = kernel.CreateMutexW(None, False, name)
+    if handle:
+        _held_mutexes.append(handle)
+    return handle or None
+
+
 def corrupt_lock_is_stale(path, *, now=None, grace=CORRUPT_LOCK_GRACE_SECONDS) -> bool:
     """True khi tệp khoá hỏng đã đủ cũ để coi là khoá của lần chạy đã chết."""
     try:

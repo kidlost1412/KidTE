@@ -13,7 +13,7 @@ from pathlib import Path
 
 from config import CHAT_HOST, CHAT_PORT, INSTALL_ROOT, IS_FROZEN, LOG_DIR, PLUGINS_DIR, ROOT
 from console_io import ensure_std_streams, force_utf8_console, hide_child_consoles
-from instance_lock import InstanceAlreadyRunning, SingleInstanceLock
+from instance_lock import InstanceAlreadyRunning, SingleInstanceLock, hold_running_mutex
 from launch_origin import record, started_by_user
 import auto_backup
 import data_retention
@@ -272,6 +272,10 @@ def main() -> int:
             detail=str(exc))
         return 2
 
+    try:
+        hold_running_mutex()  # bộ cài/gỡ hỏi đóng Kid TE thay vì giết giữa LIVE (C9)
+    except Exception as exc:  # noqa: BLE001 - installer hint only, never blocks startup
+        print(f"[kid-te] Không tạo được mutex báo đang chạy: {type(exc).__name__}: {exc}")
     engine = None
     server = None
     auto_scheduler = None

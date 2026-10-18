@@ -1008,6 +1008,11 @@ class Launcher:
             raise LauncherError("CHAT_PORT must be between 1 and 65535.")
         try:
             with _launcher_lock(app_root):
+                try:
+                    from instance_lock import hold_running_mutex
+                    hold_running_mutex()  # bộ cài/gỡ thấy Kid TE đang chạy (C9)
+                except Exception as exc:  # noqa: BLE001 - installer hint only
+                    _record_recovery(app_root, f"running mutex unavailable: {exc}")
                 recent: list[float] = []
                 crashes: list[float] = []
                 while True:

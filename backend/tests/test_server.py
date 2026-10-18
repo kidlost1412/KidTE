@@ -478,13 +478,21 @@ class StandaloneServerTests(unittest.TestCase):
         self.assertIn("pha chung", hint)
         self.assertLess(len(hint), 400)
 
-    def test_unknown_product_recommendation_is_silent(self):
+    def test_single_char_comment_only_answers_a_pending_clarify(self):
+        # Rà soát 17/10 K5: "2" của khách lạ vẫn bỏ; không gọi model.
+        result = self.engine.handle(comment("2", "short-1"))
+        self.assertFalse(result["should_send"])
+        self.assertEqual(result["reason"], "invalid_comment")
+        self.assertEqual(self.responder.calls, [])
+
+    def test_unknown_product_recommendation_still_answers(self):
+        # Rà soát 17/10 P2: không khớp hồ sơ -> model gợi ý từ danh mục hoặc hỏi thêm, không im lặng.
         result = self.engine.handle(comment(
             "Có loại nào phòng nấm rễ và tuyến trùng không?", "recommend-1"
         ))
-        self.assertFalse(result["should_send"])
-        self.assertIn("san_pham_phu_hop", result["missing_fields"])
-        self.assertEqual(self.responder.calls, [])
+        self.assertTrue(result["should_send"])
+        self.assertEqual(len(self.responder.calls), 1)
+        self.assertIn("all_live_products", self.responder.calls[0][2].get("kien_thuc_chung", ""))
 
     def test_recommendation_retrieves_matching_live_product(self):
         payload = comment(
@@ -528,19 +536,16 @@ class StandaloneServerTests(unittest.TestCase):
         )
         self.assertEqual(rows[0]["calculated_ml"], 19.2)
 
-    def test_price_question_is_skipped_only_when_no_price_exists_at_all(self):
+    def test_price_question_without_any_price_answers_without_numbers(self):
+        # Rà soát 17/10 K13: không im lặng; model được nhắc không nói số, mời xem giỏ hàng.
         payload = comment(cid="c2", uid="u2")
         payload["live_context"] = live_product(original_price="")
         for item in payload["live_context"]["products"]:
             item["sale_price"] = ""
             item["price"] = ""
         result = self.engine.handle(payload)
-        self.assertFalse(result["should_send"])
-        self.assertEqual(result["reason"], "missing_data")
-        self.assertIn("gia_goc", result["missing_fields"])
-        self.assertEqual(result["missing_count"], 1)
-        row = json.loads(self.reporter.path.read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual(row["action"], "not_sent")
+        self.assertTrue(result["should_send"])
+        self.assertIn("giỏ hàng", self.responder.calls[-1][2].get("kien_thuc_chung", ""))
 
     def test_dose_question_does_not_require_a_price(self):
         payload = comment("bình 16 lít pha bao nhiêu ml chị", "dose-no-price")

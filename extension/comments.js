@@ -746,6 +746,7 @@ function noteSendFailure(detail) {
     }
     const row = pending.find(item => item.comment_id === target.comment_id) || {};
     await sendProtocol2Turn(result, target, row);
+    markAnswered(target);
     removeLocalRow(target.comment_id);
     return 'handled';
   }
@@ -810,6 +811,7 @@ function noteSendFailure(detail) {
     }
     if (result.protocol_version === 2) {
       await sendProtocol2Turn(result, result.source_comment || comment, comment);
+      markAnswered(comment);
       return;
     }
     const content = taggedReply(comment, result.reply, result.max_chars);
@@ -1015,6 +1017,29 @@ function noteSendFailure(detail) {
   }
 
   const recentQuestions = new Map();
+  // Bình luận đã được trả lời (theo comment_id) và khách vừa được shop trả lời
+  // (để nhận "2", "5" là câu trả lời cho câu hỏi lại). Chỉ sống 3 phút.
+  const answeredComments = new Map();
+  const recentlyAnsweredUsers = new Map();
+  function whoOf(row) {
+    return clean(row?.user_id || row?.sec_uid || row?.unique_id, 240);
+  }
+  function markAnswered(row) {
+    const now = Date.now();
+    if (row?.comment_id) answeredComments.set(String(row.comment_id), now);
+    const who = whoOf(row);
+    if (who) recentlyAnsweredUsers.set(who, now);
+    for (const map of [answeredComments, recentlyAnsweredUsers]) {
+      if (map.size > 500) for (const [k, at] of map) if (now - at >= 180000) map.delete(k);
+    }
+  }
+  function justAnswered(row) {
+    const at = recentlyAnsweredUsers.get(whoOf(row));
+    return Boolean(at && Date.now() - at < 180000);
+  }
+  function isShortAnswer(text) {
+    return /^[\p{L}\p{N}]$/u.test(clean(text));
+  }
 
   function acceptComment(raw) {
     // GHI TRƯỚC, LỌC SAU. Mọi nhánh return bên dưới đều đã được ghi lại ở
@@ -1046,7 +1071,9 @@ function noteSendFailure(detail) {
       room_id: lastRoomId,
       received_at_ms: Date.now()
     };
-    if (comment.comment.length < 2 || !(comment.user_id || comment.sec_uid || comment.unique_id)) return;
+    if (!(comment.user_id || comment.sec_uid || comment.unique_id)) return;
+    // "2", "5": chỉ nhận khi khách này vừa được shop trả lời/hỏi lại (backend xét tiếp).
+    if (comment.comment.length < 2 && !(isShortAnswer(comment.comment) && justAnswered(comment))) return;
     // Chống trùng phải có PHẠM VI phòng, không chỉ nội dung.
     //
     // Khoá cũ là `comment_id || user_id|created_at|comment`, hoàn toàn không
@@ -1071,11 +1098,18 @@ function noteSendFailure(detail) {
     // Cùng khách hỏi lại đúng câu đó trong 3 phút: trả lời một lần.
     const who = comment.user_id || comment.sec_uid || comment.unique_id;
     const dupKey = `${phamVi}|dup:${who}|${comment.comment.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()}`;
-    const dupAt = recentQuestions.get(dupKey);
-    if (dupAt && Date.now() - dupAt < 180000) return;
-    recentQuestions.set(dupKey, Date.now());
+    // Chỉ bỏ khi câu trước còn đang chờ trong hàng hoặc ĐÃ được trả lời; câu
+    // trước bị bỏ qua/hết hạn/lỗi thì khách hỏi lại phải được xét lại.
+    const prev = recentQuestions.get(dupKey);
+    if (prev && Date.now() - prev.at < 180000) {
+      const stillWaiting = pending.includes(prev.row)
+        || Boolean(prev.id && pending.some(row => row.comment_id === prev.id));
+      const answered = Boolean(prev.id && answeredComments.has(prev.id));
+      if (stillWaiting || answered) return;
+    }
+    recentQuestions.set(dupKey, {at: Date.now(), id: comment.comment_id ? String(comment.comment_id) : "", row: comment});
     if (recentQuestions.size > 500) {
-      for (const [k, at] of recentQuestions) if (Date.now() - at >= 180000) recentQuestions.delete(k);
+      for (const [k, v] of recentQuestions) if (Date.now() - v.at >= 180000) recentQuestions.delete(k);
     }
     pruneSeen();
     while (pending.length && Date.now() >= replyDeadline(pending[0])) { cancelBackendRow(pending.shift()); aiDropped += 1; }
@@ -1096,7 +1130,7 @@ function noteSendFailure(detail) {
     if (Boolean(raw?.is_host) || isKnownHost(raw)) return "host_manual";
     if (!enabled || !aiReady) return "ai_off";
     if (!liveRunning) return "clock_stopped";
-    if (clean(raw?.comment).length < 2) return "too_short";
+    if (clean(raw?.comment).length < 2 && !(isShortAnswer(raw?.comment) && justAnswered(raw))) return "too_short";
     return "queued_for_ai";
   }
 
@@ -1355,6 +1389,8 @@ function noteSendFailure(detail) {
       // Cho phép test kiểm chống trùng theo phạm vi phòng.
       getSeenSize: () => seen.size,
       clearSeenForTest: () => seen.clear(),
+      markAnsweredForTest: row => markAnswered(row),
+      dropQueuedForTest: commentId => removeLocalRow(commentId),
       enqueueAiReply,
       syncBackendQueue,
       learnHostFromSnapshot,

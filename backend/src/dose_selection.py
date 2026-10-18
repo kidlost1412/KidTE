@@ -120,11 +120,24 @@ def clarify_listing(titles, tag_len, template, limit=150):
     """Top-3 list that fits one message; falls back to the template when even one title is too long."""
     from delivery_store import utf16_length
     from knowledge import clean
-    titles = [clean(t, 40) for t in titles][:3]
+    raw = [clean(t, 160) for t in titles if clean(t, 160)][:3]
 
     def text(rows):
+        if len(rows) == 1:
+            return f"Mình hỏi {rows[0]} phải không ạ?"
         return f"Shop đang có: {'; '.join(rows)}. Mình chọn loại nào ạ?"
-    while len(titles) > 1 and utf16_length(text(titles)) + tag_len > limit:
-        titles = titles[:-1]
-    out = text(titles) if titles else template
-    return out if utf16_length(out) + tag_len <= limit else template
+
+    def short(title, width):
+        if len(title) <= width:
+            return title
+        cut = title[:width].rsplit(' ', 1)[0]
+        return (cut or title[:width]).rstrip(' ,-')
+    # Rút gọn tên trước khi bớt ứng viên: khách cần thấy 2–3 lựa chọn cụ thể,
+    # câu mẫu trơn chỉ là đường cùng khi không còn tên nào vừa khung.
+    for width in (40, 28, 20, 14):
+        rows = [short(t, width) for t in raw]
+        while len(rows) > 2 and utf16_length(text(rows)) + tag_len > limit:
+            rows = rows[:-1]
+        if rows and utf16_length(text(rows)) + tag_len <= limit:
+            return text(rows)
+    return template

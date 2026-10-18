@@ -14,12 +14,21 @@ from config import PLUGINS_DIR
 from processor_loader import load_processor
 
 
-_PRICE = re.compile(r"\b(giá|nhiêu tiền|bao nhiêu tiền|giá gốc|giá bán)\b", re.I)
+# "giá trị dinh dưỡng" không phải hỏi giá.
+_PRICE = re.compile(r"\b(giá(?!\s+trị)|nhiêu tiền|bao nhiêu tiền|giá gốc|giá bán)\b", re.I)
 _DOSE = re.compile(r"\b(liều|pha|bao nhiêu ml|bình \d+|phuy|cách dùng|sử dụng sao)\b", re.I)
 # "combo" KHÔNG nằm đây: shop bán 6 SKU tên sẵn là "Combo ...", nên hỏi
 # "combo này pha bình 16 lít sao" là hỏi liều, không phải hỏi khuyến mãi.
 # Để nguyên thì mọi câu có chữ combo đều bị chặn vì thiếu chuong_trinh.
-_PROMO = re.compile(r"\b(khuyến mãi|ưu đãi|tặng|mua \d+|chương trình)\b", re.I)
+# "mua 2 chai" là tín hiệu MUA, không phải hỏi khuyến mãi (rà soát 17/10 P1).
+_PROMO = re.compile(r"\b(khuyến mãi|ưu đãi|tặng|quà|chương trình|giảm giá|được giảm|bớt giá|"
+                    r"mua \d+[^.?!]{0,24}(?:giảm|bớt|rẻ hơn))\b", re.I)
+# Bản KHÔNG DẤU chỉ dùng cho chữ khách gõ không dấu, và được thiết kế để không
+# đụng chữ có dấu khác: "tang" có thể là "tăng" nên chỉ nhận cụm rõ nghĩa quà;
+# "gia" không nhận "gia đình"/"giá trị".
+_PRICE_PLAIN = re.compile(r"\b(gia(?!\s+(?:dinh|tri|su|vi|han|lai|hang|nhap))|nhieu tien|bao nhieu tien)\b")
+_PROMO_PLAIN = re.compile(r"\b(khuyen mai|uu dai|qua tang|tang kem|tang qua|tang gi|co qua|km|giam gia|duoc giam|"
+                          r"mua \d+[^.?!]{0,24}(?:giam|bot|re hon))\b")
 _MIX = re.compile(
     r"\b(pha chung|trộn|phun chung|phun chúng|chung với|cùng với|kết hợp)\b",
     re.I,
@@ -95,6 +104,17 @@ _INTENT_PATTERNS = {name: re.compile(fold(pattern.pattern), re.I) for name, patt
     "price": _PRICE, "dose": _DOSE, "promotion": _PROMO, "mixing": _MIX,
     "recommendation": _RECOMMEND, "after_planting": _AFTER_PLANTING, "technical": _TECH,
 }.items()}
+
+
+def _accent_aware(comment, accented, plain):
+    text = clean(comment).casefold()
+    if accented.search(text):
+        return True
+    folded = fold(text)
+    if len(folded) != len(text):
+        return bool(plain.search(folded))
+    # Chỉ nhận khớp không dấu khi đoạn đó trong câu gốc cũng không dấu.
+    return any(text[m.start():m.end()] == m.group(0) for m in plain.finditer(folded))
 
 
 _IGNORED = {"san", "pham", "chai", "loai", "cong", "nghe", "giup", "cay"}
@@ -682,7 +702,12 @@ class KnowledgeBase:
     @staticmethod
     def intents(comment):
         text = fold(comment)
-        return {name: bool(pattern.search(text)) for name, pattern in _INTENT_PATTERNS.items()}
+        found = {name: bool(pattern.search(text)) for name, pattern in _INTENT_PATTERNS.items()}
+        # Giá/khuyến mãi: so trên chữ CÓ DẤU trước ("tăng" khác "tặng", "gia đình"
+        # khác "giá"); mẫu không dấu chỉ nhận đoạn khách thật sự gõ không dấu.
+        found["price"] = _accent_aware(comment, _PRICE, _PRICE_PLAIN)
+        found["promotion"] = _accent_aware(comment, _PROMO, _PROMO_PLAIN)
+        return found
 
     @staticmethod
     def missing_fields(comment, live_product, knowledge):
@@ -748,6 +773,10 @@ _GAP_RULES = {
     "lieu_dung": "liều: hồ sơ shop không có; suy từ loại sản phẩm, nồng độ, dung tích (ml/bình 16-25L), dặn xem thêm nhãn",
     "thoi_diem_sau_trong": "sau trồng: hồ sơ shop không có; trả lời theo kinh nghiệm nông học, nói vừa phải",
     "ho_so_san_pham": "chưa có hồ sơ sản phẩm: dùng hiểu biết chung về loại sản phẩm, đừng bịa số cụ thể",
+    "san_pham_phu_hop": ("khách hỏi nên dùng gì mà mã chưa khớp hồ sơ: gợi ý 1-2 sản phẩm hợp nhất trong "
+                         "all_live_products theo cây/triệu chứng khách nói, hoặc hỏi thêm cây gì/bệnh gì; không bịa giá"),
+    "gia_goc": ("sản phẩm này chưa có giá trong dữ liệu: KHÔNG nói con số nào; trả lời phần khác khách hỏi "
+                "và mời xem giá trong giỏ hàng; không khẳng định có mã/ưu đãi"),
 }
 
 

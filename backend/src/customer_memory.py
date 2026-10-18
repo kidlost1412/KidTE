@@ -52,7 +52,20 @@ _CROPS = (
     ("nhãn", ("nhãn",)),
     ("vải", ("vải",)),
     ("mai", ("mai",)),
+    ("cà chua", ("cà chua",)),
+    ("ngô", ("ngô", "bắp")),
+    ("khoai", ("khoai",)),
+    ("dưa", ("dưa hấu", "dưa leo", "dưa lưới", "dưa")),
+    ("hoa hồng", ("hoa hồng",)),
+    ("lan", ("hoa lan", "phong lan")),
 )
+# Cụm phổ biến chứa tên cây nhưng KHÔNG nói về cây: "cam kết", "tiêu chuẩn",
+# "ngày mai", "điều kiện"... (rà soát 17/10 H3). Xoá trước khi dò tên cây.
+_NOT_CROP = re.compile(
+    r"(?<!\w)(?:cam (?:kết|đoan|đảm)|(?:tiêu (?:chuẩn|chí|hao|diệt|thụ|dùng|hoá|hóa|biểu|cực|điểm))|"
+    r"(?:chi|mục) tiêu|(?:ngày|sáng|chiều|tối|trưa|hôm|bữa) mai|mai (?:mốt|kia|mới|sau)|"
+    r"điều (?:kiện|gì|này|đó|đấy|chỉnh|trị|hoà|hòa|tiết|khiển|kì|kỳ)|một điều|"
+    r"nhãn (?:mác|hiệu|hàng|dán)|dán nhãn|đồ dưa|bắp tay|lan (?:can|toả|tỏa|rộng))(?!\w)")
 
 _PRODUCTS = (
     "Nano Đồng", "Đồng Gold", "Nano Tonic", "Furagin", "Đạm Cá",
@@ -100,8 +113,9 @@ def extract_customer_facts(comment):
         key = "quy_mo" if unit in {"gốc", "cây"} else "dien_tich"
         facts[key] = f"{area.group(1).replace(',', '.')} {unit}"
 
+    crop_text = _NOT_CROP.sub(" ", low)
     for canonical, aliases in _CROPS:
-        if any(alias in low for alias in aliases):
+        if any(re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", crop_text) for alias in aliases):
             facts["cay_trong"] = canonical
             break
 

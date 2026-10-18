@@ -168,7 +168,21 @@ def _strip_nickname(value, nickname, max_chars=100):
     text, name = re.sub(r'\s+', ' ', str(value or '')).strip(), clean(nickname, 160)
     if not name:
         return text
-    text = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", "", text, flags=re.I)
+    # Chỉ xoá khi nickname là LỜI GỌI TÊN: "@nick" bất kỳ đâu, hoặc ở đầu câu
+    # (sau "Dạ"/"Chào" nếu có). Nickname là từ thường/số ("5", "Anh", "Phân")
+    # mà xoá giữa câu sẽ làm mất liều/số lượng: "pha 5 ml" -> "pha ml".
+    escaped = re.escape(name)
+    text = re.sub(rf"@{escaped}(?!\w)[,:]?", "", text, flags=re.I)
+    # Đầu câu: phải có dấu gọi ("Nam ơi", "Nam,") mới chắc là gọi tên, tránh
+    # "Phân này bón gốc" hay "Dạ 5 ml/bình" bị cắt mất chữ.
+    text = re.sub(rf"^((?:dạ\s*)?(?:chào|hi|hello)[\s,!]+){escaped}(?!\w)(?:\s+ơi)?[\s,:!]*",
+                  lambda m: m.group(1), text, flags=re.I)
+    text = re.sub(rf"^((?:dạ)?[\s,!]*){escaped}(?:\s+ơi[\s,!]*|\s*[,:!]\s*)",
+                  lambda m: m.group(1), text, flags=re.I)
+    plain = name.strip()
+    if len(plain) > 2 and not re.fullmatch(r"[\d\s.,]+", plain) and " " in plain:
+        # Nickname nhiều từ (khó trùng từ thường) -> xoá cả giữa câu như cũ.
+        text = re.sub(rf"(?<!\w){escaped}(?!\w)", "", text, flags=re.I)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"\s+([,.!?])", r"\1", text)
     return text.strip(" ,;:-")

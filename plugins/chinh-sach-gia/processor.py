@@ -25,7 +25,12 @@ VOUCHER_ASSERTIONS = (
 # Đơn vị quy cách đứng ngay sau một con số: số đó là dung tích/khối lượng,
 # không phải giá. "can 5 lít", "chai 500ml", "gói 1kg", "bình 20l".
 _PACKAGE_UNIT_AFTER = re.compile(
-    r"\s*(lít|lit|l|ml|kg|gr|gram|g|cc)(?![a-zà-ỹ])", re.I)
+    r"\s*(lít|lit|l|ml|kg|gr|gram|g|cc|bao|chai|can|gói|goi|thùng|hộp|cây|lọ|bịch|túi|"
+    r"cái|con|sào|công|ha|bình|xô|phuy|tấn|tạ|người|đơn|ngày|tháng|cuộn|m2|m|%)(?![a-zà-ỹ\d])",
+    re.I)
+# "cần 20", "lấy 3", "mua 5", "đặt 2": số ngay sau động từ đặt hàng là SỐ LƯỢNG.
+_QUANTITY_VERB_BEFORE = re.compile(
+    r"(cần|lấy|mua|đặt|order|chốt|ship|có|thêm|gửi)\s*(?:thêm\s*)?$", re.I)
 # Khach ke lai mot lan mua DA XONG. Khac han khach dang hoi de mua.
 _ALREADY_BOUGHT = re.compile(
     r"(vừa|mới|đã|hôm\s*(?:qua|trước)|bữa\s*trước|lần\s*trước|tuần\s*trước)"
@@ -128,6 +133,9 @@ def customer_price_signal(comment, product, memory_context=""):
         # Bản cũ đọc thành "khách báo giá 5đ" rồi trả lời "giá 5 ngon quá,
         # tài khoản anh đang có mã rồi" — vừa vô nghĩa vừa bịa chuyện mã.
         if not unit and _PACKAGE_UNIT_AFTER.match(folded, match.end()):
+            continue
+        # Số trần ngay sau "cần/lấy/mua..." là số lượng, trừ khi kề chữ "giá".
+        if not unit and _QUANTITY_VERB_BEFORE.search(folded[:match.start()]):
             continue
         token = f"{number}{unit or ''}"
         parsed = price_to_vnd(token)

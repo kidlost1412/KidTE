@@ -1,6 +1,7 @@
 """Adapter model DeepSeek; lõi chỉ phụ thuộc giao diện reply/check_balance."""
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import threading
@@ -20,6 +21,38 @@ from delivery_store import utf16_length
 
 # Tran token toi da cho lan thu lai khi thinking da tat.
 MAX_RETRY_TOKENS = 8000
+
+# Rà soát 17/10 C8: hạn TỔNG cho một lượt trả lời (mọi lần gọi + thử lại). Đặt bằng turn_budget() ở lõi;
+# ngoài khối đó (Thử AI, lời gọi phụ) giữ hành vi cũ: 20 giây mỗi lần gọi.
+TURN_BUDGET_S = 25.0
+_turn = threading.local()
+
+
+class TurnDeadline(Exception):
+    """Lượt trả lời đã quá hạn tổng: không gọi model thêm."""
+
+
+@contextlib.contextmanager
+def turn_budget(seconds=TURN_BUDGET_S):
+    """Đặt hạn tổng cho các lần gọi model trong luồng hiện tại (lồng nhau thì giữ hạn sớm hơn)."""
+    previous = getattr(_turn, "deadline", None)
+    deadline = time.monotonic() + float(seconds)
+    _turn.deadline = deadline if previous is None else min(previous, deadline)
+    try:
+        yield
+    finally:
+        _turn.deadline = previous
+
+
+def turn_remaining():
+    """Số giây còn lại của lượt; None khi không đặt hạn."""
+    deadline = getattr(_turn, "deadline", None)
+    return None if deadline is None else deadline - time.monotonic()
+
+
+# Rà soát 17/10 P9: lượt cần CHÍNH XÁC (giá, liều, cách ly, pha trộn) dùng nhiệt độ thấp và bỏ phạt lặp
+# (frequency_penalty phạt cả số, đơn vị, tên sản phẩm lặp lại). Lượt xã giao giữ cài đặt của chủ shop.
+PRECISE_TEMPERATURE = 0.35
 
 # Mặc định lấy từ .env (nếu có) để máy cũ giữ nguyên hành vi; chỉnh tiếp ở
 # Trợ lý tự động → Nhà cung cấp DeepSeek.
@@ -41,6 +74,9 @@ SETTINGS_SCHEMA = [
     {"key": "phat_lap_tu", "type": "number", "default": 0.3, "min": 0, "max": 1, "step": 0.05,
      "group": "Câu trả lời", "label": "Tránh lặp cùng một từ (frequency_penalty)",
      "help": "0,3–0,4 là vừa. 0 để tắt. Chỉ áp dụng khi tắt chế độ suy nghĩ."},
+    {"key": "nguong_sap_het", "type": "number", "integer": True, "default": 10, "min": 0, "max": 1000, "step": 1,
+     "group": "Câu trả lời", "label": "Tồn kho từ mức này trở xuống thì AI được nói \"sắp hết\"",
+     "help": "Chỉ dùng tồn thật TikTok gửi về cho sản phẩm đang bàn. 0 = không bao giờ nói sắp hết."},
     {"key": "suy_nghi", "type": "bool", "default": not DEEPSEEK_DISABLE_THINKING, "group": "Suy nghĩ",
      "label": "Bật chế độ suy nghĩ khi trả lời khách",
      "help": "Bật thì câu khó (liều, so sánh) chắc hơn nhưng chậm 3–10 giây và tốn hơn. "
@@ -102,16 +138,22 @@ def system_prompt():
     return base + (f"\n\n{NOTES_HEADER}\n{notes}" if notes else "")
 
 
-def _non_thinking_sampling(inference):
+def _non_thinking_sampling(inference, kind=""):
     """Tham số lấy mẫu cho chế độ KHÔNG suy nghĩ. DeepSeek (OpenAI-compatible) nhận
-    presence_penalty/frequency_penalty ở non-thinking; chế độ thinking bỏ qua nên không gửi."""
-    inference["temperature"] = SETTINGS["nhiet_do"]
+    presence_penalty/frequency_penalty ở non-thinking; chế độ thinking bỏ qua nên không gửi.
+    kind="precise": lượt giá/liều/cách ly/pha trộn → nhiệt độ thấp, không phạt lặp."""
+    precise = kind == "precise"
+    try:
+        temperature = float(SETTINGS["nhiet_do"])
+    except (TypeError, ValueError):
+        temperature = 0.8
+    inference["temperature"] = min(temperature, PRECISE_TEMPERATURE) if precise else temperature
     for key, name in (("phat_lap_y", "presence_penalty"), ("phat_lap_tu", "frequency_penalty")):
         try:
             value = max(0.0, min(2.0, float(SETTINGS.get(key) or 0)))
         except (TypeError, ValueError):
             value = 0.0
-        if value:
+        if value and not precise:
             inference[name] = value
         else:
             inference.pop(name, None)
@@ -162,6 +204,50 @@ def _fit_reply(value, limit):
     if ends and ends[-1] >= limit * .45:
         return head[:ends[-1]].strip()
     return _trim_reply(text, limit)
+
+
+_UNIT_HEAD = re.compile(r"^(?:ml|l|lít|lit|g|gr|gam|gram|kg|cc|%|k|đ|₫|ngày|tuần|giờ|lần|bình|chai|gói|can|phuy|m2|ha|công|sào)(?![^\W\d_])",
+                        re.I)
+
+
+def _fit_utf16(value, limit):
+    """Rút gọn câu model vượt khung (rà soát 17/10 P10) mà vẫn giữ ý: ưu tiên dừng ở hết câu, rồi ở hết
+    mệnh đề (dấu phẩy/chấm phẩy/gạch), cuối cùng ở ranh giới từ; không bao giờ cắt giữa số và đơn vị."""
+    text = " ".join(str(value or "").split())
+    if utf16_length(text) <= limit:
+        return text
+    head = text
+    while head and utf16_length(head) > limit:
+        head = head[:-1]
+    for pattern, floor in ((r"[.!?…]+(?=\s|$)", .45), (r"[,;:–-](?=\s)", .55)):
+        ends = [m.end() for m in re.finditer(pattern, head)]
+        while ends:
+            cut = head[:ends[-1]].rstrip(" ,;:–-")
+            if len(cut) < len(head) * floor:
+                break
+            if not _splits_number(cut, text[len(cut):]):
+                return cut if pattern.startswith("[.") else cut + "."
+            ends.pop()
+    words = head.split(" ")
+    if len(text) > len(head) and not text[len(head)].isspace():
+        words = words[:-1]                       # từ cuối bị cắt dở
+    while words:
+        joined = " ".join(words)
+        cut = joined.rstrip(" ,;:–-")
+        if cut and utf16_length(cut + "…") <= limit and not _splits_number(joined, text[len(joined):]):
+            return cut + "…"
+        words = words[:-1]
+    return ""
+
+
+def _splits_number(kept, rest):
+    """True nếu điểm cắt rơi giữa một con số và đơn vị/khoảng của nó ("pha 20 | ml", "20 | – 30ml")."""
+    kept, rest = kept.rstrip(), rest.lstrip(" ,")
+    if not kept or not rest:
+        return False
+    if re.search(r"\d$", kept) and (_UNIT_HEAD.match(rest) or re.match(r"^[–\-/x×]\s*\d", rest)):
+        return True
+    return bool(re.search(r"\d\s*[–\-/x×]$", kept))
 
 
 def _strip_nickname(value, nickname, max_chars=100):
@@ -269,6 +355,19 @@ def _is_transient_error(exc):
         return status in {408, 409, 429} or status >= 500
     return name in {"APITimeoutError", "APIConnectionError", "InternalServerError", "RateLimitError",
                     "TimeoutError", "ReadTimeout", "ConnectTimeout"}
+
+
+USAGE_KEYS = ("prompt_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens", "completion_tokens")
+
+
+def _add_usage(metrics, usage):
+    """Cộng dồn (không ghi đè) số token của MỘT lần gọi vào metrics của lượt (rà soát 17/10 C4)."""
+    for key in USAGE_KEYS:
+        metrics[key] = metrics.get(key, 0) + (getattr(usage, key, 0) or 0)
+    details = getattr(usage, "completion_tokens_details", None)
+    metrics["reasoning_tokens"] = metrics.get("reasoning_tokens", 0) + (getattr(details, "reasoning_tokens", 0) or 0)
+    metrics["model_calls"] = metrics.get("model_calls", 0) + 1
+    return metrics
 
 
 def _flatten_reply(value):
@@ -467,7 +566,16 @@ class DeepSeekResponder:
                           "detail": info["detail"]}
             return status
 
-    def _shorten(self, inference, previous, length, max_chars, metrics):
+    def _create(self, kwargs):
+        """Một lần gọi model; trong turn_budget thì timeout không vượt phần hạn tổng còn lại."""
+        remaining = turn_remaining()
+        if remaining is not None:
+            if remaining < 1.0:
+                raise TurnDeadline(f"turn budget exhausted ({remaining:.1f}s left)")
+            kwargs = {**kwargs, "timeout": min(20.0, remaining)}
+        return self.client.chat.completions.create(**kwargs)
+
+    def _shorten(self, inference, previous, length, max_chars, metrics, kind=""):
         retry = dict(inference)
         retry["messages"] = inference["messages"] + [
             {"role": "assistant", "content": previous},
@@ -477,20 +585,17 @@ class DeepSeekResponder:
         ]
         retry.pop("reasoning_effort", None)
         retry["extra_body"] = {"thinking": {"type": "disabled"}}
-        _non_thinking_sampling(retry)
+        _non_thinking_sampling(retry, kind)
         started = time.monotonic()
         try:
-            response = self.client.chat.completions.create(**retry)
+            response = self._create(retry)
+            _add_usage(metrics, getattr(response, "usage", None))
             result = json.loads(response.choices[0].message.content or "{}")
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - viết gọn hỏng thì rút gọn bằng mã, không chặn lượt
+            metrics["shorten_error"] = type(exc).__name__
             return ""
-        usage = getattr(response, "usage", None)
         metrics["shortened_from"] = length
         metrics["model_ms"] = metrics.get("model_ms", 0) + int((time.monotonic() - started) * 1000)
-        metrics["prompt_tokens"] = metrics.get("prompt_tokens", 0) + (getattr(usage, "prompt_tokens", 0) or 0)
-        metrics["prompt_cache_hit_tokens"] = metrics.get("prompt_cache_hit_tokens", 0) + (
-            getattr(usage, "prompt_cache_hit_tokens", 0) or 0)
-        metrics["completion_tokens"] = metrics.get("completion_tokens", 0) + (getattr(usage, "completion_tokens", 0) or 0)
         return result['reply'] if isinstance(result, dict) and result.get('action') == 'reply' and isinstance(result.get('reply'), str) else ''
 
     def reply(self, nickname, comment, context, max_chars, correction="", system_override=""):
@@ -498,13 +603,17 @@ class DeepSeekResponder:
             return {"action": "skip", "missing_fields": ["deepseek_key_missing"],
                     "metrics": {}}
         started = time.monotonic()
+        context = dict(context or {})
+        kind = str(context.pop("_sampling", "") or "")     # khoá nội bộ, không gửi model
         system = system_override or compose_system()
         if not system.startswith(APP_BRIEF.rstrip()):
             system = system_with_brief(system)        # mọi lời gọi đều bắt đầu bằng APP_BRIEF
         multi = context.get('delivery_protocol_version') == 2
         system += ('\nJSON reply thêm awaiting_fields: danh sách thông tin thực sự vừa hỏi khách để giải quyết câu đang tư vấn; '
             'chỉ dùng product, variant, quantity, crop, stage, method, tank_volume; không thiếu thì []. '
-            'Một câu có dấu hỏi không có nghĩa đang làm rõ. Không hỏi lại thông tin khách đã cung cấp.')
+            'Một câu có dấu hỏi không có nghĩa đang làm rõ. Không hỏi lại thông tin khách đã cung cấp.'
+            '\nJSON reply đặt y_khach ĐẦU TIÊN, trước reply/messages: ≤15 từ ghi điều khách thật sự muốn '
+            '(chỉ để bạn nghĩ, không gửi khách); rồi reply giải quyết đúng điều đó.')
         if multi:
             system += ('\nGiao thức lượt này: trả JSON {"action":"reply","messages":["tin 1","tin 2"]}. '
                        'Dùng 1–3 tin trọn ý, thường 1–2; mỗi tin không nhắc nickname và không vượt giới hạn UTF-16 đã cấp. '
@@ -544,7 +653,7 @@ class DeepSeekResponder:
                      "response_format": {"type": "json_object"},
                      "extra_body": {"thinking": {"type": "disabled" if tat_suy_nghi else "enabled"}}}
         if tat_suy_nghi:
-            _non_thinking_sampling(inference)
+            _non_thinking_sampling(inference, kind)
         else:
             configured = muc_suy_nghi if muc_suy_nghi in {"low", "high", "max"} else "high"
             # An approved arithmetic conversion still uses thinking, but low
@@ -555,32 +664,30 @@ class DeepSeekResponder:
         response = None
         for attempt in range(3):
             try:
-                response = self.client.chat.completions.create(**inference)
+                response = self._create(inference)
                 break
             except Exception as exc:
                 # Tối đa 2 lần thử lại, chờ ngắn, chỉ với lỗi thoáng qua (timeout/mạng/429/5xx).
                 # 401/402 (khoá/số dư) và các lỗi 4xx khác không bao giờ thử lại. Vẫn fail
-                # closed — không bao giờ gửi mù.
-                if attempt == 2 or not _is_transient_error(exc) or elapsed_ms() > 20000:
+                # closed — không bao giờ gửi mù. Trong hạn tổng của lượt (C8): còn dưới 2 giây,
+                # hoặc lần gọi đầu đã chậm quá 12 giây, thì thôi thử lại.
+                remaining = turn_remaining()
+                if (attempt == 2 or not _is_transient_error(exc) or elapsed_ms() > 20000
+                        or (remaining is not None and (remaining < 2.0 or elapsed_ms() > 12000))):
                     return {"action": "skip", "missing_fields": [f"deepseek_{type(exc).__name__}"],
                             "metrics": {"model_ms": elapsed_ms(), **({"retried_transient": True} if attempt else {})}}
                 time.sleep(0.6 * (attempt + 1))
-        usage = getattr(response, "usage", None)
-        details = getattr(usage, "completion_tokens_details", None)
-        metrics = {"model_ms": elapsed_ms(),
-                   "model": inference.get("model", ""),
-                   "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                   # DeepSeek tinh gia input theo cache hit/miss (hit re hon
-                   # nhieu lan). Thieu hai truong nay thi metrics_store phai
-                   # coi CA prompt la cache miss — dat gia cao hon that, an
-                   # toan hon la bao re hon thuc te.
-                   "prompt_cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", 0) or 0,
-                   "prompt_cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", 0) or 0,
-                   "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                   "reasoning_tokens": getattr(details, "reasoning_tokens", 0) or 0,
+        # DeepSeek tinh gia input theo cache hit/miss (hit re hon nhieu lan). Thieu hai
+        # truong nay thi metrics_store phai coi CA prompt la cache miss — dat gia cao hon
+        # that, an toan hon la bao re hon thuc te. Moi lan goi trong luot deu CONG DON.
+        metrics = _add_usage({"model_ms": elapsed_ms(), "model": inference.get("model", "")},
+                             getattr(response, "usage", None))
+        metrics.update({
                    "finish_reason": getattr(response.choices[0], "finish_reason", "") or "",
                    "thinking": not tat_suy_nghi,
-                   "reasoning_effort": inference.get("reasoning_effort", "")}
+                   "reasoning_effort": inference.get("reasoning_effort", "")})
+        if kind:
+            metrics["sampling"] = kind
         if part_sizes:
             metrics["context_part_chars"] = part_sizes
         choice, content = response.choices[0], response.choices[0].message.content or ""
@@ -608,23 +715,17 @@ class DeepSeekResponder:
             elif step == "off":
                 inference.pop("reasoning_effort", None)
                 inference["extra_body"] = {"thinking": {"type": "disabled"}}
-                _non_thinking_sampling(inference)
+                _non_thinking_sampling(inference, kind)
             else:
                 inference["reasoning_effort"] = step
             try:
-                response = self.client.chat.completions.create(**inference)
+                response = self._create(inference)
             except Exception as exc:
                 return {"action": "skip", "missing_fields": [f"deepseek_{type(exc).__name__}"], "metrics": metrics}
-            usage = getattr(response, "usage", None)
-            details = getattr(usage, "completion_tokens_details", None)
             choice, content = response.choices[0], response.choices[0].message.content or ""
+            _add_usage(metrics, getattr(response, "usage", None))
             metrics.update({"model_ms": elapsed_ms(),
                             "model": inference.get("model", ""),
-                            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                            "prompt_cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", 0) or 0,
-                            "prompt_cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", 0) or 0,
-                            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                            "reasoning_tokens": getattr(details, "reasoning_tokens", 0) or 0,
                             "finish_reason": getattr(choice, "finish_reason", "") or "",
                             "reasoning_effort": "" if step in {"off", "roi-rong"}
                                                 else step,
@@ -658,21 +759,21 @@ class DeepSeekResponder:
                     f'Viết lại đủ ý trong 1–3 messages, mỗi tin tối đa {max_chars} đơn vị UTF-16. Không cắt chuỗi. Trả JSON action/messages.'}]
                 retry.pop('reasoning_effort', None)
                 retry['extra_body'] = {'thinking': {'type': 'disabled'}}
-                _non_thinking_sampling(retry)
+                _non_thinking_sampling(retry, kind)
                 try:
-                    rewritten = self.client.chat.completions.create(**retry)
+                    rewritten = self._create(retry)
+                    _add_usage(metrics, getattr(rewritten, 'usage', None))
                     result = json.loads(rewritten.choices[0].message.content or '{}')
                     rows = parts(result)
-                    usage = getattr(rewritten, 'usage', None)
-                    for key in ('prompt_tokens', 'completion_tokens', 'prompt_cache_hit_tokens', 'prompt_cache_miss_tokens'):
-                        metrics[key] = metrics.get(key, 0) + (getattr(usage, key, 0) or 0)
                     metrics['multi_message_rewritten'] = True
-                except Exception:
+                except Exception as exc:  # noqa: BLE001 - hỏng thì gộp một tin bên dưới
+                    metrics['multi_message_rewrite_error'] = type(exc).__name__
                     rows = None
             if rows is None:
                 # Viết lại vẫn hỏng: gửi MỘT tin gộp, cắt gọn theo giới hạn thay vì im lặng.
                 flat = _flatten_reply(result) or _flatten_reply(first_result)
-                flat = _strip_nickname(_trim_utf16(flat, max_chars), nickname, max_chars)
+                flat = _strip_nickname(flat, nickname, max_chars)
+                flat = _fit_utf16(flat, max_chars) or _trim_utf16(flat, max_chars)   # không có ranh giới từ: cắt ký tự như cũ
                 if not flat:
                     return {'action': 'skip', 'missing_fields': ['model_messages_invalid'], 'metrics': metrics}
                 metrics['multi_message_trimmed'] = True
@@ -689,14 +790,23 @@ class DeepSeekResponder:
             # Dài quá thì nhờ model tự viết gọn (cùng tiền tố → gần như toàn bộ
             # là cache hit, ~1 giây) thay vì chặt cụt câu trước mặt khách.
             for attempt in range(2):            # lần 2 viết gọn từ bản vừa gọn (giọng dài như miền Tây hay vượt nhẹ)
-                shorter = self._shorten(inference, content, len(body), max_chars, metrics)
+                remaining = turn_remaining()
+                if remaining is not None and remaining < 3.0:
+                    break                       # sắp hết hạn lượt: rút gọn bằng mã bên dưới
+                shorter = self._shorten(inference, content, len(body), max_chars, metrics, kind)
                 if shorter:
                     body = _strip_nickname(shorter, nickname, max_chars)
                 if utf16_length(body) <= max_chars or not shorter:
                     break
                 content = json.dumps({"action": "reply", "reply": body}, ensure_ascii=False)
         if utf16_length(body) > max_chars:
-            return {"action": "skip", "missing_fields": ["model_reply_too_long"], "metrics": metrics}
+            # P10: rút gọn bằng mã tới hết câu/mệnh đề (không tách số khỏi đơn vị) thay vì bỏ cả câu.
+            # Chỉ cắt được giữa câu ("…") hoặc còn quá ngắn = vô nghĩa -> vẫn bỏ, không gửi câu cụt.
+            fitted = _fit_utf16(body, max_chars)
+            if fitted.endswith("…") or len(fitted.strip()) < max(15, int(max_chars * .4)):
+                return {"action": "skip", "missing_fields": ["model_reply_too_long"], "metrics": metrics}
+            metrics["fitted_from"] = utf16_length(body)
+            body = fitted
         if not body:
             return {"action": "skip", "missing_fields": ["empty_model_reply"], "metrics": metrics}
         return {"action": "reply", "reply": body, 'awaiting_fields': result.get('awaiting_fields', []), "metrics": metrics}

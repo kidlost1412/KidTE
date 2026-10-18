@@ -456,6 +456,29 @@ def _live_lock_state(data_root: Path, app_root: Path) -> tuple[str, int | None]:
     return ("running", pid) if _lock_pid_is_same_app(app_root, pid, value) else ("free", pid)
 
 
+WINDOW_TITLE = "Kid TE — Trợ lý vận hành LIVE"
+
+
+def _focus_window_by_title(title: str = WINDOW_TITLE) -> bool:
+    """Lõi có cửa sổ nhưng Windows từ chối SetForegroundWindow từ luồng HTTP của nó:
+    launcher (do người dùng vừa bấm, được quyền lên trước) tự đưa cửa sổ lên."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, title)
+        if not hwnd:
+            return False
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
 def _call_focus(port: int) -> None:
     # Only a user-initiated start (Explorer/Start menu/shortcut) may raise the
     # running window; a background process re-running the exe must stay silent.
@@ -482,7 +505,7 @@ def _call_focus(port: int) -> None:
             focused = isinstance(value, dict) and value.get("ok") is True
     except (OSError, TimeoutError, urllib.error.URLError, ValueError):
         focused = False
-    if focused:
+    if focused or _focus_window_by_title():
         return
     # C2: không có cửa sổ để đưa lên (WebView2 hỏng, lõi đang chạy chế độ trình
     # duyệt): mở giao diện trong trình duyệt thay vì thoát im lặng.

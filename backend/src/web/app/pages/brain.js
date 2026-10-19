@@ -297,7 +297,7 @@ export default {
             h('header', {class: 'card-head'}, h('h3', {}, 'Cách AI học')),
             h('div', {class: 'card-body col gap-3'},
               toggle('Tự học lại sau mỗi phiên LIVE (khi có từ 3 bản sửa mới, 30 phút không có bình luận)', s.auto_relearn, v => saveSettings({auto_relearn: v})),
-              toggle('Tự ghi nhớ đề xuất AI rất chắc chắn (không cần duyệt)', s.auto_activate, v => saveSettings({auto_activate: v})),
+              toggle('Tự ghi nhớ tên gọi khác của sản phẩm khi AI rất chắc chắn (dữ kiện, quy tắc vẫn chờ duyệt)', s.auto_activate, v => saveSettings({auto_activate: v})),
               field('Model dùng để học', modelSel, {hint: 'Việc học chạy nền, không ảnh hưởng tốc độ trả lời LIVE.'}),
               field('Mức suy luận khi học', effortSel)))),
         h('div', {class: 'row between', style: {margin: '22px 0 10px'}}, h('div', {class: 'section-title'}, 'Các lượt học lại'),

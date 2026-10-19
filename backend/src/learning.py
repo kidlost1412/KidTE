@@ -1101,9 +1101,12 @@ class Learner:
                 confidence = float(raw.get("confidence") or .6)
             except (TypeError, ValueError):
                 confidence = .6
+            # H7: tự kích hoạt CHỈ loại an toàn — tên gọi khác (alias) có từ đặc trưng gắn đúng SP.
+            # Dữ kiện/luật trả lời luôn vào hàng đề xuất chờ chủ shop duyệt (điểm do model tự chấm).
+            safe_auto = auto and confidence >= .75 and kind == "alias" and bool(terms) and bool(product_id)
             ids.append(self.store.add_item(
                 kind=kind, statement=statement, product_id=product_id, terms=terms,
-                status="active" if auto and confidence >= .75 else "suggested",
+                status="active" if safe_auto else "suggested",
                 confidence=confidence, source=source,
                 source_refs=[payload.get("conversation_id", "")], created_by=payload.get("persona_id", ""),
                 run_id=run_id,

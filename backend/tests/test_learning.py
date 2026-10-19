@@ -134,6 +134,29 @@ class LearnerTests(unittest.TestCase):
         self.assertEqual(request["extra_body"], {"thinking": {"type": "enabled"}})
         self.assertIn("win gold 20 là mã nào", request["messages"][1]["content"])
 
+    def test_auto_activate_only_activates_aliases(self):
+        """H7: auto_activate bật → chỉ alias tự chạy; fact/rule chờ chủ shop duyệt, vẫn hoàn tác được."""
+        self.store.save_settings({"auto_activate": True})
+        self.responder.client = FakeClient([{
+            "diagnosis": "x",
+            "items": [
+                {"kind": "alias", "product_id": "p-dam-1l", "terms": ["win gold 20"],
+                 "statement": "Win Gold 20 là tên khách gọi Đạm Cá Amino", "confidence": .9},
+                {"kind": "fact", "product_id": "p-dam-1l", "terms": [], "statement": "Đạm cá pha 20ml/bình", "confidence": .95},
+                {"kind": "rule", "product_id": "", "terms": [], "statement": "Luôn hỏi diện tích trước", "confidence": .95},
+                {"kind": "alias", "product_id": "p-tc01", "terms": ["kich re tc"],
+                 "statement": "Kích rễ TC là TC01", "confidence": .5},
+            ],
+        }])
+        run_id = self.learner.submit_distill({"conversation_id": "c9", "question": "win gold 20",
+                                              "answer": "đạm cá"}, sync=True)
+        items = [self.store.item(i) for i in self.store.run(run_id)["output"]["item_ids"]]
+        status = {(i["kind"], i["product_id"]): i["status"] for i in items}
+        self.assertEqual(status[("alias", "p-dam-1l")], "active")
+        self.assertEqual(status[("fact", "p-dam-1l")], "suggested")
+        self.assertEqual(status[("rule", "")], "suggested")
+        self.assertEqual(status[("alias", "p-tc01")], "suggested", "điểm thấp không tự kích hoạt")
+
     def test_relearn_proposal_apply_and_undo(self):
         a = self.store.add_item(kind="fact", statement="Đạm cá có can 5L", product_id="p-dam-5l", status="active")
         b = self.store.add_item(kind="fact", statement="Đạm cá bán can 5 lít", product_id="p-dam-5l", status="active")

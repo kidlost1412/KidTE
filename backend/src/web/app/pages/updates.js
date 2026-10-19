@@ -4,7 +4,7 @@ import {bytes} from '../core/format.js';
 import {btn, chip, notice, progress, select} from '../ui/kit.js';
 import {icon} from '../core/icons.js';
 import {confirmDialog, toast} from '../ui/overlays.js';
-import {headerLines, updateComponents, allUpdateComponents, progressView, formatCheckedAt, OPTIONAL_INFO, OPTIONAL_IDS, LIVE_RESTART_TEXT} from '../core/update_notice.js';
+import {headerLines, updateComponents, allUpdateComponents, progressView, formatCheckedAt, OPTIONAL_INFO, OPTIONAL_IDS, LIVE_RESTART_TEXT, launcherNotice} from '../core/update_notice.js';
 
 const names = {'core': 'Ứng dụng Kid TE', 'app': 'Ứng dụng Kid TE', 'runtime': 'Thư viện nền', 'extensions': 'Tiện ích Chrome',
   'gpu-cuda12': 'Tăng tốc chép lời NVIDIA',
@@ -150,6 +150,11 @@ export async function updates(ctx, host, owner) {
         showAll && h('div', {class: 'muted fs-sm'}, 'Cài các tính năng còn thiếu và cập nhật gói đã cài trong một lượt. Chỉ khởi động lại một lần sau khi tải xong.'),
         h('div', {class: 'muted fs-sm'}, state.hardware_probing ? 'Đang nhận diện card đồ họa…' : state.setup_hardware?.eligible ? `Đã nhận diện ${state.setup_hardware.name || 'card NVIDIA'} — tự chọn gói tăng tốc NVIDIA.` : 'Dùng CPU; gói tăng tốc NVIDIA không được tự tải.')];
       const main = [];
+      const launcherOld = launcherNotice(state);
+      if (launcherOld) {
+        main.push(notice('warn', 'Trình khởi động đã cũ', launcherOld.text,
+          launcherOld.url && btn('Mở trang tải bộ cài', {kind: 'ghost', size: 'sm', onClick: () => window.open(launcherOld.url, '_blank', 'noopener')})));
+      }
       const failure = state.last_update_failure;
       if (failure && failure.message) {
         // Bản cập nhật trước bị launcher tự lùi: báo rõ, bấm "Đã hiểu" để ẩn.

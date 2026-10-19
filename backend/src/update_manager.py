@@ -14,6 +14,7 @@ from component_store import ComponentStore, ComponentStoreError, PackageRepairEr
 from update_catalog import CatalogError, _version_key, COMPONENT_POLICIES, SPLIT_COMPONENTS, resolve_components, verify_catalog
 from update_transport import GitHubTransport
 from update_trust import TRUSTED_KEYS
+from launcher_rev import launcher_status
 
 REPOSITORY = "kidlost1412/KidTE"
 SUPPORTED_COMPONENTS = set(COMPONENT_POLICIES)
@@ -201,6 +202,11 @@ class UpdateManager:
                 result["extension_reload"] = read_notice(self.app_root)
             except Exception:  # noqa: BLE001 - a notice problem never breaks the state
                 pass
+        try:
+            from version import app_version
+            result.update(launcher_status(app_version(), self.series))
+        except Exception:  # noqa: BLE001 - cảnh báo launcher không bao giờ làm hỏng state
+            logger.warning("launcher revision check failed", exc_info=True)
         failure = self.last_update_failure()
         result["last_update_failure"] = failure
         if failure:

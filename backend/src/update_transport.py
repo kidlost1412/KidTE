@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import shutil
@@ -11,6 +12,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
+
+import net
+
+log = logging.getLogger("kidte.update")
 
 REPOSITORY = "kidlost1412/KidTE"
 _ASSET_HOSTS = {"github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com", "github-releases.githubusercontent.com"}
@@ -26,8 +31,20 @@ class TransportError(RuntimeError):
 # Lỗi tạm thời của mạng: tự thử lại (tải tiếp từ .part), giống tải model Whisper.
 _RETRYABLE = {"package_network_error", "package_connection_reset", "package_network_timeout",
               "package_size_mismatch", "package_http_429", "package_http_500", "package_http_502",
-              "package_http_503", "package_http_504"}
+              "package_http_503", "package_http_504", "package_dns_error"}
 DOWNLOAD_RETRIES = 6
+# Chỉ lỗi phía GitHub (chặn/giới hạn/quá tải) mới phải chờ; lỗi mạng/TLS của máy thì thử lại ngay được.
+_BACKOFF_HTTP = {403, 429}
+_BACKOFF_SECONDS = 60
+_CATALOG_NET_CODES = {"tls_untrusted": "catalog_tls_error", "tls_error": "catalog_tls_error",
+                      "dns": "catalog_dns_error", "timeout": "catalog_timeout", "proxy": "catalog_proxy_error"}
+
+
+def _catalog_network_code(exc):
+    """Lỗi mạng khi lấy danh mục -> mã riêng (TLS/DNS/proxy/quá giờ) và ghi log nguyên nhân thật."""
+    info = net.classify(exc, "github.com")
+    log.warning("update catalog fetch failed: %s (%s)", info["code"], info["detail"])
+    return _CATALOG_NET_CODES.get(info["code"], "catalog_network_error")
 
 
 def _network_code(exc):
@@ -35,6 +52,11 @@ def _network_code(exc):
     import http.client
     import socket
 
+    info = net.classify(exc, "github.com")
+    if info["code"] in {"tls_untrusted", "dns", "proxy"}:
+        log.warning("update package download failed: %s (%s)", info["code"], info["detail"])
+        return {"tls_untrusted": "package_tls_error", "dns": "package_dns_error",
+                "proxy": "package_proxy_error"}[info["code"]]
     reason = getattr(exc, "reason", None)
     inner = reason if isinstance(reason, BaseException) else exc
     if isinstance(inner, (TimeoutError, socket.timeout)):
@@ -75,19 +97,23 @@ class GitHubTransport:
         if series not in {"p2", "p3", "p4"}:
             raise ValueError("unsupported_catalog_series")
         self.series = series
-        self.opener = opener or urllib.request.build_opener(_SafeRedirectHandler())
+        # HTTPS qua net.ssl_context() (truststore/certifi): Windows mới cài chưa nạp sẵn chứng chỉ gốc.
+        self.opener = opener or urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=net.ssl_context()), _SafeRedirectHandler())
         self.timeout = timeout
         self.clock = clock
         self._etag = {}
         self._cache = {}
         self._retry_after = {}
+        self._background_backoff = set()  # kênh mà lần chờ do kiểm tra nền đặt ra
         self.sleep = sleep
         self.download_retries = download_retries
 
-    def fetch_catalog(self, channel="stable", cached=None):
+    def fetch_catalog(self, channel="stable", cached=None, *, background=False):
+        """``background=True`` cho kiểm tra tự động; người dùng bấm tay thì bỏ qua lần chờ do nền đặt."""
         if channel not in {"stable", "beta"}:
             raise ValueError("unsupported_channel")
-        if self.retry_delay(channel) > 0:
+        if self.retry_delay(channel) > 0 and (background or channel not in self._background_backoff):
             raise TransportError("catalog_backoff")
         suffix = {"p3": "-p3", "p4": "-p4"}.get(self.series, "")
         url = f"https://github.com/{self.repository}/releases/download/updates-{channel}{suffix}/kidte-catalog-v2.json"
@@ -100,11 +126,16 @@ class GitHubTransport:
         except urllib.error.HTTPError as exc:
             if exc.code == 304 and (cached is not None or channel in self._cache):
                 return cached if cached is not None else self._cache[channel]
-            self._retry_after[channel] = self.clock() + 60
+            if exc.code in _BACKOFF_HTTP or exc.code >= 500:
+                self._retry_after[channel] = self.clock() + _BACKOFF_SECONDS
+                if background:
+                    self._background_backoff.add(channel)
+                else:
+                    self._background_backoff.discard(channel)
+            log.warning("update catalog fetch failed: HTTP %s", exc.code)
             raise TransportError(f"catalog_http_{exc.code}") from exc
         except (OSError, TimeoutError) as exc:
-            self._retry_after[channel] = self.clock() + 60
-            raise TransportError("catalog_network_error") from exc
+            raise TransportError(_catalog_network_code(exc)) from exc
         with response:
             if not self._check_final_url(response, catalog=True):
                 raise TransportError("catalog_redirect_rejected")
@@ -121,6 +152,7 @@ class GitHubTransport:
                 self._etag[channel] = etag
             self._cache[channel] = raw
             self._retry_after.pop(channel, None)
+            self._background_backoff.discard(channel)
             return raw
 
     def retry_delay(self, channel="stable"):

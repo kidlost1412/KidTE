@@ -244,7 +244,7 @@ class UpdateManager:
         return {"failed_version": failed, "restored_version": restored,
                 "reason_code": value.get("reason_code"), "at": value.get("at"), "message": message}
 
-    def action(self, action, payload):
+    def action(self, action, payload, *, background=False):
         if not isinstance(payload, dict):
             raise ValueError("update_payload_invalid")  # noqa: TRY004 - consistent HTTP validation contract
         if action == "ack_extension_notice":
@@ -271,7 +271,8 @@ class UpdateManager:
                 self._channel = channel
                 self._catalog_raw = None
                 self._catalog = None
-                target = lambda: self._check(store, channel)
+                target = ((lambda: self._check(store, channel, background=True)) if background
+                          else (lambda: self._check(store, channel)))
             elif action in {"plan", "install"}:
                 requested = payload.get("components")
                 if (not isinstance(requested, dict) or not requested
@@ -337,7 +338,7 @@ class UpdateManager:
                     return {"skipped": "busy"}
             if store.load_pending() is not None:
                 return {"skipped": "restart_pending"}
-            self.action("check", {"channel": self._channel})
+            self.action("check", {"channel": self._channel}, background=True)
             return {"started": True, "channel": self._channel}
         except ValueError as exc:  # busy raced in, or config refused: nothing to report to the owner
             logger.info("update auto-check skipped: %s", exc)
@@ -346,8 +347,10 @@ class UpdateManager:
             logger.warning("update auto-check failed: %s", exc)
             return {"skipped": "error"}
 
-    def _check(self, store, channel):
-        raw = self.transport.fetch_catalog(channel=channel)
+    def _check(self, store, channel, background=False):
+        # Chỉ truyền background khi chạy nền: người dùng bấm tay thì không bị lần chờ của nền chặn.
+        raw = (self.transport.fetch_catalog(channel=channel, background=True) if background
+               else self.transport.fetch_catalog(channel=channel))
         catalog = verify_catalog(raw, self.trusted_keys, repository=REPOSITORY,
                                  channel=channel, minimum_sequence=store.read_highwater())
         store.accept_sequence(catalog["sequence"])

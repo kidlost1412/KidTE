@@ -38,7 +38,7 @@ def finish(manager):
 
 
 def recording_check(manager, calls):
-    def _check(store, channel):
+    def _check(store, channel, background=False):
         calls.append(("check", channel))
     manager._check = _check
 
@@ -105,7 +105,7 @@ def test_auto_check_disabled_without_app_root_or_trust(tmp_path):
 
 def test_auto_check_failure_is_silent(tmp_path, caplog):
     class BrokenTransport:
-        def fetch_catalog(self, channel):
+        def fetch_catalog(self, channel, background=False):
             raise RuntimeError("network down")
 
     manager = make_manager(tmp_path, FakeStore(), transport=BrokenTransport())
@@ -115,6 +115,22 @@ def test_auto_check_failure_is_silent(tmp_path, caplog):
     # Worker failure lands in state, never raises into the caller or the scheduler.
     assert manager.state()["operation"] == "failed"
     assert manager.state()["busy"] is False
+
+
+def test_auto_check_is_background_and_manual_check_is_not(tmp_path):
+    seen = []
+
+    class Transport:
+        def fetch_catalog(self, channel, background=False):
+            seen.append(background)
+            raise RuntimeError("stop")
+
+    manager = make_manager(tmp_path, FakeStore(), transport=Transport())
+    manager.auto_check()
+    finish(manager)
+    manager.action("check", {"channel": "beta"})
+    finish(manager)
+    assert seen == [True, False]
 
 
 def test_state_flags_newer_packages_and_last_checked(tmp_path):

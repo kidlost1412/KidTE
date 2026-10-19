@@ -26,6 +26,7 @@ from pathlib import Path
 
 from ai_context import task_block
 from knowledge import clean, tokens
+from swallowed import note as _note_swallowed
 
 CATEGORIES = {"cong_ty": "Về công ty / shop", "san_pham": "Sản phẩm", "nong_nghiep": "Kiến thức nông nghiệp",
               "khac": "Khác"}
@@ -96,11 +97,16 @@ def _pdf_text(data):
         raise ValueError("Máy thiếu thành phần đọc PDF — cài lại ứng dụng") from exc
     reader = PdfReader(io.BytesIO(data))
     pages = []
+    failed = 0
     for page in reader.pages:
         try:
             pages.append(page.extract_text() or "")
         except Exception:
+            failed += 1             # trang hỏng/ảnh quét: bỏ qua trang đó, đọc tiếp
             continue
+    if failed:
+        _note_swallowed("pdf_page_extract_failed", f"Bỏ qua {failed} trang PDF không đọc được",
+                        level=30, exc_info=False)
     text = "\n".join(pages)
     if len(text.strip()) < 20:
         raise ValueError("PDF này là ảnh chụp (không có chữ để đọc). Hãy tải bản Word/PDF có chữ, "

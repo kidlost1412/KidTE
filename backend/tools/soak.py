@@ -108,7 +108,7 @@ def make_navigator(base_url):
         try:
             browser.close()
             pw.stop()
-        except Exception:
+        except Exception:  # noqa: BLE001 - dọn dẹp công cụ soak
             pass
 
     return (step, close), ""

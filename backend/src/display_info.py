@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from swallowed import note as _note_swallowed
 
 _LINE = re.compile(r"^\s*(?P<name>\S+)\s+(?P<w>\d+)x(?P<h>\d+)\s+dpi=(?P<dpi>\d+)(?P<primary>\s+primary)?\s*$",
                    re.IGNORECASE)
@@ -117,7 +118,7 @@ def _collect(api) -> list[dict]:
         try:
             restore()
         except Exception:
-            pass
+            _note_swallowed("display_dpi_restore_failed", once=True)
     return out
 
 

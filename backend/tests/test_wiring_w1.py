@@ -2,7 +2,6 @@
 import importlib.util
 import json
 import threading
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -131,7 +130,7 @@ def _post(port, path, body, origin=""):
 
 def test_import_label_route_is_local_only_and_all_candidates(engine):
     Handler.engine = engine
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    srv = server_module.LoopbackHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, args=(0.1,), daemon=True).start()
     port = srv.server_address[1]
     try:

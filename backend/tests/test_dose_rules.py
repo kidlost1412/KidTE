@@ -4,12 +4,11 @@ import threading
 import urllib.error
 import urllib.request
 from contextlib import closing, contextmanager
-from http.server import ThreadingHTTPServer
 
 import pytest
 
 import dose_rules
-from server import Handler, verified_dose_calculations
+from server import Handler, LoopbackHTTPServer, verified_dose_calculations
 
 RULE = {"sku": "SP-01", "amount": 20, "unit": "ml", "per_volume": 16,
         "source_doc": "nhan.pdf", "source_page": "2", "status": "approved"}
@@ -88,7 +87,7 @@ def _call(port, method, path, body=None, origin=""):
 
 def test_local_only_route_and_review_flow(tmp_path):
     Handler.engine = _Engine(tmp_path / "w.sqlite3")
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, args=(0.1,), daemon=True).start()
     port = server.server_address[1]
     try:

@@ -1,7 +1,6 @@
 import json
 import threading
 import time
-from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -26,7 +25,7 @@ def test_delete_job_http_202_guard_status_and_all_ids(tmp_path, monkeypatch):
     class Handler(server.Handler):
         pass
     Handler.engine = engine
-    http = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    http = server.LoopbackHTTPServer(('127.0.0.1', 0), Handler)
     worker = threading.Thread(target=http.serve_forever, kwargs={'poll_interval': .05}, daemon=True)
     worker.start()
     origin = f'http://127.0.0.1:{http.server_port}'

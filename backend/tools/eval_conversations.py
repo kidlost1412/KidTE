@@ -312,7 +312,7 @@ def replay_conversation(conv, catalog, model, tmp):
                                                   "receipt": {"room_id": "room-" + tag, "response_code": 0}})
                     else:
                         shopee_engine.delivery({"session_id": "123", "turn_id": out.get("turn_id"), "message_id": "m" + cid})
-                except Exception:
+                except Exception:  # noqa: BLE001 - công cụ đánh giá: xác nhận gửi giả, lỗi không ảnh hưởng chấm điểm
                     pass
             allowed, rows, price_asked = _observe(model)
             observed = {"sent": bool(bodies), "bodies": bodies, "tag": tagtxt, "allowed_prices": allowed,
@@ -323,7 +323,7 @@ def replay_conversation(conv, catalog, model, tmp):
     finally:
         try:
             engine.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 - dọn dẹp cuối lượt đánh giá
             pass
     return results
 
@@ -393,7 +393,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
+    except (AttributeError, OSError):
         pass
     fixtures = load_fixtures()
     if args.real:

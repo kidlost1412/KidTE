@@ -23,6 +23,7 @@ from video_library import list_videos, load_references
 from video_sync import best_match, write_health
 from media_assets import _ffmpeg
 from video_fingerprint import locate, spectral_features, TARGET_RATE
+from swallowed import note as _note_swallowed
 
 
 def verify_obs_file(path, references):
@@ -75,7 +76,7 @@ class VerifiedObs:
             self.last_bound = marker
             self.last_write = now
         except Exception:
-            pass
+            _note_swallowed("obs_binding_save_failed", once=True)
 
     def close(self):
         self.client.close()
@@ -196,7 +197,7 @@ def obs_loop(store):
             try:
                 publish("shopee")
             except Exception:
-                pass
+                _note_swallowed("live_sync_publish_failed", once=True, key="shopee")
         time.sleep(2)
 
 
@@ -228,7 +229,7 @@ def _restore_lock(video_lock, persisted, references):
             ref = next((r for r in references if r.get("video_id") == saved["video_id"]), None)
             return video_lock.restore(saved, ref)
     except Exception:
-        pass
+        _note_swallowed("video_lock_restore_failed", once=True)
     return False
 
 
@@ -375,12 +376,12 @@ def tiktok_loop(store):
                 try:
                     capture.close() if hasattr(capture, 'close') else capture.__exit__(None, None, None)
                 except Exception:
-                    pass
+                    _note_swallowed("audio_capture_close_failed", once=True)
                 capture = None
             try:
                 publish("tiktok")
             except Exception:
-                pass
+                _note_swallowed("live_sync_publish_failed", once=True, key="tiktok")
         time.sleep(3)
 
 

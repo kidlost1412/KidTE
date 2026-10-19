@@ -25,6 +25,7 @@ from shopee_commerce import select_product, price_context, price_violation, proc
 from live_conversation import resolve_question, conversation_state
 from conversation_context import shared_shop_context, platform_video_context, product_reference, EXAMPLE_POLICY
 from ai_context import system_with_brief, task_block
+from swallowed import note as _note_swallowed
 
 
 # Khối nhiệm vụ cho từng đường gọi DeepSeek của Shopee LIVE (APP_BRIEF luôn đứng đầu, xem ai_context.py).
@@ -96,6 +97,9 @@ class ShopeeAiEngine:
         self.memory.close()
 
     def reply(self, payload):
+        seen = getattr(self.owner, "_note_comment_seen", None)
+        if seen is not None:
+            seen("shopee")          # O4: mốc bình luận Shopee cuối cùng backend nhận được
         received = payload.get('received_at_ms', time.time() * 1000)
         if (not isinstance(received, (int, float)) or isinstance(received, bool)
                 or not math.isfinite(received) or received > time.time() * 1000 + 5000):
@@ -538,7 +542,7 @@ class ShopeeAiEngine:
             by_sku = {'shopee:' + str(p.get('product_id')): p for p in products if isinstance(p, dict)}
             top = [by_sku[c['sku']] for c in pref.get('candidates', []) if c.get('sku') in by_sku][:3]
         except Exception:
-            pass
+            _note_swallowed("shopee_product_ref_probe_failed", once=True)
         if candidate_ids:
             # Router khoanh vùng ứng viên: đứng trước, rồi bù bằng ứng viên của mã.
             by_id = {str(p.get('product_id')): p for p in products if isinstance(p, dict)}
@@ -659,13 +663,35 @@ class ShopeeAiEngine:
 
     def _call_model(self, key, *args, **kwargs):
         try:
-            return self.owner.responder.reply(*args, **kwargs)
-        except Exception:
+            result = self.owner.responder.reply(*args, **kwargs)
+        except Exception as exc:
             # No reply was prepared or sent; a bounded retry of this exact
             # customer's unchanged comment may recover a transient outage.
             with self.lock:
                 self.seen.pop(key, None)
+            self._note_ai_outcome({"action": "skip", "missing_fields": ["deepseek_" + type(exc).__name__]})
             raise
+        self._note_ai_outcome(result)
+        return result
+
+    def _note_ai_outcome(self, result):
+        """O3 cho Shopee: lỗi AI (deepseek_/model_) đếm chung báo động LIVE; trả lời được thì xoá báo động."""
+        try:
+            result = result if isinstance(result, dict) else {}
+            if result.get("action") == "reply":
+                alerts = getattr(self.owner, "_live_alerts", None)
+                if alerts is not None:
+                    alerts().ai_succeeded()
+                return
+            reasons = result.get("missing_fields") or ["model_skipped"]
+            if not any(str(r).startswith(("deepseek_", "model_", "empty_model")) for r in reasons):
+                return   # bỏ qua có chủ đích (thiếu dữ kiện...), không phải AI hỏng
+            note = getattr(self.owner, "_note_ai_failure", None)
+            if note is not None:
+                note(reasons, (result.get("metrics") or {}).get("http_status"), "shopee")
+        except Exception:
+            logging.getLogger("kid-te.core").warning("shopee live alert update failed", exc_info=True,
+                                                     extra={"event": "shopee_live_alert_failed"})
 
     def _reply_product_family(self, payload, ref, key, comment, family, candidates, turns):
         nickname, session_id = payload['nickname'], payload['session_id']

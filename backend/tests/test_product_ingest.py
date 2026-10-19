@@ -431,7 +431,6 @@ def test_session_store_is_bounded_and_expires():
 
 def test_http_routes_extract_draft_link_and_image(tmp_path):
     import threading
-    from http.server import ThreadingHTTPServer
     from urllib.error import HTTPError
     from urllib.request import Request, urlopen
     import server
@@ -441,7 +440,7 @@ def test_http_routes_extract_draft_link_and_image(tmp_path):
     class Handler(server.Handler):
         pass
     Handler.engine = engine
-    http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    http = server.LoopbackHTTPServer(("127.0.0.1", 0), Handler)
     worker = threading.Thread(target=http.serve_forever, kwargs={"poll_interval": .05}, daemon=True)
     worker.start()
     origin = f"http://127.0.0.1:{http.server_port}"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from swallowed import note as _note_swallowed
 
 
 def chrome_executable():
@@ -68,7 +69,7 @@ def focus_current_process_window(title="Kid TE — Trợ lý vận hành LIVE"):
             win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
             win32gui.FlashWindow(hwnd, True)
         except Exception:
-            pass
+            _note_swallowed("window_flash_failed", once=True)
         return False
 
 

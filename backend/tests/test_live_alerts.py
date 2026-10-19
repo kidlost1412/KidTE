@@ -90,3 +90,85 @@ def test_readiness_marks_ai_step_error():
     out = build_readiness(dash)
     c4 = next(s for s in out["steps"] if s["id"] == "C4")
     assert c4["state"] == "error" and out["alerts"]
+
+
+def test_ai_alert_names_platforms():
+    alerts = LiveAlerts()
+    alerts.ai_failed(["deepseek_APIStatusError"], 402, "shopee")
+    alert = alerts.ai_alert()
+    assert alert["code"] == "ai_out_of_balance" and alert["message"].startswith("Shopee: ")
+    assert alert["platforms"] == ["shopee"]
+    alerts.ai_failed(["deepseek_APIStatusError"], 402, "tiktok")
+    assert alerts.ai_alert()["message"].startswith("Shopee + TikTok: ")
+    alerts.ai_succeeded()
+    assert alerts.ai_alert() is None
+
+
+class _FakeResponder:
+    def __init__(self, results):
+        self.results = list(results)
+
+    def reply(self, *args, **kwargs):
+        item = self.results.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _shopee_ai(eng, results):
+    import threading
+    from shopee_ai import ShopeeAiEngine as ShopeeAI
+    eng.responder = _FakeResponder(results)
+    ai = object.__new__(ShopeeAI)
+    ai.owner, ai.lock, ai.seen = eng, threading.Lock(), {}
+    return ai
+
+
+def test_shopee_model_failures_raise_live_alert_and_clear_on_success():
+    eng = _engine()
+    skip = {"action": "skip", "missing_fields": ["deepseek_APITimeoutError"]}
+    ai = _shopee_ai(eng, [skip, skip, {"action": "skip", "missing_fields": ["missing_price"]}, skip,
+                          {"action": "reply", "reply": "Dạ có ạ"}])
+    ai._call_model("k")
+    ai._call_model("k")
+    assert eng.live_alerts() == []                       # 2 lỗi chưa báo
+    ai._call_model("k")                                  # bỏ qua có chủ đích: không đếm
+    ai._call_model("k")
+    alerts = eng.live_alerts()
+    assert [a["code"] for a in alerts] == ["ai_timeout"] and alerts[0]["message"].startswith("Shopee: ")
+    ai._call_model("k")
+    assert eng.live_alerts() == []
+
+
+def test_shopee_402_alerts_immediately_and_exception_counts():
+    eng = _engine()
+    ai = _shopee_ai(eng, [{"action": "skip", "missing_fields": ["deepseek_APIStatusError"],
+                           "metrics": {"http_status": 402}}])
+    ai._call_model("k")
+    assert [a["code"] for a in eng.live_alerts()] == ["ai_out_of_balance"]
+    eng2 = _engine()
+    ai2 = _shopee_ai(eng2, [RuntimeError("x")] * 3)
+    for _ in range(3):
+        try:
+            ai2._call_model("k")
+        except RuntimeError:
+            pass
+    assert [a["code"] for a in eng2.live_alerts()] == ["ai_failing"]
+
+
+def test_shopee_comment_silence_alert():
+    eng = _engine()
+    now = time.time()
+    eng.platform_heartbeats["shopee"] = {"live_running": True, "ai_enabled": True, "received_at": now,
+                                         "live_since": now - 900}
+    alerts = eng.live_alerts()
+    assert [a["code"] for a in alerts] == ["comments_silent"]
+    assert "Shopee" in alerts[0]["message"] and alerts[0]["platform"] == "shopee"
+    eng._note_comment_seen("shopee")
+    assert eng.live_alerts() == []
+    eng._comment_seen_at["shopee"] = now - 400
+    assert [a["code"] for a in eng.live_alerts()] == ["comments_silent"]
+    eng.platform_heartbeats["shopee"]["ai_enabled"] = False      # AI tắt: không đủ căn cứ
+    assert eng.live_alerts() == []
+    eng.platform_heartbeats["shopee"].update(ai_enabled=True, live_running=False)
+    assert eng.live_alerts() == []

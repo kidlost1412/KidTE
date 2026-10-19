@@ -1,4 +1,4 @@
-"""Báo động khi LIVE (O3/O4): AI hỏng liên tiếp, không nhận được bình luận TikTok.
+"""Báo động khi LIVE (O3/O4): AI hỏng liên tiếp, không nhận được bình luận TikTok/Shopee.
 
 Chỉ giữ trạng thái trong bộ nhớ: mất khi tắt app là đúng (LIVE mới thì đếm lại).
 """
@@ -9,6 +9,13 @@ import time
 AI_FAIL_STREAK = 3
 # Mặc định: đang LIVE mà 5 phút không có bình luận mới thì báo.
 DEFAULT_COMMENT_SILENCE_S = 300
+
+PLATFORM_LABELS = {"tiktok": "TikTok", "shopee": "Shopee"}
+
+
+def _platform_prefix(platforms):
+    names = [PLATFORM_LABELS.get(p, str(p)) for p in platforms if p]
+    return (" + ".join(names) + ": ") if names else ""
 
 _FATAL = {
     "ai_out_of_balance": ("Tài khoản DeepSeek đã hết tiền — AI đang KHÔNG trả lời khách.",
@@ -56,13 +63,17 @@ class LiveAlerts:
         self._streak = 0
         self._last_code = ""
         self._since = 0.0
+        self._platforms = []
 
     # --- O3 -------------------------------------------------------------------
-    def ai_failed(self, reasons, http_status=None):
+    def ai_failed(self, reasons, http_status=None, platform=None):
         code = classify_ai_failure(reasons, http_status)
         with self._lock:
             if not self._streak:
                 self._since = self._clock()
+                self._platforms = []
+            if platform and platform not in self._platforms:
+                self._platforms.append(platform)
             self._streak += 1
             self._last_code = code
             return self._ai_alert_locked()
@@ -70,6 +81,7 @@ class LiveAlerts:
     def ai_succeeded(self):
         with self._lock:
             self._streak, self._last_code, self._since = 0, "", 0.0
+            self._platforms = []
 
     def _ai_alert_locked(self):
         code, n = self._last_code, self._streak
@@ -82,16 +94,18 @@ class LiveAlerts:
             message = message.format(n=n)
         else:
             return None
-        return {"code": code, "severity": "error", "message": message, "action": action,
-                "count": n, "since": self._since}
+        return {"code": code, "severity": "error", "message": _platform_prefix(self._platforms) + message,
+                "action": action, "count": n, "since": self._since, "platforms": list(self._platforms)}
 
     def ai_alert(self):
         with self._lock:
             return self._ai_alert_locked()
 
     # --- O4 -------------------------------------------------------------------
-    def comment_alert(self, heartbeat, silence_s=DEFAULT_COMMENT_SILENCE_S, live_started_at=0.0):
+    def comment_alert(self, heartbeat, silence_s=DEFAULT_COMMENT_SILENCE_S, live_started_at=0.0,
+                      platform="tiktok"):
         """Đang LIVE mà bộ thu báo lỗi, hoặc ≥ silence_s không có bình luận mới → cảnh báo."""
+        label = PLATFORM_LABELS.get(platform, "TikTok")
         heartbeat = heartbeat or {}
         now = self._clock()
         if heartbeat.get("live_running") is not True:
@@ -102,9 +116,9 @@ class LiveAlerts:
         if not isinstance(collector, dict):
             return None          # tiện ích cũ chưa gửi trạng thái thu
         if collector.get("bridge") is False or collector.get("ok") is False:
-            return {"code": "comments_collector_error", "severity": "error",
-                    "message": "Tiện ích TikTok báo lỗi bộ thu bình luận — AI có thể không thấy khách hỏi.",
-                    "action": "Tải lại trang TikTok LIVE (F5); nếu vẫn lỗi, kiểm tra/ cập nhật tiện ích Kid TE."}
+            return {"code": "comments_collector_error", "severity": "error", "platform": platform,
+                    "message": f"Tiện ích {label} báo lỗi bộ thu bình luận — AI có thể không thấy khách hỏi.",
+                    "action": f"Tải lại trang {label} LIVE (F5); nếu vẫn lỗi, kiểm tra/ cập nhật tiện ích Kid TE."}
         last_ms = float(collector.get("last_comment_at_ms") or 0)
         last = last_ms / 1000 if last_ms else 0.0
         reference = max(last, float(live_started_at or 0))
@@ -114,6 +128,6 @@ class LiveAlerts:
         if idle < max(60, int(silence_s or DEFAULT_COMMENT_SILENCE_S)):
             return None
         minutes = int(idle // 60)
-        return {"code": "comments_silent", "severity": "warning", "minutes": minutes,
-                "message": f"Không nhận được bình luận TikTok {minutes} phút — kiểm tra tiện ích/tải lại trang.",
-                "action": "Mở tab TikTok LIVE, tải lại trang (F5) và xem tiện ích Kid TE còn bật không."}
+        return {"code": "comments_silent", "severity": "warning", "minutes": minutes, "platform": platform,
+                "message": f"Không nhận được bình luận {label} {minutes} phút — kiểm tra tiện ích/tải lại trang.",
+                "action": f"Mở tab {label} LIVE, tải lại trang (F5) và xem tiện ích Kid TE còn bật không."}

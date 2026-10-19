@@ -172,3 +172,37 @@ def test_shopee_recommendation_does_not_borrow_pin():
         assert chosen is None, (text, reason)
     chosen, _ = select_product(SimpleNamespace(), "pha mấy lít", products, "a1", [])
     assert chosen["product_id"] == "a1"
+
+
+# --- M.6: số tiền viết bằng chữ + "giá ... gốc" ------------------------------------
+@pytest.mark.parametrize("text, expected", [
+    ("Giá ba trăm nghìn nha", {300_000}),
+    ("Dạ một trăm tám lăm nghìn ạ", {185_000}),
+    ("Combo hai triệu rưỡi nha", {2_500_000}),
+    ("Chai này năm chục thôi", {50_000}),
+    ("Giá trăm rưỡi nha anh", {150_000}),
+    ("Bốn chục nghìn một gói", {40_000}),
+    ("năm mươi nghìn đồng", {50_000}),
+    ("hai trăm tư nghìn", {240_000}),
+    ("mười lăm nghìn", {15_000}),
+    ("ba trăm linh năm nghìn", {305_000}),
+    ("hai mươi mốt nghìn", {21_000}),
+    ("một triệu sáu trăm nghìn", {1_600_000}),
+    ("Combo hai triệu hai nha", {2_200_000}),
+    ("Giá từ ba trăm nghìn", {300_000}),
+    ("Một trăm k nha", {100_000}),
+    ("Giá 450.000 gốc nha", {450_000}),
+    ("Giá 450k gốc nha", {450_000}),
+    ("Lấy hai chai nha", set()),
+    ("Dùng ba ngày là thấy", set()),
+    ("Năm chục cây thì pha hai can", set()),
+    ("Năm sau em về hàng", set()),
+    ("Tư vấn ba ngày liền", set()),
+    ("Ba trăm cây bón đều", set()),
+    ("Bón 450.000 gốc cây được", set()),
+    ("Giá rẻ, 450.000 gốc đã bón", set()),
+    ("Hơn ba nghìn người đã dùng", set()),
+    ("Hai triệu lượt xem rồi", set()),
+])
+def test_price_values_spelled_out(text, expected):
+    assert _values(text) == expected

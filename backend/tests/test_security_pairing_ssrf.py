@@ -4,7 +4,6 @@ import io
 import json
 import threading
 import urllib.error
-from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
@@ -91,7 +90,7 @@ def app(tmp_path):
     class Handler(server.Handler):
         pass
     Handler.engine = engine
-    http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    http = server.LoopbackHTTPServer(("127.0.0.1", 0), Handler)
     worker = threading.Thread(target=http.serve_forever, kwargs={"poll_interval": .05}, daemon=True)
     worker.start()
 

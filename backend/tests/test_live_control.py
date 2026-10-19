@@ -3,7 +3,6 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
@@ -98,7 +97,7 @@ class _Stub:
 def http():
     stub = _Stub()
     server.Handler.engine = stub
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+    httpd = server.LoopbackHTTPServer(("127.0.0.1", 0), server.Handler)
     threading.Thread(target=httpd.serve_forever, args=(0.1,), daemon=True).start()
 
     def post(path, body, origin=""):

@@ -8,7 +8,6 @@ import unittest
 import urllib.error
 import urllib.request
 from unittest import mock
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 
@@ -1167,7 +1166,7 @@ class HttpLayerTests(unittest.TestCase):
     def setUp(self):
         self.engine = StubEngine()
         Handler.engine = self.engine
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = server_module.LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         self.port = self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever, args=(0.1,), daemon=True).start()
 

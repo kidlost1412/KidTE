@@ -44,7 +44,7 @@ class AutoBackupScheduler:
         if self.logger is not None:
             try:
                 getattr(self.logger, level)(message, extra={"event": event})
-            except Exception:
+            except Exception:  # noqa: BLE001 - chính bộ ghi log lỗi: không còn nơi nào để ghi
                 pass
 
     def _flag(self, provider):

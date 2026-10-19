@@ -85,6 +85,7 @@ import prompt_view
 from learning import Learner, LearningStore, MAX_STYLE_CHARS, style_text as _persona_style_text
 from ai_context import task_block as _task_block
 from media_assets import ProductImageCache, VideoAssetManager
+from swallowed import note as _note_swallowed
 from knowledge import (
     KnowledgeBase, clean, fold, general_knowledge_hint, has_explicit_product_reference, is_approvable,
     name_tokens, profile_completeness,
@@ -99,6 +100,48 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
     # -> stylesheet mat. Dung hang doi lon + thread rieng cho moi ket noi.
     request_queue_size = 128
     daemon_threads = True
+    # O9/F13: trần số kết nối xử lý đồng thời. Vượt trần thì trả 503 ngay thay vì đẻ thêm luồng
+    # (tiện ích lỗi/vòng lặp gọi dồn không làm cạn tài nguyên app). Kết nối keep-alive rảnh
+    # tự đóng sau Handler.timeout nên luồng được trả lại.
+    max_concurrent_requests = 64
+    _BUSY_BODY = b'{"ok": false, "error": "server_busy"}'
+
+    def __init__(self, *args, **kwargs):
+        self._slots = threading.BoundedSemaphore(self.max_concurrent_requests)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self._reject_busy(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+    def _reject_busy(self, request):
+        logging.getLogger("kid-te.http").warning("http server busy: rejected connection",
+                                                 extra={"event": "http_server_busy"})
+        try:
+            request.settimeout(0.5)
+            try:
+                request.recv(65536)   # đọc đầu yêu cầu: đóng khi còn dữ liệu chưa đọc thì Windows RST
+            except OSError:
+                pass
+            request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+                            b"Retry-After: 1\r\nConnection: close\r\nContent-Length: "
+                            + str(len(self._BUSY_BODY)).encode() + b"\r\n\r\n" + self._BUSY_BODY)
+        except OSError:
+            pass                      # bên gọi đã đi: không còn ai để báo
+        finally:
+            self.shutdown_request(request)
 
 
 def versioned_operator_page(html, version):
@@ -1071,7 +1114,7 @@ class ReplyEngine:
                 if store is not None:
                     by_platform[name]["unknown"] += store.unknown_count(window_s)
         except Exception:
-            pass
+            _note_swallowed("delivery_health_count_failed", once=True)
         total = {key: sum(b[key] for b in by_platform.values()) for key in ("pending", "expired", "unknown")}
         total["oldest_age_s"] = max(b["oldest_age_s"] for b in by_platform.values())
         return {**total, "by_platform": by_platform, "queue_mode": bool(self.backend_queue_mode())}
@@ -1264,10 +1307,10 @@ class ReplyEngine:
             alerts = self._live_alerts_state = LiveAlerts()
         return alerts
 
-    def _note_ai_failure(self, reasons, http_status=None):
+    def _note_ai_failure(self, reasons, http_status=None, platform="tiktok"):
         """O3: đếm lỗi AI liên tiếp; lần đầu chuyển sang báo động thì ghi nhật ký + thông báo Windows."""
         before = self._live_alerts().ai_alert()
-        alert = self._live_alerts().ai_failed(reasons, http_status)
+        alert = self._live_alerts().ai_failed(reasons, http_status, platform)
         if alert and not before:
             report_problem("live_alert_ai", f"{alert['message']} {alert['action']}", severity="error")
             if alert["code"] in ("ai_out_of_balance", "ai_key_rejected"):
@@ -1278,18 +1321,36 @@ class ReplyEngine:
                     with lock:
                         responder._balance_checked_at = 0.0
 
+    def _note_comment_seen(self, platform):
+        """O4: mốc bình luận cuối backend nhận được (Shopee không gửi trạng thái bộ thu)."""
+        seen = getattr(self, "_comment_seen_at", None)
+        if seen is None:
+            seen = self._comment_seen_at = {}
+        seen[platform] = time.time()
+
     def live_alerts(self):
-        """Báo động đang có khi LIVE (O3 AI hỏng, O4 không nhận bình luận TikTok)."""
+        """Báo động đang có khi LIVE (O3 AI hỏng, O4 không nhận bình luận TikTok/Shopee)."""
         from config import COMMENT_SILENCE_ALERT_S
         out = []
         ai = self._live_alerts().ai_alert()
         if ai:
             out.append(ai)
-        heartbeat = (getattr(self, "platform_heartbeats", {}) or {}).get("tiktok") or {}
+        heartbeats = getattr(self, "platform_heartbeats", {}) or {}
+        heartbeat = heartbeats.get("tiktok") or {}
         comments = self._live_alerts().comment_alert(heartbeat, COMMENT_SILENCE_ALERT_S,
                                                      heartbeat.get("live_since") or 0)
         if comments:
             out.append(comments)
+        shopee = heartbeats.get("shopee") or {}
+        # Shopee: tiện ích chỉ đẩy bình luận về backend khi bật AI; tắt AI thì không đủ căn cứ.
+        if shopee.get("live_running") is True and shopee.get("ai_enabled") is True:
+            last = (getattr(self, "_comment_seen_at", None) or {}).get("shopee") or 0
+            synthetic = {**shopee, "collector": {"ok": True, "bridge": True,
+                                                 "last_comment_at_ms": int(last * 1000)}}
+            comments = self._live_alerts().comment_alert(synthetic, COMMENT_SILENCE_ALERT_S,
+                                                         shopee.get("live_since") or 0, platform="shopee")
+            if comments:
+                out.append(comments)
         return out
 
     def heartbeat(self, payload):
@@ -1466,6 +1527,7 @@ class ReplyEngine:
             comment_id = payload.get('comment_id')
             return {'ok': True, **self.comment_queue.cancel(platform, room, comment_id)}
         if operation == 'enqueue':
+            self._note_comment_seen(platform)
             batch = payload.get('comment_payloads')
             if batch is not None:
                 # Lô nhiều comment: giữ đúng thứ tự FIFO, mỗi comment có kết quả riêng.
@@ -4164,6 +4226,101 @@ class ReplyEngine:
                              r"(?=\s*(?:$|[.,!?;)]|(?:nha|nhe|nghe|nhen|luon|a|thoi|do|ha|roi|anh|chi|em|ban|"
                              r"ca nha)(?![a-z])))")
 
+    # Số tiền viết bằng chữ (M.6): "ba trăm nghìn", "một trăm tám lăm nghìn", "hai triệu rưỡi",
+    # "năm chục", "trăm rưỡi". Chỉ tính khi kèm đơn vị tiền (nghìn/ngàn/k/triệu/đồng); "X chục"
+    # và "trăm rưỡi" đứng cuối câu/trước từ đệm (tiếng lóng giá) — "hai chai", "ba ngày" không bắt.
+    _WORD_DIGITS = {"mot": 1, "hai": 2, "ba": 3, "bon": 4, "tu": 4, "nam": 5, "lam": 5, "sau": 6,
+                    "bay": 7, "tam": 8, "chin": 9}
+    _WORD_TOKEN = re.compile(r"[a-z]+|\d+|[.,!?;:()\n]")
+    _WORD_END = frozenset({"nha", "nhe", "nghe", "nhen", "luon", "a", "thoi", "do", "ha", "roi", "anh", "chi",
+                           "em", "ban", "ca", "a.", "thui", "ne", "nhaa", "ak"})
+    # Chỉ từ không trùng chữ thường khi bỏ dấu ("hợp", "cần", "còn", "hả" không có ở đây).
+    _WORD_COUNTED = frozenset({"nguoi", "khach", "luot", "don", "cay", "chai", "lit", "ml", "kg", "thung", "m2"})
+    _CLAUSE_GIA = re.compile(r"\bgia\b(?!\s+(?:dinh|tri|vi|han|cong|su))")
+
+    @classmethod
+    def _word_group(cls, toks, i):
+        """Số 1–999 bằng chữ bắt đầu ở toks[i] → (giá trị, vị trí sau, cờ) hoặc None."""
+        digits, n = cls._WORD_DIGITS, len(toks)
+
+        def dig(k):
+            return digits.get(toks[k]) if k < n else None
+        value, j, hundreds, flags = 0, i, False, set()
+        if dig(j) is not None and j + 1 < n and toks[j + 1] == "tram":
+            value, j, hundreds = dig(j) * 100, j + 2, True
+        elif j < n and toks[j] == "tram":
+            value, j, hundreds = 100, j + 1, True
+        if hundreds:
+            if j < n and toks[j] == "ruoi":
+                return value + 50, j + 1, {"ruoi"}
+            if j + 1 < n and toks[j] in ("linh", "le") and dig(j + 1) is not None:
+                return value + dig(j + 1), j + 2, flags
+        if dig(j) is not None and j + 1 < n and toks[j + 1] in ("muoi", "chuc"):
+            if toks[j + 1] == "chuc" and not hundreds:
+                flags.add("chuc")
+            value, j = value + dig(j) * 10, j + 2
+            if dig(j) is not None and "chuc" not in flags:
+                value, j = value + dig(j), j + 1
+        elif j < n and toks[j] == "muoi":
+            value, j = value + 10, j + 1
+            if dig(j) is not None:
+                value, j = value + dig(j), j + 1
+        elif dig(j) is not None:
+            if hundreds and dig(j + 1) is not None:          # "trăm tám lăm" = 185
+                value, j = value + dig(j) * 10 + dig(j + 1), j + 2
+            elif hundreds:                                    # "hai trăm tư" = 240
+                value, j = value + dig(j) * 10, j + 1
+            else:
+                value, j = dig(j), j + 1
+        if j == i:
+            return None
+        return value, j, flags
+
+    @classmethod
+    def _word_amounts(cls, folded):
+        toks = cls._WORD_TOKEN.findall(folded)
+        n, i, out = len(toks), 0, set()
+
+        def end_at(k):
+            return k >= n or toks[k] in cls._WORD_END or not toks[k].isalnum()
+        while i < n:
+            group = cls._word_group(toks, i)
+            if not group:
+                i += 1
+                continue
+            value, j, flags = group
+            unit = toks[j] if j < n else ""
+            if unit == "chuc" and j + 1 < n and toks[j + 1] in ("nghin", "ngan"):   # "năm chục nghìn"
+                value, j, unit = value * 10, j + 1, toks[j + 1]
+            if unit in ("nghin", "ngan", "k", "trieu") and j + 1 < n and toks[j + 1] in cls._WORD_COUNTED:
+                i = j + 1                                   # "ba nghìn người", "hai triệu lượt xem"
+            elif unit in ("nghin", "ngan", "k"):
+                out.add(value * 1000)
+                i = j + 1
+            elif unit == "trieu":
+                amount, j = value * 1_000_000, j + 1
+                if j < n and toks[j] == "ruoi":
+                    amount, j = amount + 500_000, j + 1
+                else:
+                    tail = cls._word_group(toks, j)
+                    if tail and tail[1] < n and toks[tail[1]] in ("nghin", "ngan", "k"):
+                        amount, j = amount + tail[0] * 1000, tail[1] + 1
+                    elif tail and end_at(tail[1]):
+                        t = tail[0]
+                        amount += t * (100_000 if t < 10 else 10_000 if t < 100 else 1000)
+                        j = tail[1]
+                out.add(amount)
+                i = j
+            elif unit in ("dong", "d", "vnd"):
+                out.add(value)
+                i = j + 1
+            elif flags & {"chuc", "ruoi"} and end_at(j):           # "năm chục", "trăm rưỡi"
+                out.add(value * 1000)
+                i = j
+            else:
+                i += 1
+        return out
+
     @classmethod
     def _unit_after(cls, low, folded, pos, units):
         """Đơn vị ngay sau vị trí pos: so trên chữ có dấu; không dấu chỉ khi đoạn đó viết không dấu."""
@@ -4174,6 +4331,14 @@ class ReplyEngine:
             m = cls._PLAIN_UNIT.match(folded, pos)
             return bool(m and low[pos:m.end()] == folded[pos:m.end()])
         return bool(cls._PLAIN_UNIT.match(folded, pos))
+
+    @classmethod
+    def _goc_after_price(cls, low, folded, start, end):
+        """Giá 450.000 gốc: "gốc" sau số là giá gốc (tiền) khi cùng mệnh đề có "giá" phía trước."""
+        if not re.match(r"\s*goc(?![a-z])", folded[end:]):
+            return False
+        clause = re.split(r"[;!?\n]|[.,](?=\s|$)", folded[:start])[-1]
+        return bool(cls._CLAUSE_GIA.search(clause))
 
     @classmethod
     def _price_values(cls, text):
@@ -4198,7 +4363,8 @@ class ReplyEngine:
                 continue                    # "1k lít": quy cách/liều
             if not dong and not k and (cls._unit_after(low, folded, m.end(4), cls._MEASURE_UNIT)
                                        or cls._unit_after(low, folded, m.end(4), cls._COUNT_UNIT)):
-                continue                    # "1.000 lít", "20.000 cây"
+                if not cls._goc_after_price(low, folded, m.start(4), m.end(4)):
+                    continue                # "1.000 lít", "20.000 cây"
             number = int(re.sub(r"[.,]", "", digits))
             values.add(number * 1000 if k else number)
         for m in cls._DECIMAL_K.finditer(folded):
@@ -4206,6 +4372,7 @@ class ReplyEngine:
         for m in cls._TOTAL_BARE.finditer(folded):
             number = int(m.group(1))
             values.add(number * 1000 if number < 1000 else number)
+        values |= cls._word_amounts(folded)
         # >= 1.000đ: bắt cả "1k", "5k", "5 nghìn" (C2). Số trần không đơn vị đã bỏ ở trên.
         return {v for v in values if v >= 1_000}
 
@@ -4509,6 +4676,7 @@ class ReplyEngine:
                 try:
                     manifest, verified = store._load(path.stem), False
                 except Exception:
+                    _note_swallowed("backup_manifest_unreadable", once=True, key=path.stem)
                     continue
             if not isinstance(manifest, dict) or manifest.get('scope') not in ('full', 'partial'):
                 continue
@@ -4802,6 +4970,10 @@ def _loopback_host(header_value):
 class Handler(BaseHTTPRequestHandler):
     engine = None
     server_version = "KidTEAI/3.4"
+    # O9/F13: hạn cho TỪNG lần đọc/ghi socket (không phải cả yêu cầu): kết nối treo/keep-alive
+    # rảnh quá 30 s thì đóng, trả luồng. Tải video/upload theo khối vẫn chạy được vì mỗi khối
+    # chỉ cần tiến triển trong 30 s; xử lý lâu phía server không bị tính.
+    timeout = 30
 
     def log_message(self, fmt, *args):
         try:
@@ -4949,9 +5121,10 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 try:
                     self.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
-                    # Trình phát thường hủy range cũ ngay khi người dùng tua.
-                    # Đây là hành vi bình thường, không phải lỗi backend.
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, TimeoutError):
+                    # Trình phát thường hủy range cũ ngay khi người dùng tua, hoặc dừng đọc
+                    # khi tạm dừng (quá Handler.timeout). Bình thường, không phải lỗi backend.
+                    self.close_connection = True
                     break
                 remaining -= len(chunk)
 

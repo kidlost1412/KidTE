@@ -14,6 +14,7 @@ import threading
 from collections import deque
 
 import numpy as np
+from swallowed import note as _note_swallowed
 try:
     import soundcard as sc
 except ImportError:
@@ -241,7 +242,7 @@ def _service_state(name):
         import psutil
         return str(psutil.win_service_get(name).status())
     except Exception:
-        pass
+        _note_swallowed("audio_service_state_psutil_failed", once=True, key=name)
     try:
         import subprocess
         out = subprocess.run(["sc", "query", name], capture_output=True, text=True, timeout=5,
@@ -250,7 +251,7 @@ def _service_state(name):
             if "STATE" in line:
                 return "running" if "RUNNING" in line else "stopped" if "STOPPED" in line else line.split()[-1].lower()
     except Exception:
-        pass
+        _note_swallowed("audio_service_state_sc_failed", once=True, key=name)
     return None
 
 

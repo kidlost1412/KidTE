@@ -49,6 +49,7 @@ from pathlib import Path
 
 from ai_context import system_with_brief, task_block
 from knowledge import clean, fold
+from swallowed import note as _note_swallowed
 
 KINDS = ("alias", "fact", "rule")
 STATUSES = ("suggested", "active", "retired", "rejected")
@@ -907,7 +908,7 @@ class Learner:
                 try:
                     self.maybe_auto_relearn()
                 except Exception:
-                    pass
+                    _note_swallowed("learning_auto_relearn_check_failed", level=30)
 
     BUSY_WINDOW_S = 120
     BUSY_POLL_S = 15
@@ -948,8 +949,8 @@ class Learner:
         system = system_with_brief(system)          # APP_BRIEF luôn đứng đầu (cache tiền tố)
         try:
             client = client.with_options(timeout=timeout)
-        except Exception:
-            pass
+        except (AttributeError, TypeError):
+            pass                    # client cũ/giả không có with_options: dùng timeout mặc định
         started = time.monotonic()
         request = {"model": model, "messages": [{"role": "system", "content": system},
                                                 {"role": "user", "content": user}],
@@ -1101,9 +1102,12 @@ class Learner:
                 confidence = float(raw.get("confidence") or .6)
             except (TypeError, ValueError):
                 confidence = .6
+            # H7: tự kích hoạt CHỈ loại an toàn — tên gọi khác (alias) có từ đặc trưng gắn đúng SP.
+            # Dữ kiện/luật trả lời luôn vào hàng đề xuất chờ chủ shop duyệt (điểm do model tự chấm).
+            safe_auto = auto and confidence >= .75 and kind == "alias" and bool(terms) and bool(product_id)
             ids.append(self.store.add_item(
                 kind=kind, statement=statement, product_id=product_id, terms=terms,
-                status="active" if auto and confidence >= .75 else "suggested",
+                status="active" if safe_auto else "suggested",
                 confidence=confidence, source=source,
                 source_refs=[payload.get("conversation_id", "")], created_by=payload.get("persona_id", ""),
                 run_id=run_id,

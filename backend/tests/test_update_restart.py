@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
-from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -224,7 +223,7 @@ def test_restart_endpoint(tmp_path, monkeypatch):
         pass
 
     Handler.engine = engine
-    http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    http = server.LoopbackHTTPServer(("127.0.0.1", 0), Handler)
     Thread(target=http.serve_forever, kwargs={"poll_interval": .05}, daemon=True).start()
     origin = f"http://127.0.0.1:{http.server_port}"
 

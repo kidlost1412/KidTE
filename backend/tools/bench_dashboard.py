@@ -131,7 +131,7 @@ def stop_server(httpd, engine):
     httpd.server_close()
     try:
         engine.close()
-    except Exception:
+    except Exception:  # noqa: BLE001 - dọn dẹp công cụ đo
         pass
 
 

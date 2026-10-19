@@ -1,7 +1,6 @@
 import json
 import threading
 import time
-from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -27,7 +26,7 @@ def _serve(tmp_path, monkeypatch):
     class Handler(server.Handler):
         pass
     Handler.engine = engine
-    http = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    http = server.LoopbackHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=http.serve_forever, kwargs={'poll_interval': .05}, daemon=True).start()
     origin = f'http://127.0.0.1:{http.server_port}'
 

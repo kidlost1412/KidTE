@@ -27,13 +27,18 @@ def component_path(component_id: str, relative_path: str) -> Path | None:
     record = next((row for row in selected["files"] if row["path"] == relative_path), None)
     if record is None:
         raise ComponentStoreError("component resource is not in signed inventory")
+    return _verified_file(app_root, selected, active["generation"], record)
+
+
+def _verified_file(app_root: Path, selected: dict, generation, record: dict) -> Path:
+    relative_path = record["path"]
     target = app_root / selected["path"] / relative_path
     _check_ancestry(target)
     if not target.is_file() or target.stat().st_size != record["size"]:
         raise ComponentStoreError("component resource is missing or damaged")
     before = target.stat()
     stamp = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
-    cache_key = (str(target), record["sha256"], active["generation"])
+    cache_key = (str(target), record["sha256"], generation)
     with _LOCK:
         if _VERIFIED.get(cache_key) == stamp:
             return target
@@ -72,15 +77,16 @@ def verify_component_tree(component_id: str, prefix: str) -> Path | None:
     selected = (active or {}).get("components", {}).get(component_id)
     if selected is None:
         return None
-    wanted = {row["path"] for row in selected["files"]
-              if row["path"] == prefix or row["path"].startswith(prefix + "/")}
-    if not wanted:
+    records = {row["path"]: row for row in selected["files"]
+               if row["path"] == prefix or row["path"].startswith(prefix + "/")}
+    if not records:
         raise ComponentStoreError("component resource is not in signed inventory")
-    for relative in sorted(wanted):
-        component_path(component_id, relative)      # size + SHA-256 against the signed inventory
+    wanted = set(records)
+    for relative in sorted(records):
+        _verified_file(app_root, selected, active["generation"], records[relative])
     base = app_root / selected["path"] / prefix
-    known = {(app_root / selected["path"] / item).resolve() for item in wanted}
+    known = {os.path.normcase(str(app_root / selected["path"] / item)) for item in wanted}
     for found in base.rglob("*"):
-        if found.suffix.lower() in _CODE_SUFFIXES and found.resolve() not in known:
+        if found.suffix.lower() in _CODE_SUFFIXES and os.path.normcase(str(found)) not in known:
             raise ComponentStoreError("component folder contains a file that is not in the signed inventory")
     return base

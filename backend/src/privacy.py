@@ -82,6 +82,9 @@ class PrivacyService:
         self._db = sqlite3.connect(self.db_path, timeout=5, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
+        # Xoá thật: trang bị xoá (hàng đợi của khách đã quên) được ghi đè 0. Dùng được với WAL;
+        # khung WAL cũ được cắt bằng wal_checkpoint(TRUNCATE) ở bước dọn nền (backup_policy).
+        self._db.execute("PRAGMA secure_delete=ON")
         with self._db:
             self._db.executescript("""
                 CREATE TABLE IF NOT EXISTS privacy_tombstones (
@@ -479,3 +482,90 @@ def purge_db_by_tombstones(db_path, tombstones, secret):
         return {"deleted": deleted, "tombstones": len(items)}
     finally:
         db.close()
+
+
+# ---- Làm sạch bản sao lưu / bản sao DB theo tombstone (chỉ HMAC) ----
+
+def tombstone_fingerprint(tombstones):
+    """Dấu vân tay của TẬP tombstone (sha256 các HMAC đã sắp xếp); '' khi rỗng."""
+    hashes = sorted({t["key_hmac"] for t in merge_tombstones(tombstones)})
+    if not hashes:
+        return ""
+    return hashlib.sha256(",".join(hashes).encode("ascii")).hexdigest()
+
+
+def _hmac_tagged_tables(db):
+    tables = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                       "AND name NOT LIKE 'sqlite_%'")]
+    return [t for t in tables
+            if "customer_key_hmac" in [c[1] for c in db.execute('PRAGMA table_info("%s")' % t.replace('"', '""'))]]
+
+
+def purge_hmac_tagged(db_path, tombstones):
+    """Xoá dòng có cột ``customer_key_hmac`` thuộc tombstone (sửa câu/câu mẫu/kiến thức học).
+
+    Chỉ dùng trên BẢN SAO (bản sao lưu đang được làm sạch), không chạm DB đang chạy.
+    """
+    hashes = sorted({t["key_hmac"] for t in merge_tombstones(tombstones)})
+    if not hashes:
+        return 0
+    db = sqlite3.connect(Path(db_path), timeout=10)
+    db.execute("PRAGMA secure_delete=ON")
+    deleted = 0
+    try:
+        with db:
+            marks = ",".join("?" for _ in hashes)
+            for t in _hmac_tagged_tables(db):
+                deleted += db.execute('DELETE FROM "%s" WHERE customer_key_hmac IN (%s)'
+                                      % (t.replace('"', '""'), marks), hashes).rowcount
+        return deleted
+    finally:
+        db.close()
+
+
+def readonly_uri(path):
+    """URI chỉ đọc, không khoá, không tạo -wal/-shm (đọc tệp sao lưu nằm yên)."""
+    from urllib.parse import quote
+    return "file:" + quote(Path(path).absolute().as_posix(), safe="/:") + "?mode=ro&immutable=1"
+
+
+def count_tombstoned(db_path, tombstones, secret):
+    """Số dòng CÒN LẠI thuộc khách đã quên trong tệp sqlite (đọc chỉ đọc).
+
+    Kiểm độc lập sau khi làm sạch: khoá thô (cột ``customer_key``, gồm opt-out) và
+    thẻ HMAC (cột ``customer_key_hmac``)."""
+    hashes = {t["key_hmac"] for t in merge_tombstones(tombstones)}
+    if not hashes:
+        return 0
+    if not secret:
+        raise ValueError("privacy_secret_required")
+    db = sqlite3.connect(readonly_uri(db_path), uri=True, timeout=10)
+    try:
+        tables = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                           "AND name NOT LIKE 'sqlite_%'")]
+        found = 0
+        for t in tables:
+            cols = [c[1] for c in db.execute('PRAGMA table_info("%s")' % t.replace('"', '""'))]
+            quoted = t.replace('"', '""')
+            if "customer_key" in cols:
+                for (key,) in db.execute('SELECT customer_key FROM "%s"' % quoted):
+                    if key and hmac_for_key(secret, key) in hashes:
+                        found += 1
+            if "customer_key_hmac" in cols:
+                for (tag,) in db.execute('SELECT customer_key_hmac FROM "%s"' % quoted):
+                    if tag in hashes:
+                        found += 1
+        return found
+    finally:
+        db.close()
+
+
+def purge_all_by_tombstones(db_path, tombstones, secret):
+    """Áp ĐỦ tombstone lên một tệp sqlite (bản khôi phục / bản sao lưu đang làm sạch):
+    dòng theo khoá thô (``purge_db_by_tombstones``), dòng gắn thẻ HMAC (sửa câu, câu mẫu,
+    kiến thức học) và bản chụp/thùng rác/lịch sử sửa của workspace. Trả số dòng đã xoá."""
+    import workspace
+    deleted = purge_db_by_tombstones(db_path, tombstones, secret)["deleted"]
+    deleted += purge_hmac_tagged(db_path, tombstones)
+    deleted += workspace.purge_history_by_tombstones(db_path, tombstones, secret)
+    return deleted

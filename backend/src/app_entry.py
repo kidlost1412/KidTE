@@ -280,6 +280,7 @@ def main() -> int:
     server = None
     auto_scheduler = None
     retention_scheduler = None
+    privacy_scrubber = None
     ly_do_dung = "graceful"
     restart_requested = False
     logger = configure_logger("core", LOG_DIR)
@@ -416,6 +417,14 @@ def main() -> int:
                 maintenance_provider=lambda: bool(getattr(getattr(engine, "maintenance", None), "blocked", lambda: False)()),
                 backup_lock=backup_policy.OPERATIONAL_BACKUP_LOCK, logger=logger)
             retention_scheduler.start()
+        import backup_policy
+        if backup_policy.scrub_enabled() and not args.safe_mode:
+            # Làm sạch bản sao lưu/schema_backups theo khách đã quên + VACUUM; nền, hoãn khi LIVE/bảo trì.
+            privacy_scrubber = backup_policy.PrivacyScrubScheduler(
+                live_provider=getattr(engine, "_is_live_running", None),
+                maintenance_provider=lambda: bool(getattr(getattr(engine, "maintenance", None), "blocked", lambda: False)()),
+                logger=logger)
+            privacy_scrubber.start()
         try:
             import whisper_models
             whisper_models.warm_up()    # đo GPU/CUDA nền, trang Chép lời không phải chờ
@@ -437,6 +446,8 @@ def main() -> int:
             auto_scheduler.stop()
         if retention_scheduler is not None:
             retention_scheduler.stop()
+        if privacy_scrubber is not None:
+            privacy_scrubber.stop()
         if server is not None:
             try:
                 server.server_close()

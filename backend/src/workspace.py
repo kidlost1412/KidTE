@@ -123,6 +123,71 @@ def _read_json_strict(path, default, *, attempts=4, delay=0.15):
     raise StoreReadError(f"store_unreadable:{path.name}: {last}") from last
 
 
+def _customer_row_tag(row, key_hmac_fn):
+    """Thẻ HMAC của khách sở hữu một dòng hội thoại/khách ('' nếu không xác định đủ mạnh)."""
+    if not isinstance(row, dict):
+        return ""
+    try:
+        from customer_memory import CustomerMemory
+        key, strength = CustomerMemory.customer_key(
+            platform_user_id=row.get("user_id") or "", unique_id=row.get("unique_id") or "",
+            display_name=row.get("nickname") or "",
+            platform="shopee" if row.get("platform") == "shopee" or row.get("data_source") == "shopee-live"
+            else "tiktok")
+    except Exception:
+        return ""
+    return key_hmac_fn(key) if strength >= 2 else ""
+
+
+_HISTORY_TABLES = (("operator_snapshots", "snapshot_id", ("data_json",)),
+                   ("trash_items", "trash_id", ("data_json",)),
+                   ("operator_changes", "change_id", ("before_json", "after_json")))
+
+
+def purge_history_by_tombstones(db_path, tombstones, secret, *, dry_run=False):
+    """Bản chụp/thùng rác/lịch sử sửa của khách đã quên trong một TỆP workspace (bản sao lưu).
+
+    Cùng quy tắc với ``WorkspaceStore._forget_customer_history`` cho dòng có thẻ HMAC; dòng
+    cũ không xác định được chủ thì giữ nguyên (không có định danh thô để dò). ``dry_run``
+    chỉ đếm (mở chỉ đọc). Trả số dòng đã xoá/sẽ xoá."""
+    import privacy as _privacy
+    hashes = {t["key_hmac"] for t in _privacy.merge_tombstones(tombstones)}
+    if not hashes:
+        return 0
+    if not secret:
+        raise ValueError("privacy_secret_required")
+    tag = lambda key: _privacy.hmac_for_key(secret, key)  # noqa: E731
+    if dry_run:
+        db = sqlite3.connect(_privacy.readonly_uri(db_path), uri=True, timeout=10)
+    else:
+        db = sqlite3.connect(str(db_path), timeout=10)
+        db.execute("PRAGMA secure_delete=ON")
+    db.row_factory = sqlite3.Row
+    resources = WorkspaceStore._CUSTOMER_RESOURCES
+    marks = ",".join("?" for _ in resources)
+    found = 0
+    try:
+        with db:
+            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            for table, id_col, json_cols in _HISTORY_TABLES:
+                if table not in tables:
+                    continue
+                cols = {c[1] for c in db.execute(f"PRAGMA table_info({table})")}
+                if not {"resource", id_col, *json_cols} <= cols:
+                    continue
+                rows = db.execute(f"SELECT {id_col},{','.join(json_cols)} FROM {table} "
+                                  f"WHERE resource IN ({marks})", resources).fetchall()
+                for row in rows:
+                    if any(_customer_row_tag(WorkspaceStore._json_object(row[col]), tag) in hashes
+                           for col in json_cols):
+                        found += 1
+                        if not dry_run:
+                            db.execute(f"DELETE FROM {table} WHERE {id_col}=?", (row[id_col],))
+        return found
+    finally:
+        db.close()
+
+
 class WorkspaceStore:
     """Resource-oriented facade used only by the same-origin local UI."""
 
@@ -526,17 +591,8 @@ class WorkspaceStore:
         """HMAC provenance tag of the customer a row belongs to ('' if unknown / no privacy)."""
         if self.privacy is None or not isinstance(row, dict):
             return ""
-        try:
-            from customer_memory import CustomerMemory
-            key, strength = CustomerMemory.customer_key(
-                platform_user_id=row.get("user_id") or "", unique_id=row.get("unique_id") or "",
-                display_name=row.get("nickname") or "",
-                platform="shopee" if row.get("platform") == "shopee" or row.get("data_source") == "shopee-live"
-                else "tiktok")
-        except Exception:
-            return ""
         safe = getattr(self.privacy, "safe_key_hmac", None) or self.privacy.key_hmac
-        return safe(key) if strength >= 2 else ""
+        return _customer_row_tag(row, safe)
 
     def forget_customer(self, key_hmac, *, exclude_legacy=True, identifiers=()):
         """F02: delete corrections/examples attributed to ``key_hmac``; hide legacy ones that mention the customer."""

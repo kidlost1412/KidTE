@@ -16,6 +16,7 @@ from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import net as _net
 _net.sanitize_env()
@@ -1587,6 +1588,22 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         return context
 
     def handle(self, payload):
+        """Một bình luận TikTok -> câu trả lời. Các bước (giữ nguyên thứ tự và logic cũ):
+        lọc đầu vào -> chọn sản phẩm -> dựng ngữ cảnh -> gọi model + hậu kiểm -> ghi nhận.
+        Mỗi bước trả về dict kết quả khi phải dừng sớm, None để đi tiếp; trạng thái lượt
+        nằm trong ``t`` (SimpleNamespace) thay cho biến cục bộ của hàm cũ."""
+        t = SimpleNamespace(payload=payload)
+        for step in (self._handle_intake, self._handle_select, self._handle_context,
+                     self._handle_model, self._handle_commit):
+            result = step(t)
+            if result is not None:
+                return result
+        raise AssertionError("handle: _handle_commit luôn trả kết quả")
+
+    def _handle_intake(self, t):
+        """Bước 1 — lọc đầu vào: bảo trì, bình luận hỏng, chủ phòng/echo, xoá ghi nhớ,
+        hạn tuổi, trùng lặp, ghi nhận bình luận, nối câu hỏi đang chờ."""
+        payload = t.payload
         blocked = self._maintenance_block()
         if blocked:
             return blocked
@@ -1659,6 +1676,16 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         comment, pending_question = resolve_question(comment, turns)
         if pending_question:
             self.memory.note_resolved_question(ref.get('interaction_id', ''), comment)
+        t.recompose, t.comment, t.comment_id, t.unique_id, t.nickname = (
+            recompose, comment, comment_id, unique_id, nickname)
+        t.live, t.received_at, t.ref, t.original_comment, t.turns, t.pending_question = (
+            live, received_at, ref, original_comment, turns, pending_question)
+        return None
+
+    def _handle_select(self, t):
+        """Bước 2 — chọn sản phẩm: chọn theo code, router, hỏi lại SKU, thiếu dữ liệu."""
+        payload, comment, live, turns = t.payload, t.comment, t.live, t.turns
+        original_comment, pending_question = t.original_comment, t.pending_question
         sel = self._select_product(comment, live, turns=turns)
         routed = self._tiktok_router(comment, original_comment, live, turns, sel, pending_question)
         selection_source = "code"
@@ -1683,8 +1710,8 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
             try:
                 if routed.get("clarify_ids") is not None:
                     router_metrics["selection_source"] = "router_clarify"
-                clarified = self._tiktok_clarify_sku(payload, ref, live, turns, comment, original_comment,
-                    nickname, unique_id, received_at, recompose,
+                clarified = self._tiktok_clarify_sku(payload, t.ref, live, turns, comment, original_comment,
+                    t.nickname, t.unique_id, t.received_at, t.recompose,
                     candidate_ids=routed.get("clarify_ids"), extra_metrics=router_metrics)
             except Exception:
                 logging.getLogger('kid-te.core').warning('tiktok clarify failed', exc_info=True)
@@ -1699,7 +1726,16 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
                 "missing_fields": missing, "report_path": str(self.missing.path),
                 "missing_count": self.missing.count, "report": report,
             })
+        t.sel, t.routed, t.product, t.intents, t.learned_product = sel, routed, product, intents, learned_product
+        t.router_metrics, t.promotion_clarification = router_metrics, promotion_clarification
+        return None
 
+    def _handle_context(self, t):
+        """Bước 3 — dựng ngữ cảnh cho model (làn chuyện phiếm hoặc làn bán hàng)."""
+        payload, comment, comment_id, live, turns = t.payload, t.comment, t.comment_id, t.live, t.turns
+        ref, nickname, unique_id, sel, routed = t.ref, t.nickname, t.unique_id, t.sel, t.routed
+        original_comment, pending_question, router_metrics = (
+            t.original_comment, t.pending_question, t.router_metrics)
         memory_context = self.memory.context_for_reply(
             ref.get("customer_key", ""), ref.get("interaction_id", ""), nickname,
         )
@@ -1766,9 +1802,18 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
             context['delivery_protocol_version'] = 2
         tag = "@" + (unique_id or nickname)
         max_body = max(1, (150 if multi else _model_processor.max_chars()) - utf16_length(tag) - 1)
-        started = time.monotonic()
-        if promotion_clarification:
+        t.started = time.monotonic()
+        if t.promotion_clarification:
             context['promotion_status'] = 'Chưa có chương trình được duyệt cho SKU này. Phần khách hỏi quà/ưu đãi: nói cần kiểm tra quà tặng, không bịa quà; không hỏi lại loại hoặc số lượng đã rõ. Nếu câu khách còn hỏi ý khác (liều, công dụng, giá gốc) thì vẫn trả lời phần đó bình thường.'
+        t.card, t.smalltalk_lane, t.context, t.price_signal, t.record = card, smalltalk_lane, context, price_signal, record
+        t.product_ref_note, t.multi, t.tag, t.max_body = product_ref_note, multi, tag, max_body
+        return None
+
+    def _handle_model(self, t):
+        """Bước 4 — gọi model (trong hạn tổng của lượt) + hậu kiểm, gom số liệu."""
+        payload, comment, live, turns, ref, nickname = t.payload, t.comment, t.live, t.turns, t.ref, t.nickname
+        sel, routed, product, intents, router_metrics = t.sel, t.routed, t.product, t.intents, t.router_metrics
+        context, smalltalk_lane, card, started = t.context, t.smalltalk_lane, t.card, t.started
         model_calls = []          # C4: metrics từng lần gọi model trong lượt
 
         def ask_model(*args, **kwargs):
@@ -1780,7 +1825,7 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         # C8: hạn tổng cho mọi lần gọi model của lượt (gồm thử lại) để không giữ hàng chờ 40–60 giây.
         with _model_processor.turn_budget(TURN_BUDGET_S):
             result, dose_gate, retried = self._tiktok_model_turn(
-                ask_model, nickname, comment, context, sel, intents, max_body, price_signal, live, turns)
+                ask_model, nickname, comment, context, sel, intents, t.max_body, t.price_signal, live, turns)
         if retried == "advisory":
             logging.getLogger("kid-te.core").warning(
                 "TikTok reply advisory interaction_id=%s", ref.get('interaction_id', ''),
@@ -1795,9 +1840,9 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         metrics["total_ms"] = int((time.monotonic() - started) * 1000)
         metrics["intents"] = sorted(name for name, on in intents.items() if on)
         metrics["retried"] = retried
-        metrics["knowledge_matched"] = bool(record)
+        metrics["knowledge_matched"] = bool(t.record)
         metrics["learned_items"] = len(context.get("kien_thuc_da_hoc") or [])
-        metrics["learned_product"] = bool(learned_product)
+        metrics["learned_product"] = bool(t.learned_product)
         if smalltalk_lane:
             metrics["context_lane"] = "smalltalk"
         if card:
@@ -1807,8 +1852,8 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         if (routed.get("topics") or router.reading(routed.get("result"))) and router_metrics:
             router_metrics["router_used"] = True
         metrics.update(router_metrics)
-        if product_ref_note is not None:
-            metrics["product_ref"] = product_ref_note
+        if t.product_ref_note is not None:
+            metrics["product_ref"] = t.product_ref_note
         metrics["product_id"] = clean((product or {}).get("product_id"), 160)
         metrics["product_is_pinned"] = (
             metrics["product_id"] == clean(live.get("pin_id"), 160)
@@ -1829,6 +1874,14 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         if schema and schema["awaiting_fields"]:
             result = {**result, "awaiting_fields": schema["awaiting_fields"]}
         metrics = reply_schema.audit_metrics(metrics, schema)
+        t.result, t.schema, t.metrics = result, schema, metrics
+        return None
+
+    def _handle_commit(self, t):
+        """Bước 5 — ghi nhận: kiểm hạn/độ dài, lưu lượt trả lời, chuẩn bị gửi bền vững."""
+        payload, live, ref, sel, product = t.payload, t.live, t.ref, t.sel, t.product
+        result, schema, metrics, multi, tag = t.result, t.schema, t.metrics, t.multi, t.tag
+        received_at, recompose, original_comment = t.received_at, t.recompose, t.original_comment
         reply = result["reply"]
         self._live_alerts().ai_succeeded()   # O3: một lượt thành công là hết báo động AI
         bodies = result.get('messages', [reply]) if multi else [reply]

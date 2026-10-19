@@ -100,6 +100,48 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
     # -> stylesheet mat. Dung hang doi lon + thread rieng cho moi ket noi.
     request_queue_size = 128
     daemon_threads = True
+    # O9/F13: trần số kết nối xử lý đồng thời. Vượt trần thì trả 503 ngay thay vì đẻ thêm luồng
+    # (tiện ích lỗi/vòng lặp gọi dồn không làm cạn tài nguyên app). Kết nối keep-alive rảnh
+    # tự đóng sau Handler.timeout nên luồng được trả lại.
+    max_concurrent_requests = 64
+    _BUSY_BODY = b'{"ok": false, "error": "server_busy"}'
+
+    def __init__(self, *args, **kwargs):
+        self._slots = threading.BoundedSemaphore(self.max_concurrent_requests)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self._reject_busy(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+    def _reject_busy(self, request):
+        logging.getLogger("kid-te.http").warning("http server busy: rejected connection",
+                                                 extra={"event": "http_server_busy"})
+        try:
+            request.settimeout(0.5)
+            try:
+                request.recv(65536)   # đọc đầu yêu cầu: đóng khi còn dữ liệu chưa đọc thì Windows RST
+            except OSError:
+                pass
+            request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+                            b"Retry-After: 1\r\nConnection: close\r\nContent-Length: "
+                            + str(len(self._BUSY_BODY)).encode() + b"\r\n\r\n" + self._BUSY_BODY)
+        except OSError:
+            pass                      # bên gọi đã đi: không còn ai để báo
+        finally:
+            self.shutdown_request(request)
 
 
 def versioned_operator_page(html, version):
@@ -4928,6 +4970,10 @@ def _loopback_host(header_value):
 class Handler(BaseHTTPRequestHandler):
     engine = None
     server_version = "KidTEAI/3.4"
+    # O9/F13: hạn cho TỪNG lần đọc/ghi socket (không phải cả yêu cầu): kết nối treo/keep-alive
+    # rảnh quá 30 s thì đóng, trả luồng. Tải video/upload theo khối vẫn chạy được vì mỗi khối
+    # chỉ cần tiến triển trong 30 s; xử lý lâu phía server không bị tính.
+    timeout = 30
 
     def log_message(self, fmt, *args):
         try:
@@ -5075,9 +5121,10 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 try:
                     self.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
-                    # Trình phát thường hủy range cũ ngay khi người dùng tua.
-                    # Đây là hành vi bình thường, không phải lỗi backend.
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, TimeoutError):
+                    # Trình phát thường hủy range cũ ngay khi người dùng tua, hoặc dừng đọc
+                    # khi tạm dừng (quá Handler.timeout). Bình thường, không phải lỗi backend.
+                    self.close_connection = True
                     break
                 remaining -= len(chunk)
 

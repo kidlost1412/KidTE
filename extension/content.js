@@ -4,7 +4,7 @@
   window.__LIVE_RE_PIN_LOADED__ = true;
 
   const SCHEDULE = globalThis.KidTESchedule;
-  const VERSION = "3.11.5";
+  const VERSION = "3.11.6";
   const UNPIN_GAP_MS = 500;
   const CONFIRM_TIMEOUT_MS = 6000;
   const CONFIRM_POLL_MS = 700;
@@ -424,7 +424,11 @@
     lastSnapshotAt = observedPin.at;
     // Chia se cho comments.js (cung tab, cung isolated world): AI/nhan ghim/
     // dong bo gio doc tu day thay vi tu goi TikTok.
-    globalThis.__KidTELiveSnapshot = { snapshot, at: lastSnapshotAt };
+    // Chi chia se snapshot day du (co phong + co san pham); snapshot rong
+    // khong duoc de len cache 15 phut cua AI/dong bo gio.
+    if (String(snapshot.room_id || "") && products.length > 0) {
+      globalThis.__KidTELiveSnapshot = { snapshot, at: lastSnapshotAt };
+    }
     lastPinId = String(snapshot.pin_id || "");
     if (refreshProducts || productCache.size === 0) {
       validateAndCacheProducts(products);

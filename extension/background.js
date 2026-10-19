@@ -553,6 +553,12 @@ async function runTikTokLiveApi(request) {
       window.__kidteRoomCache = { roomId, at: Date.now() };
     } else {
       window.__kidteRoomCache = null;
+      // TikTok bao loi (qua tai/xac minh/phong het): KHONG tra "0 san pham"
+      // thanh cong, de phia goi khong ghi de catalog/cache bang danh sach rong.
+      const error = new Error(cleanText(response?.message || response?.msg) ||
+        `ListLiveProduct trả mã lỗi ${cleanText(listCode)}`);
+      error.code = cleanText(listCode);
+      throw error;
     }
     const products = Array.isArray(data.products)
       ? data.products.map((product, index) => compactProduct(product, index + 1))
@@ -1102,7 +1108,12 @@ async function resolveApiOwner(tab) {
   return (await browserLeaseAllows(tabId)) ? true : "other_browser";
 }
 function apiOwnerAllows(tab, request) {
-  if (request?.userInitiated === true) return Promise.resolve(isLiveDashboardTab(tab));
+  // Thao tac tay (quet gio tu popup): cho moi tab TikTok Shop (trang chuan bi
+  // LIVE, quan ly san pham...), khong chi LIVE dashboard. 3.11.5 chi nhan
+  // dashboard nen quet tay o trang khac bi tu choi -> "khong lay duoc san pham".
+  if (request?.userInitiated === true) {
+    return Promise.resolve(String(tab?.url || "").startsWith("https://shop.tiktok.com/"));
+  }
   const run = apiOwnerQueue.then(() => resolveApiOwner(tab));
   apiOwnerQueue = run.catch(() => {});
   return run;

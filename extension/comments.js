@@ -624,9 +624,19 @@ function noteSendFailure(detail) {
   const PRODUCT_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
   const PRODUCT_MAX_AGE_MS = PRODUCT_CACHE_MAX_AGE_MS;
   let snapshotInFlight = null;
+  // Snapshot "day du" = co phong LIVE va co it nhat 1 san pham. Snapshot rong
+  // (TikTok tra loi/tam thoi rong) hoac gio truoc LIVE KHONG duoc vao cache,
+  // khong duoc giu 15 phut, khong duoc day len catalog.
+  function completeLiveSnapshot(snapshot) {
+    return Boolean(snapshot && String(snapshot.room_id || "") &&
+      Array.isArray(snapshot.products) && snapshot.products.length > 0);
+  }
+  function rememberLiveSnapshot(snapshot) {
+    if (completeLiveSnapshot(snapshot)) globalThis.__KidTELiveSnapshot = { snapshot, at: Date.now() };
+  }
   function cachedLiveSnapshot() {
     const cached = globalThis.__KidTELiveSnapshot;
-    return cached?.snapshot && Number(cached.at) > 0 ? cached : null;
+    return cached?.snapshot && Number(cached.at) > 0 && completeLiveSnapshot(cached.snapshot) ? cached : null;
   }
   async function liveSnapshot(maxAgeMs = PRODUCT_MAX_AGE_MS, expectedRoom = "") {
     const cached = cachedLiveSnapshot();
@@ -636,7 +646,7 @@ function noteSendFailure(detail) {
     }
     if (!snapshotInFlight) {
       snapshotInFlight = apiRequest("snapshot").then((response) => {
-        globalThis.__KidTELiveSnapshot = { snapshot: response.snapshot || {}, at: Date.now() };
+        rememberLiveSnapshot(response.snapshot);
         return response;
       }).finally(() => { snapshotInFlight = null; });
     }
@@ -1322,15 +1332,20 @@ function noteSendFailure(detail) {
   // Gio doi (tu snapshot cua chu ky ghim): day len Kid TE ngay, khong goi TikTok.
   async function syncCatalogFromCache() {
     const cached = cachedLiveSnapshot();
-    if (!cached || !cached.snapshot.room_id || catalogSyncInFlight) return null;
+    if (!cached || catalogSyncInFlight) return null;
     if (catalogSignature(cached.snapshot) === lastCatalogSignature) return null;
     return pushCatalog(cached.snapshot);
   }
 
   async function runCatalogSync(includeRaw, userInitiated = false) {
+    // Quet tay / cai AI / bat dau LIVE: LUON hoi TikTok (khong dung cache).
     const snapshot = await apiRequest("snapshot", { includeCatalogRaw: includeRaw, userInitiated });
-    if (snapshot.snapshot) globalThis.__KidTELiveSnapshot = { snapshot: snapshot.snapshot, at: Date.now() };
-    return pushCatalog(snapshot.snapshot || {});
+    const context = snapshot.snapshot || {};
+    if (!Array.isArray(context.products) || context.products.length === 0) {
+      throw new Error("TikTok trả 0 sản phẩm (có thể đang quá tải/xác minh); giữ nguyên danh mục cũ, hãy thử quét lại");
+    }
+    rememberLiveSnapshot(context);
+    return pushCatalog(context);
   }
 
   async function applyEnabled(value) {
@@ -1447,7 +1462,8 @@ function noteSendFailure(detail) {
     if (!shouldPeriodicSync()) return;
     const task = Date.now() - lastCatalogSyncAt >= CATALOG_SYNC_EVERY_MS
       // Qua 15 phut: lam moi; neu cache cua chu ky ghim con moi thi dung luon.
-      ? liveSnapshot(CATALOG_SYNC_EVERY_MS, lastRoomId).then((response) => pushCatalog(response.snapshot || {}))
+      ? liveSnapshot(CATALOG_SYNC_EVERY_MS, lastRoomId).then((response) =>
+        completeLiveSnapshot(response.snapshot) ? pushCatalog(response.snapshot) : null)
       : syncCatalogFromCache();
     task.catch((error) => {
       if (enabled) setStatus(`Lỗi làm mới danh mục: ${clean(error?.message || error, 180)}`, false);
@@ -1483,6 +1499,8 @@ function noteSendFailure(detail) {
       applyAppControl,
       shouldPeriodicSync,
       liveSnapshot,
+      syncCatalog,
+      syncCatalogFromCache,
       PRODUCT_CACHE_MAX_AGE_MS,
       CATALOG_SYNC_EVERY_MS,
       getInstallRetryMs: () => installRetryMs,

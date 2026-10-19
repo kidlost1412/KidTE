@@ -401,6 +401,12 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
     assert.deepEqual(writeCalls, [], "prelive must never call write methods");
     delete client.GetLiveProductList; delete client.UpdateProductList;
     client.GetLiveRoomInfo = saved.room; client.ListLiveProduct = saved.list;
+    // 3.11.6: ListLiveProduct báo lỗi (code != 0) => ok:false, KHÔNG "0 sản phẩm" thành công.
+    client.ListLiveProduct = async () => ({ code: 4003, message: "too frequent", data: {} });
+    const listErr = await runTikTokLiveApi({ action: "snapshot" });
+    assert.equal(listErr.ok, false, "ListLiveProduct error must not look like an empty cart");
+    assert.match(listErr.error, /too frequent/);
+    client.ListLiveProduct = saved.list;
     const live = await runTikTokLiveApi({ action: "snapshot" });
     assert.equal(live.snapshot.room_id, "room-19");
     assert.equal(live.snapshot.phase, undefined, "LIVE snapshot unchanged");

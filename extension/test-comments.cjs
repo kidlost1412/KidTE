@@ -16,7 +16,7 @@ const observed = [];
 let replyCalls = 0;
 let catalogCount = 42;
 let ackCalls = 0;
-let snapshotContext = { room_id: "r1", pin_id: "p1", products: [] };
+let snapshotContext = { room_id: "r1", pin_id: "p1", products: [{ product_id: "p1", title: "SP 1" }] };
 let sendChatFailure = "";
 const deliveries = [];
 let replyResult = {
@@ -429,7 +429,7 @@ require("./comments.js");
     assert.equal(first.comment_payload.live_context.room_id, 'room-q');
     // Cùng ngữ cảnh /api/reply: snapshot đang ghim + video_context theo đồng hồ lịch.
     assert.equal(first.comment_payload.live_context.pin_id, 'p1');
-    assert.deepEqual(first.comment_payload.live_context.products, []);
+    assert.ok(Array.isArray(first.comment_payload.live_context.products));
     const mirrored = first.comment_payload.video_context;
     assert.equal(mirrored.sync_confidence, 'manual_clock');
     assert.equal(typeof mirrored.position_s, 'number');
@@ -777,7 +777,7 @@ require("./comments.js");
       if (message?.type === "LIVE_RE_TIKTOK_API") tiktokCalls += 1;
       return realSend(message);
     };
-    globalThis.__KidTELiveSnapshot = { snapshot: { room_id: "r-cache", pin_id: "p9", products: [] }, at: Date.now() };
+    globalThis.__KidTELiveSnapshot = { snapshot: { room_id: "r-cache", pin_id: "p9", products: [{ product_id: "p9" }] }, at: Date.now() };
     const hit = await debug.liveSnapshot(60000, "r-cache");
     assert.equal(hit.cached, true);
     assert.equal(hit.snapshot.pin_id, "p9");
@@ -795,6 +795,43 @@ require("./comments.js");
     globalThis.__KidTELiveSnapshot.at = Date.now() - 16 * 60 * 1000;
     await debug.liveSnapshot();
     assert.equal(tiktokCalls, 2);
+    chrome.runtime.sendMessage = realSend;
+    globalThis.__KidTELiveSnapshot = null;
+  }
+
+  {
+    // 3.11.6: snapshot rỗng (TikTok tạm trả 0 SP) KHÔNG được vào cache 15 phút,
+    // KHÔNG được đẩy lên catalog; quét tay/cài AI phải báo lỗi, không "0 SKU".
+    let tiktokCalls = 0, catalogPushes = 0;
+    const realSend = chrome.runtime.sendMessage;
+    chrome.runtime.sendMessage = async (message) => {
+      if (message?.type === "LIVE_RE_TIKTOK_API") tiktokCalls += 1;
+      if (message?.type === "LIVE_RE_CATALOG_SYNC") catalogPushes += 1;
+      return realSend(message);
+    };
+    const saved = snapshotContext;
+    globalThis.__KidTELiveSnapshot = null;
+    snapshotContext = { room_id: "r-empty", pin_id: "", products: [] };
+    await debug.liveSnapshot(60000, "r-empty");
+    assert.equal(globalThis.__KidTELiveSnapshot, null, "empty snapshot must not be cached");
+    await debug.liveSnapshot(60000, "r-empty");
+    assert.equal(tiktokCalls, 2, "empty result must not be reused from cache");
+    // Cache cũ rỗng (do bản trước ghi) cũng không được dùng / đẩy lên catalog.
+    globalThis.__KidTELiveSnapshot = { snapshot: { room_id: "r-empty", products: [] }, at: Date.now() };
+    assert.equal(await debug.syncCatalogFromCache(), null);
+    assert.equal(catalogPushes, 0, "empty cached snapshot must not overwrite catalog");
+    await assert.rejects(debug.syncCatalog(true, true), /0 sản phẩm/);
+    assert.equal(catalogPushes, 0, "empty fresh snapshot must not overwrite catalog");
+    // Có sản phẩm: quét tay luôn hỏi TikTok (không dùng cache) và lưu đủ.
+    snapshotContext = { room_id: "r-full", pin_id: "", products: [{ product_id: "a" }, { product_id: "b" }] };
+    globalThis.__KidTELiveSnapshot = { snapshot: { room_id: "r-full", products: [{ product_id: "old" }] }, at: Date.now() };
+    const before = tiktokCalls;
+    const ok = await debug.syncCatalog(true, true);
+    assert.equal(tiktokCalls, before + 1, "manual scan must always ask TikTok");
+    assert.equal(ok.ok, true);
+    assert.equal(catalogPushes, 1);
+    assert.equal(globalThis.__KidTELiveSnapshot.snapshot.products.length, 2);
+    snapshotContext = saved;
     chrome.runtime.sendMessage = realSend;
     globalThis.__KidTELiveSnapshot = null;
   }

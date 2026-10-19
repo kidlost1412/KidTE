@@ -16,6 +16,7 @@ SHOPEE_EXTENSION = ROOT / "extension-shopee"
 # Khoá theo TÊN chứ không theo số lượng: một suite bị xoá và một suite khác
 # được thêm vào sẽ giữ nguyên tổng số, nên đếm không phát hiện ra.
 EXPECTED_EXTENSION_TESTS = {
+    "test-api-guard.cjs",
     "test-auto-start.cjs",
     "test-background-api.cjs",
     "test-collector.cjs",

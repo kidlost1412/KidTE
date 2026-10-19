@@ -428,10 +428,14 @@ function noteSendFailure(detail) {
     if (!isObserver || Date.now() - lastPinAt < 30000) return;
     lastPinAt = Date.now();
     try {
-      const snapshot = await apiRequest("snapshot");
+      // Nhan ghim lay tu cache (chu ky ghim cap nhat moi <=20s); chi khi
+      // khong co cache trong 5 phut moi hoi TikTok mot lan.
+      const snapshot = await liveSnapshot(PRODUCT_MAX_AGE_MS);
       lastPinId = clean(snapshot?.snapshot?.pin_id, 160);
       lastRoomId = clean(snapshot?.snapshot?.room_id, 160) || lastRoomId;
-    } catch {}
+    } catch (error) {
+      console.debug("[Kid TE] Chưa lấy được nhãn ghim:", clean(error?.message || error, 160));
+    }
   }
 
   async function flushObserve() {
@@ -610,6 +614,34 @@ function noteSendFailure(detail) {
     } catch {}
   }
 
+  // Doc tu cache truoc. content.js (cung tab) ghi globalThis.__KidTELiveSnapshot
+  // sau moi lan hoi TikTok (chu ky ghim 20s / observe 10s). AI, nhan ghim, dong
+  // bo gio dung chung ban nay; chi goi TikTok khi cache qua tuoi cho phep.
+  const ROOM_CHECK_MAX_AGE_MS = 60 * 1000;
+  const PRODUCT_MAX_AGE_MS = 5 * 60 * 1000;
+  let snapshotInFlight = null;
+  function cachedLiveSnapshot() {
+    const cached = globalThis.__KidTELiveSnapshot;
+    return cached?.snapshot && Number(cached.at) > 0 ? cached : null;
+  }
+  async function liveSnapshot(maxAgeMs = PRODUCT_MAX_AGE_MS, expectedRoom = "") {
+    const cached = cachedLiveSnapshot();
+    if (cached && Date.now() - cached.at < maxAgeMs &&
+        (!expectedRoom || String(cached.snapshot.room_id || "") === String(expectedRoom))) {
+      return { ok: true, snapshot: cached.snapshot, cached: true };
+    }
+    if (!snapshotInFlight) {
+      snapshotInFlight = apiRequest("snapshot").then((response) => {
+        globalThis.__KidTELiveSnapshot = { snapshot: response.snapshot || {}, at: Date.now() };
+        return response;
+      }).finally(() => { snapshotInFlight = null; });
+    }
+    return snapshotInFlight;
+  }
+  function clearLiveSnapshot() {
+    globalThis.__KidTELiveSnapshot = null;
+  }
+
   async function apiRequest(action, extra = {}) {
     const response = await chrome.runtime.sendMessage({
       type: "LIVE_RE_TIKTOK_API",
@@ -694,7 +726,7 @@ function noteSendFailure(detail) {
   async function deliverProtocol2Turn(result, target, row, onSendError) {
     return globalThis.KidTEMessageDelivery.sendTurn(result, {
       active: async () => {
-        const snapshot = await apiRequest('snapshot');
+        const snapshot = await liveSnapshot(ROOM_CHECK_MAX_AGE_MS);
         const role = await chrome.runtime.sendMessage({type:'LIVE_RE_GET_STATE'});
         return enabled && role?.isController && role.state?.running && snapshot.snapshot?.room_id === result.room_id;
       },
@@ -742,7 +774,7 @@ function noteSendFailure(detail) {
   async function processBackendNext() {
     // Đang tạm dừng vì TikTok chặn: không xin việc, để backend khỏi soạn câu phí.
     if (sendPauseRemainingMs() > 0) return 'idle';
-    const snapshotResult = await apiRequest("snapshot");
+    const snapshotResult = await liveSnapshot(ROOM_CHECK_MAX_AGE_MS);
     const roomId = snapshotResult.snapshot?.room_id;
     if (!roomId) return 'idle';
     lastRoomId = roomId;
@@ -785,7 +817,9 @@ function noteSendFailure(detail) {
 
   async function processOne(comment) {
     if (Date.now() >= replyDeadline(comment)) return;
-    const snapshotResult = await apiRequest("snapshot");
+    // Gia/san pham lay tu ban snapshot gan nhat (<=5 phut, dung phong cua
+    // comment); qua cu hoac doi phong moi hoi TikTok mot lan.
+    const snapshotResult = await liveSnapshot(PRODUCT_MAX_AGE_MS, comment.room_id);
     if (comment.room_id && snapshotResult.snapshot?.room_id !== comment.room_id) return;
     lastRoomId = snapshotResult.snapshot?.room_id || lastRoomId;
     if (!comment.room_id) comment.room_id = lastRoomId;
@@ -832,7 +866,7 @@ function noteSendFailure(detail) {
     const waitMs = Math.max(0, 2500 - (Date.now() - lastSendAt));
     if (waitMs) await sleep(waitMs);
     if (Date.now() - comment.received_at_ms >= 120000) return;
-    const currentSnapshot = await apiRequest("snapshot");
+    const currentSnapshot = await liveSnapshot(ROOM_CHECK_MAX_AGE_MS, comment.room_id);
     if (comment.room_id && currentSnapshot.snapshot?.room_id !== comment.room_id) return;
     if (!enabled || !liveRunning) {
       if (result.interaction_id && result.reply_id) {
@@ -935,7 +969,7 @@ function noteSendFailure(detail) {
         if (row.backend_queue_id || Date.now() >= replyDeadline(row) || !row.room_id) continue;
         try {
           if (!context) {
-            const snapshot = (await apiRequest("snapshot")).snapshot || {};
+            const snapshot = (await liveSnapshot(PRODUCT_MAX_AGE_MS, row.room_id)).snapshot || {};
             const runtime = await chrome.runtime.sendMessage({ type: "LIVE_RE_GET_STATE" });
             context = {live_context: snapshot, video_context: videoContextFor(runtime?.state || {})};
           }
@@ -1250,26 +1284,49 @@ function noteSendFailure(detail) {
 
   // Đang quét thì CHỜ lượt đang chạy, không trả "0 sản phẩm" (bản cũ làm
   // popup báo "Đã lưu 0 SKU" và bật AI thất bại khi bấm trùng lúc).
-  function syncCatalog(includeRaw = false) {
+  function syncCatalog(includeRaw = false, userInitiated = false) {
     if (!catalogSyncInFlight) {
-      catalogSyncInFlight = runCatalogSync(includeRaw).finally(() => { catalogSyncInFlight = null; });
+      catalogSyncInFlight = runCatalogSync(includeRaw, userInitiated).finally(() => { catalogSyncInFlight = null; });
     }
     return catalogSyncInFlight;
   }
 
-  async function runCatalogSync(includeRaw) {
-    const snapshot = await apiRequest("snapshot", { includeCatalogRaw: includeRaw });
+  let lastCatalogSignature = "";
+  let lastCatalogSyncAt = 0;
+  function catalogSignature(snapshot) {
+    const products = Array.isArray(snapshot?.products) ? snapshot.products : [];
+    return String(snapshot?.room_id || "") + "|" + products.map((item) =>
+      [item.product_id, item.bag_index, item.price, item.min_price, item.max_price,
+        item.sale_price, item.stock, item.title].join("~")).join("|");
+  }
+
+  async function pushCatalog(context) {
     const catalog = await chrome.runtime.sendMessage({
       type: "LIVE_RE_CATALOG_SYNC",
-      payload: { live_context: snapshot.snapshot || {} }
+      payload: { live_context: context }
     });
     if (!catalog?.ok) throw new Error(catalog?.error || "Không đồng bộ được danh mục LIVE");
-    const context = snapshot.snapshot || {};
+    lastCatalogSignature = catalogSignature(context);
+    lastCatalogSyncAt = Date.now();
     return {
       ...catalog,
       live_room_id: String(context.room_id || ""),
       live_phase: context.room_id ? "live" : String(context.phase || "prelive")
     };
+  }
+
+  // Gio doi (tu snapshot cua chu ky ghim): day len Kid TE ngay, khong goi TikTok.
+  async function syncCatalogFromCache() {
+    const cached = cachedLiveSnapshot();
+    if (!cached || !cached.snapshot.room_id || catalogSyncInFlight) return null;
+    if (catalogSignature(cached.snapshot) === lastCatalogSignature) return null;
+    return pushCatalog(cached.snapshot);
+  }
+
+  async function runCatalogSync(includeRaw, userInitiated = false) {
+    const snapshot = await apiRequest("snapshot", { includeCatalogRaw: includeRaw, userInitiated });
+    if (snapshot.snapshot) globalThis.__KidTELiveSnapshot = { snapshot: snapshot.snapshot, at: Date.now() };
+    return pushCatalog(snapshot.snapshot || {});
   }
 
   async function applyEnabled(value) {
@@ -1304,7 +1361,9 @@ function noteSendFailure(detail) {
       liveRunning = liveStateCache.running === true;
       ensureBridge().catch(() => {});
       if (pinChanged) sendHeartbeat().catch(() => {});
-      if (enabled) install().catch(() => { aiReady = false; });
+      // Doi phong/ket thuc: bo cache de khong tra loi theo gio cu.
+      if (pinChanged && !liveRunning) clearLiveSnapshot();
+      if (enabled && (!aiReady || pinChanged)) install().catch(() => { aiReady = false; });
     }
   });
   aiRestorePromise = restoreAiQueue();
@@ -1336,19 +1395,44 @@ function noteSendFailure(detail) {
   setInterval(() => { sendHeartbeat(); }, 10000);
   setInterval(() => { flushObserve(); }, 2000);
 
-  setInterval(() => {
-    if (enabled && !aiReady) {
-      install().catch((error) => setStatus(
-        `Đang thử nối lại AI: ${clean(error?.message || error, 180)}`,
-        false
-      ));
-    }
-  }, 10000);
+  // Thu noi lai AI: gian dan 10s -> 20s -> 40s ... toi da 5 phut; dat lai khi
+  // thanh cong hoac khi trang chuyen sang LIVE. Chi tab o LIVE dashboard moi thu
+  // (background con chan them: chi tab giu quyen moi duoc goi TikTok).
+  const INSTALL_RETRY_MIN_MS = 10000;
+  const INSTALL_RETRY_MAX_MS = 5 * 60 * 1000;
+  let installRetryMs = INSTALL_RETRY_MIN_MS;
+  let installRetryTimer = null;
+  function onLiveDashboardPage() {
+    return String(globalThis.location?.pathname || "").startsWith("/streamer/live/product/dashboard");
+  }
+  function scheduleInstallRetry(resetDelay = false) {
+    if (resetDelay) installRetryMs = INSTALL_RETRY_MIN_MS;
+    if (installRetryTimer !== null) clearTimeout(installRetryTimer);
+    installRetryTimer = setTimeout(async () => {
+      installRetryTimer = null;
+      if (enabled && !aiReady && onLiveDashboardPage()) {
+        try {
+          await install();
+        } catch (error) {
+          await setStatus(`Đang thử nối lại AI (lần sau ~${Math.round(installRetryMs * 2 / 1000)}s): ${clean(error?.message || error, 160)}`, false);
+        }
+        installRetryMs = aiReady ? INSTALL_RETRY_MIN_MS : Math.min(INSTALL_RETRY_MAX_MS, installRetryMs * 2);
+      } else if (aiReady) {
+        installRetryMs = INSTALL_RETRY_MIN_MS;
+      }
+      scheduleInstallRetry();
+    }, installRetryMs);
+  }
+  scheduleInstallRetry(true);
 
   // Làm mới giỏ định kỳ cả khi AI tắt hoặc chưa LIVE (giỏ prelive).
   // Khi AI tắt chỉ tab dashboard giỏ LIVE đang hiển thị mới tự làm mới,
   // để nhiều tab shop.tiktok.com không cùng gọi API và ghi đè giỏ lẫn nhau.
+  // Chi tab LIVE (dieu khien/quan sat) va chi khi da co phong LIVE moi dong bo
+  // dinh ky. Chua LIVE: khong goi dinh ky; quet tay tu popup van chay.
+  const CATALOG_SYNC_EVERY_MS = 4 * 60 * 1000;
   function shouldPeriodicSync() {
+    if (!(isObserver || isController) || !lastRoomId) return false;
     if (enabled && aiReady) return true;
     const path = String(globalThis.location?.pathname || "");
     const visible = globalThis.document?.visibilityState === "visible";
@@ -1357,15 +1441,19 @@ function noteSendFailure(detail) {
 
   setInterval(() => {
     if (!shouldPeriodicSync()) return;
-    syncCatalog(false).catch((error) => {
+    const task = Date.now() - lastCatalogSyncAt >= CATALOG_SYNC_EVERY_MS
+      // Qua 4 phut: lam moi; neu cache cua chu ky ghim con moi thi dung luon.
+      ? liveSnapshot(CATALOG_SYNC_EVERY_MS, lastRoomId).then((response) => pushCatalog(response.snapshot || {}))
+      : syncCatalogFromCache();
+    task.catch((error) => {
       if (enabled) setStatus(`Lỗi làm mới danh mục: ${clean(error?.message || error, 180)}`, false);
     });
-  }, 60000);
+  }, 20000);
 
   // Quet chu dong truoc LIVE, doc lap voi nut Bật AI va dong ho ghim.
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "LIVE_RE_SCAN_CATALOG_PAGE") return undefined;
-    syncCatalog(true)
+    syncCatalog(true, true)
       .then((catalog) => sendResponse(catalog))
       .catch((error) => sendResponse({
         ok: false, error: clean(error?.message || error, 180)
@@ -1390,6 +1478,8 @@ function noteSendFailure(detail) {
       sendHeartbeat,
       applyAppControl,
       shouldPeriodicSync,
+      liveSnapshot,
+      getInstallRetryMs: () => installRetryMs,
       setRuntimeForTest: (patch = {}) => {
         if (patch.enabled !== undefined) enabled = patch.enabled;
         if (patch.aiReady !== undefined) aiReady = patch.aiReady;

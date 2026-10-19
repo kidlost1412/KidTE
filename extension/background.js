@@ -191,8 +191,17 @@ async function runTikTokLiveApi(request) {
   }
 
   const apiModule = findApiModule();
-  const client = apiModule?.gO;
-  if (!client) return { ok: false, error: "Không tìm thấy TikTok LIVE API client" };
+  const rawClient = apiModule?.gO;
+  if (!rawClient) return { ok: false, error: "Không tìm thấy TikTok LIVE API client" };
+  // Đếm số request thật tới TikTok trong lượt này (để background tính req/phút).
+  let apiCalls = 0;
+  const client = new Proxy(rawClient, {
+    get(target, prop) {
+      const value = target[prop];
+      if (typeof value !== "function") return value;
+      return (...args) => { apiCalls += 1; return value.apply(target, args); };
+    }
+  });
 
   const cleanText = (value) => String(value || "").trim();
   const asNumber = (value) => {
@@ -488,6 +497,11 @@ async function runTikTokLiveApi(request) {
 
   async function getRoomId() {
     if (request?.roomId && !['send_chat','pin','unpin'].includes(request.action)) return cleanText(request.roomId);
+    // pin/unpin/chat: dung room da xac nhan trong 60 giay gan nhat (MAIN world
+    // cua tab), khong goi GetLiveRoomInfo truoc moi lenh. Loi thi xoa cache.
+    const roomCache = window.__kidteRoomCache;
+    if (["send_chat", "pin", "unpin"].includes(request?.action) && roomCache?.roomId &&
+        Date.now() - Number(roomCache.at || 0) < 60000) return roomCache.roomId;
     const roomResponse = await client.GetLiveRoomInfo({});
     roomInfoResponse = roomResponse;
     roomOwner = extractRoomOwner(roomResponse?.data);
@@ -497,8 +511,11 @@ async function runTikTokLiveApi(request) {
       5
     );
     if (cleanText(nestedRoomId)) {
+      window.__kidteRoomCache = { roomId: cleanText(nestedRoomId), at: Date.now() };
       return { roomId: cleanText(nestedRoomId), diagnostic: {} };
     }
+    // TikTok bao chua co phong (LIVE da ket thuc): bo room da nho.
+    window.__kidteRoomCache = null;
 
     // Một số bản TikTok không còn trả room_id ở GetLiveRoomInfo nhưng lại
     // đính kèm nó trong response danh sách sản phẩm. Thử đường này trước khi
@@ -531,6 +548,12 @@ async function runTikTokLiveApi(request) {
   async function snapshot(roomId) {
     const response = await client.ListLiveProduct({ room_id: roomId });
     const data = response?.data || {};
+    const listCode = response?.code;
+    if (listCode === 0 || listCode === "0" || listCode === undefined) {
+      window.__kidteRoomCache = { roomId, at: Date.now() };
+    } else {
+      window.__kidteRoomCache = null;
+    }
     const products = Array.isArray(data.products)
       ? data.products.map((product, index) => compactProduct(product, index + 1))
       : [];
@@ -539,7 +562,15 @@ async function runTikTokLiveApi(request) {
       products.find((product) => product.is_pinned)?.product_id
     );
     if (roomOwner === undefined) {
-      try { roomOwner = extractRoomOwner((await client.GetLiveRoomInfo({}))?.data); } catch { roomOwner = null; }
+      // Chủ phòng không đổi trong một phòng LIVE: nhớ 10 phút ở MAIN world,
+      // tránh mỗi snapshot tốn thêm một GetLiveRoomInfo.
+      const cachedOwner = window.__kidteRoomOwnerCache;
+      if (cachedOwner && cachedOwner.roomId === roomId && Date.now() - cachedOwner.at < 600000) {
+        roomOwner = cachedOwner.owner;
+      } else {
+        try { roomOwner = extractRoomOwner((await client.GetLiveRoomInfo({}))?.data); } catch { roomOwner = null; }
+        if (roomOwner) window.__kidteRoomOwnerCache = { roomId, owner: roomOwner, at: Date.now() };
+      }
     }
     let rawApiData = {};
     if (request?.includeCatalogRaw === true) {
@@ -557,7 +588,7 @@ async function runTikTokLiveApi(request) {
     };
   }
 
-  try {
+  const result = await (async () => { try {
     if (request?.action==='send_chat' && (typeof request.content!=='string' || !request.content.trim() || request.content.length>150)) {
       return {ok:false,error:'Nội dung trả lời trống hoặc vượt 150 ký tự'};
     }
@@ -594,6 +625,7 @@ async function runTikTokLiveApi(request) {
       const code = rawCode === 0 || rawCode === "0" ? 0 :
         (rawCode !== null && rawCode !== undefined && rawCode !== "" &&
          rawCode !== false && Number.isFinite(Number(rawCode)) ? Number(rawCode) : -1);
+      if (code !== 0) window.__kidteRoomCache = null;
       return {
         ok: code === 0,
         room_id: roomId,
@@ -664,6 +696,7 @@ async function runTikTokLiveApi(request) {
       const code = rawCode === 0 || rawCode === "0" ? 0 :
         (rawCode !== null && rawCode !== undefined && rawCode !== "" &&
          rawCode !== false && Number.isFinite(Number(rawCode)) ? Number(rawCode) : -1);
+      if (code !== 0) window.__kidteRoomCache = null;
       return {
         ok: code === 0,
         room_id: roomId,
@@ -674,11 +707,100 @@ async function runTikTokLiveApi(request) {
 
     return { ok: false, error: "Tác vụ TikTok API không hợp lệ" };
   } catch (error) {
+    window.__kidteRoomCache = null;
     return {
       ok: false,
       error: cleanText(error?.message || error),
       error_code: cleanText(error?.code)
     };
+  } })();
+  if (result && typeof result === "object") result.api_calls = apiCalls;
+  return result;
+}
+
+// ---------------------------------------------------------------------
+// Bộ chặn chung cho mọi lượt gọi TikTok: đếm request/phút và TẠM DỪNG gọi
+// tự động trên tab khi TikTok đòi xác minh (captcha) / báo quá tải.
+// ---------------------------------------------------------------------
+const API_PAUSE_STEPS_MS = [120000, 240000, 480000, 600000];
+const API_VERIFY_HINTS = [
+  "captcha", "verify", "verification", "xac minh", "xác minh",
+  "risk", "too frequent", "frequent", "too many", "slow down", "rate limit",
+  "try again later", "forbidden", "blocked", "限制", "验证", "频繁"
+];
+const apiGuards = new Map();
+chrome.tabs?.onRemoved?.addListener?.((tabId) => { apiGuards.delete(tabId); });
+let apiGuardWriteAt = 0;
+
+function looksLikeTikTokVerification(result) {
+  const text = [result?.error, result?.error_code, result?.room_lookup?.message,
+    result?.room_lookup?.list_message].map((v) => String(v || "")).join(" ").toLowerCase();
+  if (API_VERIFY_HINTS.some((hint) => text.includes(hint))) return true;
+  // HTTP 429 / 403 từ TikTok.
+  return /(429|403)/.test(String(result?.error_code || "")) ||
+    [429, 403].includes(Number(result?.response_code));
+}
+
+function apiGuardFor(tabId) {
+  let guard = apiGuards.get(tabId);
+  if (!guard) {
+    guard = { pausedUntil: 0, step: 0, reason: "", calls: [] };
+    apiGuards.set(tabId, guard);
+  }
+  return guard;
+}
+
+function apiGuardSummary(now = Date.now()) {
+  let perMinute = 0, pausedUntil = 0, reason = "";
+  for (const guard of apiGuards.values()) {
+    guard.calls = guard.calls.filter((at) => now - at < 60000);
+    perMinute += guard.calls.length;
+    if (guard.pausedUntil > pausedUntil) { pausedUntil = guard.pausedUntil; reason = guard.reason; }
+  }
+  return { perMinute, pausedUntil: pausedUntil > now ? pausedUntil : 0, reason, updatedAtMs: now };
+}
+
+async function writeApiGuard(force = false) {
+  const now = Date.now();
+  if (!force && now - apiGuardWriteAt < 2000) return;
+  apiGuardWriteAt = now;
+  try { await chrome.storage.local.set({ liveReApiGuard: apiGuardSummary(now) }); }
+  catch (error) { console.warn("Không ghi được bộ đếm TikTok API", error); }
+}
+
+/** Trả về lỗi tạm dừng nếu tab đang bị chặn gọi tự động, ngược lại null. */
+function apiGuardBlocked(tabId, request) {
+  const guard = apiGuardFor(tabId);
+  const remaining = guard.pausedUntil - Date.now();
+  if (remaining <= 0 || request?.userInitiated === true) return null;
+  return {
+    ok: false, paused: true, paused_until_ms: guard.pausedUntil,
+    error: `TikTok đang yêu cầu xác minh – tạm dừng gọi tự động (còn ${Math.ceil(remaining / 1000)} giây)`
+  };
+}
+
+function apiGuardRecord(tabId, result) {
+  const guard = apiGuardFor(tabId);
+  const now = Date.now();
+  const count = Math.max(1, Number(result?.api_calls) || 1);
+  for (let i = 0; i < count; i += 1) guard.calls.push(now);
+  let changed = false;
+  if (!result?.ok && looksLikeTikTokVerification(result)) {
+    const step = API_PAUSE_STEPS_MS[Math.min(guard.step, API_PAUSE_STEPS_MS.length - 1)];
+    guard.step += 1;
+    guard.pausedUntil = now + step;
+    guard.reason = String(result?.error || "TikTok đòi xác minh").slice(0, 160);
+    changed = true;
+    console.warn(`TikTok đòi xác minh trên tab ${tabId}; tạm dừng gọi tự động ${step / 1000}s`, guard.reason);
+  } else if (result?.ok && guard.step && now >= guard.pausedUntil) {
+    guard.step = 0;
+    guard.reason = "";
+    changed = true;
+  }
+  writeApiGuard(changed).catch(() => {});
+  if (result && changed && guard.pausedUntil > now) {
+    result.paused = true;
+    result.paused_until_ms = guard.pausedUntil;
   }
 }
 
@@ -847,6 +969,36 @@ function isLiveDashboardTab(tab) {
     url.includes("/streamer/live/product/dashboard");
 }
 
+// MOT tab duy nhat duoc goi TikTok tai mot thoi diem: tab dieu khien con song
+// tren LIVE dashboard, neu khong thi tab dang giu vai quan sat (lease 20s, cung
+// khoa voi claimObserver). Tab khac / trang khac bi tu choi, khong goi TikTok.
+// Thao tac tay (userInitiated, vd quet gio tu popup) duoc phep tu tab dashboard.
+let apiOwnerQueue = Promise.resolve();
+async function tabOnDashboard(tabId) {
+  if (!tabId) return false;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  return Boolean(tab && isLiveDashboardTab(tab));
+}
+async function resolveApiOwner(tab) {
+  const tabId = Number(tab?.id || 0);
+  if (!tabId || !isLiveDashboardTab(tab)) return false;
+  const stored = await chrome.storage.local.get(
+    ["liveReObserverTabId", "liveReObserverAt", "liveReState"]);
+  const controllerTabId = Number(stored.liveReState?.controllerTabId || 0);
+  if (controllerTabId && controllerTabId !== tabId && await tabOnDashboard(controllerTabId)) return false;
+  const holder = Number(stored.liveReObserverTabId || 0);
+  const fresh = Date.now() - Number(stored.liveReObserverAt || 0) <= OBSERVER_LEASE_MS;
+  if (controllerTabId !== tabId && holder && holder !== tabId && fresh && await tabOnDashboard(holder)) return false;
+  await chrome.storage.local.set({ liveReObserverTabId: tabId, liveReObserverAt: Date.now() });
+  return true;
+}
+function apiOwnerAllows(tab, request) {
+  if (request?.userInitiated === true) return Promise.resolve(isLiveDashboardTab(tab));
+  const run = apiOwnerQueue.then(() => resolveApiOwner(tab));
+  apiOwnerQueue = run.catch(() => {});
+  return run;
+}
+
 async function autoStartFromRoom(tabId, tabUrl, roomId) {
   roomId = String(roomId || "").trim();
   if (!Number.isInteger(tabId) || !roomId ||
@@ -938,6 +1090,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       const request = message.request || {};
+      if (!(await apiOwnerAllows(sender.tab, request))) {
+        sendResponse({ ok: false, not_owner: true,
+          error: "Tab khác đang giữ quyền gọi TikTok (chỉ một tab LIVE được gọi)" });
+        return;
+      }
+      const blocked = apiGuardBlocked(tabId, request);
+      if (blocked) {
+        writeApiGuard().catch(() => {});
+        sendResponse(blocked);
+        return;
+      }
       const durableChat = request.action === 'send_chat' && request.delivery;
       if (durableChat) {
         if (!request.expected_room_id || !request.delivery.reply_id || !request.delivery.interaction_id) {
@@ -975,6 +1138,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ok: false,
         error: "TikTok API không trả kết quả"
       };
+      apiGuardRecord(tabId, result);
       if (durableChat) {
         if (result.ok) result.sent_at_ms = Date.now();
         await completeChatIntent(request, result);

@@ -757,7 +757,10 @@ function apiGuardSummary(now = Date.now()) {
     perMinute += guard.calls.length;
     if (guard.pausedUntil > pausedUntil) { pausedUntil = guard.pausedUntil; reason = guard.reason; }
   }
-  return { perMinute, pausedUntil: pausedUntil > now ? pausedUntil : 0, reason, updatedAtMs: now };
+  const leaseDenied = browserLease.granted === false && now - browserLease.checkedAt < 15000;
+  return { perMinute, pausedUntil: pausedUntil > now ? pausedUntil : 0, reason, updatedAtMs: now,
+    otherBrowser: leaseDenied ? BROWSER_LEASE_DENIED_MESSAGE : "",
+    leaseFailOpen: browserLease.failOpen === true };
 }
 
 async function writeApiGuard(force = false) {
@@ -969,6 +972,111 @@ function isLiveDashboardTab(tab) {
     url.includes("/streamer/live/product/dashboard");
 }
 
+// ---------------------------------------------------------------------
+// Lease liên trình duyệt/profile (Chrome + Cốc Cốc cùng shop): mỗi profile có
+// chrome.storage riêng nên cổng một-tab không thấy nhau; backend Kid TE giữ
+// lease "người gọi TikTok" (30s, chỉ trong bộ nhớ). Định danh = id ngẫu nhiên
+// của profile (liveReProfileId) + tabId. Kết quả cache vài giây.
+// Backend tắt/lỗi: KHÔNG làm tê liệt LIVE — fail-open, trừ khi profile này vừa
+// bị từ chối gần đây (trình duyệt khác đang giữ), có ghi cảnh báo.
+// ---------------------------------------------------------------------
+const BROWSER_LEASE_URL = "http://127.0.0.1:8793/api/tiktok/lease";
+const BROWSER_LEASE_CACHE_MS = 5000;
+const BROWSER_LEASE_TTL_MS = 30000;
+const BROWSER_LEASE_DENY_HOLD_MS = 120000;
+const BROWSER_LEASE_DENIED_MESSAGE = "Trình duyệt khác đang LIVE – trình duyệt này tạm không gọi TikTok";
+const browserLease = { tabId: 0, granted: null, checkedAt: 0, grantedAt: 0, deniedAt: 0, warnedAt: 0, failOpen: false };
+let browserProfileIdPromise = null;
+
+function browserProfileId() {
+  if (!browserProfileIdPromise) {
+    browserProfileIdPromise = chrome.storage.local.get("liveReProfileId").then(async (stored) => {
+      let id = String(stored?.liveReProfileId || "");
+      if (!/^[A-Za-z0-9_-]{8,80}$/.test(id)) {
+        id = globalThis.crypto?.randomUUID?.() ||
+          `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+        await chrome.storage.local.set({ liveReProfileId: id });
+      }
+      return id;
+    });
+    browserProfileIdPromise.catch(() => { browserProfileIdPromise = null; });
+  }
+  return browserProfileIdPromise;
+}
+
+async function postBrowserLease(action, tabId) {
+  if (typeof fetch !== "function") throw new Error("fetch không khả dụng");
+  const profileId = await browserProfileId();
+  const response = await fetch(BROWSER_LEASE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, profile_id: profileId, tab_id: String(tabId) }),
+    signal: globalThis.AbortSignal?.timeout?.(3000)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result?.ok !== true) {
+    throw new Error(result?.error || `HTTP ${response.status}`);
+  }
+  if (action !== "release" && typeof result.granted !== "boolean") {
+    throw new Error("phản hồi lease không hợp lệ");
+  }
+  return result;
+}
+
+async function browserLeaseAllows(tabId, force = false) {
+  const now = Date.now();
+  if (!force && browserLease.tabId === tabId && browserLease.granted !== null &&
+      now - browserLease.checkedAt < BROWSER_LEASE_CACHE_MS) {
+    return browserLease.granted;
+  }
+  const before = browserLease.granted;
+  let granted;
+  try {
+    granted = (await postBrowserLease("claim", tabId)).granted === true;
+    if (granted) browserLease.grantedAt = now; else browserLease.deniedAt = now;
+    browserLease.failOpen = false;
+  } catch (error) {
+    // Lần cuối backend trả lời là "trình duyệt khác giữ" và chưa quá 2 phút:
+    // vẫn chặn. Ngược lại (đang giữ / chưa từng biết / quá lâu): cho phép.
+    const recentlyDenied = browserLease.deniedAt > browserLease.grantedAt &&
+      now - browserLease.deniedAt < BROWSER_LEASE_DENY_HOLD_MS;
+    granted = !recentlyDenied;
+    browserLease.failOpen = granted;
+    if (now - browserLease.warnedAt > 60000) {
+      browserLease.warnedAt = now;
+      console.warn(`Kid TE: không kiểm được lease liên trình duyệt (${error?.message || error}); ` +
+        (granted ? "fail-open: vẫn cho tab này gọi TikTok" : "giữ chặn vì trình duyệt khác vừa giữ quyền"));
+    }
+  }
+  browserLease.tabId = tabId;
+  browserLease.granted = granted;
+  browserLease.checkedAt = now;
+  if (before !== granted) writeApiGuard(true).catch(() => {});
+  return granted;
+}
+
+// Gia hạn theo nhịp heartbeat 10s của tab đang giữ lease.
+function renewBrowserLeaseOnHeartbeat(tabId) {
+  if (!tabId || browserLease.tabId !== tabId || browserLease.granted !== true) return;
+  if (Date.now() - browserLease.checkedAt < BROWSER_LEASE_CACHE_MS) return;
+  browserLeaseAllows(tabId, true).catch(() => {});
+}
+
+// Tab giữ lease đóng/rời LIVE dashboard: trả lease để profile khác nhận ngay.
+function releaseBrowserLease(tabId) {
+  if (!tabId || browserLease.tabId !== tabId || browserLease.granted !== true) return;
+  browserLease.tabId = 0;
+  browserLease.granted = null;
+  browserLease.checkedAt = 0;
+  postBrowserLease("release", tabId).catch((error) => {
+    console.warn(`Kid TE: không trả được lease liên trình duyệt (${error?.message || error}); lease tự hết hạn sau 30s`);
+  });
+}
+chrome.tabs?.onRemoved?.addListener?.((tabId) => releaseBrowserLease(tabId));
+chrome.tabs?.onUpdated?.addListener?.((tabId, info) => {
+  if (info?.url && !isLiveDashboardTab({ url: info.url })) releaseBrowserLease(tabId);
+});
+
 // MOT tab duy nhat duoc goi TikTok tai mot thoi diem: tab dieu khien con song
 // tren LIVE dashboard, neu khong thi tab dang giu vai quan sat (lease 20s, cung
 // khoa voi claimObserver). Tab khac / trang khac bi tu choi, khong goi TikTok.
@@ -990,7 +1098,8 @@ async function resolveApiOwner(tab) {
   const fresh = Date.now() - Number(stored.liveReObserverAt || 0) <= OBSERVER_LEASE_MS;
   if (controllerTabId !== tabId && holder && holder !== tabId && fresh && await tabOnDashboard(holder)) return false;
   await chrome.storage.local.set({ liveReObserverTabId: tabId, liveReObserverAt: Date.now() });
-  return true;
+  // Đã thắng cổng nội bộ (trong profile này); còn phải giữ lease liên trình duyệt.
+  return (await browserLeaseAllows(tabId)) ? true : "other_browser";
 }
 function apiOwnerAllows(tab, request) {
   if (request?.userInitiated === true) return Promise.resolve(isLiveDashboardTab(tab));
@@ -1090,9 +1199,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       const request = message.request || {};
-      if (!(await apiOwnerAllows(sender.tab, request))) {
-        sendResponse({ ok: false, not_owner: true,
-          error: "Tab khác đang giữ quyền gọi TikTok (chỉ một tab LIVE được gọi)" });
+      const owner = await apiOwnerAllows(sender.tab, request);
+      if (owner !== true) {
+        const otherBrowser = owner === "other_browser";
+        sendResponse({ ok: false, not_owner: true, other_browser: otherBrowser,
+          error: otherBrowser ? BROWSER_LEASE_DENIED_MESSAGE
+            : "Tab khác đang giữ quyền gọi TikTok (chỉ một tab LIVE được gọi)" });
         return;
       }
       const blocked = apiGuardBlocked(tabId, request);
@@ -1211,6 +1323,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       retrySavedReceipts();
+      if (message.type === "LIVE_RE_HEARTBEAT") renewBrowserLeaseOnHeartbeat(Number(sender?.tab?.id || 0));
       const ENDPOINTS = {
         LIVE_RE_AI_REPLY: "http://127.0.0.1:8793/api/reply",
         LIVE_RE_AI_ACK: "http://127.0.0.1:8793/api/reply/ack",

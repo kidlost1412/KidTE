@@ -618,7 +618,11 @@ function noteSendFailure(detail) {
   // sau moi lan hoi TikTok (chu ky ghim 20s / observe 10s). AI, nhan ghim, dong
   // bo gio dung chung ban nay; chi goi TikTok khi cache qua tuoi cho phep.
   const ROOM_CHECK_MAX_AGE_MS = 60 * 1000;
-  const PRODUCT_MAX_AGE_MS = 5 * 60 * 1000;
+  // Gia va san pham it doi (chu shop quyet 19/10/2026): AI + dong bo gio dung
+  // cache toi 15 phut. Doi room / het LIVE / sau ghim / quet tay van lam moi ngay;
+  // khi dong ho ghim chay, cache van duoc cap nhat moi 20s.
+  const PRODUCT_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+  const PRODUCT_MAX_AGE_MS = PRODUCT_CACHE_MAX_AGE_MS;
   let snapshotInFlight = null;
   function cachedLiveSnapshot() {
     const cached = globalThis.__KidTELiveSnapshot;
@@ -1430,7 +1434,7 @@ function noteSendFailure(detail) {
   // để nhiều tab shop.tiktok.com không cùng gọi API và ghi đè giỏ lẫn nhau.
   // Chi tab LIVE (dieu khien/quan sat) va chi khi da co phong LIVE moi dong bo
   // dinh ky. Chua LIVE: khong goi dinh ky; quet tay tu popup van chay.
-  const CATALOG_SYNC_EVERY_MS = 4 * 60 * 1000;
+  const CATALOG_SYNC_EVERY_MS = PRODUCT_CACHE_MAX_AGE_MS;
   function shouldPeriodicSync() {
     if (!(isObserver || isController) || !lastRoomId) return false;
     if (enabled && aiReady) return true;
@@ -1442,7 +1446,7 @@ function noteSendFailure(detail) {
   setInterval(() => {
     if (!shouldPeriodicSync()) return;
     const task = Date.now() - lastCatalogSyncAt >= CATALOG_SYNC_EVERY_MS
-      // Qua 4 phut: lam moi; neu cache cua chu ky ghim con moi thi dung luon.
+      // Qua 15 phut: lam moi; neu cache cua chu ky ghim con moi thi dung luon.
       ? liveSnapshot(CATALOG_SYNC_EVERY_MS, lastRoomId).then((response) => pushCatalog(response.snapshot || {}))
       : syncCatalogFromCache();
     task.catch((error) => {
@@ -1479,6 +1483,8 @@ function noteSendFailure(detail) {
       applyAppControl,
       shouldPeriodicSync,
       liveSnapshot,
+      PRODUCT_CACHE_MAX_AGE_MS,
+      CATALOG_SYNC_EVERY_MS,
       getInstallRetryMs: () => installRetryMs,
       setRuntimeForTest: (patch = {}) => {
         if (patch.enabled !== undefined) enabled = patch.enabled;

@@ -171,10 +171,12 @@
         + ` · tin cậy ${videoSync.margin.toFixed(2)}`;
     }
     const guardPaused = apiGuard && Number(apiGuard.pausedUntil || 0) > Date.now();
-    root.querySelector("#status").textContent = guardPaused
+    const otherBrowser = apiGuard && Date.now() - Number(apiGuard.updatedAtMs || 0) < 120000
+      ? String(apiGuard.otherBrowser || "") : "";
+    root.querySelector("#status").textContent = otherBrowser || (guardPaused
       ? `TikTok đang yêu cầu xác minh – tạm dừng gọi tự động (còn ${Math.ceil((apiGuard.pausedUntil - Date.now()) / 1000)} giây)`
-      : currentStatusMessage;
-    root.querySelector("#status").classList.toggle("bad", Boolean(guardPaused) || !currentStatusOk);
+      : currentStatusMessage);
+    root.querySelector("#status").classList.toggle("bad", Boolean(otherBrowser) || Boolean(guardPaused) || !currentStatusOk);
 
     const now = Date.now();
     if (isController && now - lastStatusWriteAt > 1800 && hasExtensionContext()) {

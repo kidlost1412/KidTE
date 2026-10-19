@@ -120,8 +120,11 @@ function readApiGuard(stored) {
   const guard = stored?.liveReApiGuard;
   const fresh = guard && Date.now() - Number(guard.updatedAtMs || 0) < 120000;
   const pausedMs = fresh ? Number(guard.pausedUntil || 0) - Date.now() : 0;
-  box.classList.toggle("bad", pausedMs > 0);
-  if (pausedMs > 0) {
+  const otherBrowser = fresh ? String(guard.otherBrowser || "") : "";
+  box.classList.toggle("bad", pausedMs > 0 || Boolean(otherBrowser));
+  if (otherBrowser) {
+    box.textContent = otherBrowser;
+  } else if (pausedMs > 0) {
     box.textContent = `TikTok đang yêu cầu xác minh – tạm dừng gọi tự động (còn ${Math.ceil(pausedMs / 1000)} giây)`;
   } else {
     box.textContent = `Gọi TikTok: ${fresh ? Number(guard.perMinute || 0) : 0} request/phút`;

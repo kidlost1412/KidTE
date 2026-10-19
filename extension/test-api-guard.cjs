@@ -1,6 +1,8 @@
 "use strict";
 // Chỉ MỘT tab LIVE được gọi TikTok; TikTok đòi xác minh thì tạm dừng gọi tự động.
 const assert = require("node:assert/strict");
+// Không bao giờ chạm backend thật (cổng 8793) khi test.
+global.fetch = async () => { throw new Error("backend offline (test)"); };
 
 const storage = {};
 const DASH = "https://shop.tiktok.com/streamer/live/product/dashboard";

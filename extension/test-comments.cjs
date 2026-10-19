@@ -785,8 +785,14 @@ require("./comments.js");
     // Đổi phòng: hỏi TikTok đúng một lần, kể cả khi nhiều comment cùng chờ.
     await Promise.all([debug.liveSnapshot(60000, "r1"), debug.liveSnapshot(60000, "r1")]);
     assert.equal(tiktokCalls, 1, "concurrent cache misses share one request");
-    // Cache quá tuổi: làm mới.
+    // Giá/sản phẩm ít đổi: cache 15 phút; 10 phút tuổi vẫn dùng cache.
+    assert.equal(debug.PRODUCT_CACHE_MAX_AGE_MS, 15 * 60 * 1000);
+    assert.equal(debug.CATALOG_SYNC_EVERY_MS, 15 * 60 * 1000, "periodic catalog sync ~15 min");
     globalThis.__KidTELiveSnapshot.at = Date.now() - 10 * 60 * 1000;
+    assert.equal((await debug.liveSnapshot()).cached, true);
+    assert.equal(tiktokCalls, 1, "10-minute-old product cache must not call TikTok");
+    // Cache quá 15 phút: làm mới.
+    globalThis.__KidTELiveSnapshot.at = Date.now() - 16 * 60 * 1000;
     await debug.liveSnapshot();
     assert.equal(tiktokCalls, 2);
     chrome.runtime.sendMessage = realSend;

@@ -1298,7 +1298,22 @@ function noteSendFailure(detail) {
 
   // Đang quét thì CHỜ lượt đang chạy, không trả "0 sản phẩm" (bản cũ làm
   // popup báo "Đã lưu 0 SKU" và bật AI thất bại khi bấm trùng lúc).
+  // Quét tay (userInitiated) KHÔNG ghép vào lượt tự động đang chạy (lượt đó có thể
+  // bị cổng/guard chặn hoặc không xoá tombstone): chờ nó xong rồi tự gọi TikTok.
+  let manualSyncInFlight = null;
   function syncCatalog(includeRaw = false, userInitiated = false) {
+    if (userInitiated) {
+      if (!manualSyncInFlight) {
+        const previous = catalogSyncInFlight ? catalogSyncInFlight.catch(() => {}) : Promise.resolve();
+        const run = previous.then(() => runCatalogSync(includeRaw, true));
+        const tracked = run.finally(() => {
+          manualSyncInFlight = null;
+          if (catalogSyncInFlight === tracked) catalogSyncInFlight = null;
+        });
+        catalogSyncInFlight = manualSyncInFlight = tracked;
+      }
+      return manualSyncInFlight;
+    }
     if (!catalogSyncInFlight) {
       catalogSyncInFlight = runCatalogSync(includeRaw, userInitiated).finally(() => { catalogSyncInFlight = null; });
     }
@@ -1314,12 +1329,14 @@ function noteSendFailure(detail) {
         item.sale_price, item.stock, item.title].join("~")).join("|");
   }
 
-  async function pushCatalog(context) {
-    const catalog = await chrome.runtime.sendMessage({
-      type: "LIVE_RE_CATALOG_SYNC",
-      payload: { live_context: context }
-    });
+  async function pushCatalog(context, userInitiated = false) {
+    const payload = { live_context: context };
+    if (userInitiated) payload.user_initiated = true;
+    const catalog = await chrome.runtime.sendMessage({ type: "LIVE_RE_CATALOG_SYNC", payload });
     if (!catalog?.ok) throw new Error(catalog?.error || "Không đồng bộ được danh mục LIVE");
+    if (userInitiated && catalog.skipped) {
+      throw new Error(`Kid TE chưa ghi giỏ mới (${catalog.skipped}); danh mục cũ giữ nguyên`);
+    }
     lastCatalogSignature = catalogSignature(context);
     lastCatalogSyncAt = Date.now();
     return {
@@ -1345,7 +1362,8 @@ function noteSendFailure(detail) {
       throw new Error("TikTok trả 0 sản phẩm (có thể đang quá tải/xác minh); giữ nguyên danh mục cũ, hãy thử quét lại");
     }
     rememberLiveSnapshot(context);
-    return pushCatalog(context);
+    const saved = await pushCatalog(context, userInitiated);
+    return { ...saved, tiktok_count: context.products.length };
   }
 
   async function applyEnabled(value) {

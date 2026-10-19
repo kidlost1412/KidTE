@@ -1018,13 +1018,31 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         )
         return result
 
-    def sync_catalog(self, snapshot):
+    def sync_catalog(self, snapshot, user_initiated=False):
+        incoming = [p for p in ((snapshot or {}).get("products") or []) if isinstance(p, dict)]             if isinstance(snapshot, dict) else []
+        restored = []
+        if user_initiated and incoming:
+            # Người dùng bấm "lấy lại/quét": giỏ TikTok là nguồn đúng. Sản phẩm từng
+            # bị xoá cục bộ (tombstone) mà TikTok vẫn trả về thì đưa lại danh mục.
+            # Tự động đồng bộ vẫn giữ tombstone như trước.
+            removed = product_blocklist.removed_products()
+            for product in incoming:
+                pid = str(product.get("product_id") or "").strip()
+                if pid and pid in removed:
+                    product_blocklist.set_removed(removed[pid], False)
+                    restored.append(pid)
         saved = self.catalog.sync(snapshot)
         self.workspace._touch("products", "catalog", "dashboard")
         result = {"ok": True, "product_count": saved["product_count"], "synced_at": saved["synced_at"],
-                  "phase": saved.get("phase", "")}
+                  "phase": saved.get("phase", ""), "received_count": len(incoming)}
+        if restored:
+            result["restored_ids"] = restored
         if saved.get("skipped"):
             result["skipped"] = saved["skipped"]
+            if user_initiated:
+                result.update(ok=False, error=(
+                    "Phiên LIVE đang hoạt động: giỏ trước LIVE không ghi đè danh mục LIVE. "
+                    "Hãy quét từ tab LIVE dashboard."))
         return result
 
     def acknowledge_reply(self, payload):

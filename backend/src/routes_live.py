@@ -109,7 +109,10 @@ def post_observe(self, route, payload, flags):
 
 
 def post_route_endswith_catalog_sync(self, route, payload, flags):
-    result = self.engine.sync_catalog(payload.get("live_context", payload))
+    context = payload.get("live_context", payload)
+    if payload.get("user_initiated") is True:
+        return self.engine.sync_catalog(context, user_initiated=True)
+    result = self.engine.sync_catalog(context)
     return result
 
 

@@ -32,6 +32,7 @@ START_REASONS = {
     "captcha_admin_declined": "bạn đã từ chối quyền Administrator (UAC)",
     "captcha_other_solver_running": "đang có bộ giải khác chạy",
     "captcha_solver_missing": "không tìm thấy chương trình bộ giải",
+    "captcha_solver_package_invalid": "tệp bộ giải không khớp gói đã ký (bị sửa hoặc hỏng) nên không chạy bằng quyền Administrator; vào Cài đặt → Cập nhật để cài lại gói CAPTCHA",
     "captcha_key_missing": "chưa có key SadCaptcha",
     "captcha_key_rejected": "key SadCaptcha bị từ chối",
     "captcha_app_closing": "Kid TE đang đóng",

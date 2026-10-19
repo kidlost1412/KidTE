@@ -53,6 +53,17 @@ class CaptchaBridge:
             return Path(selected)
         return INSTALL_ROOT / "Captcha" / "KidTECaptcha.exe"
 
+    def _verify_package_before_launch(self):
+        """Frozen only: refuse to run (possibly elevated) code that differs from the signed package.
+
+        Raises on any mismatch; the legacy unsigned App Captcha folder copy cannot be verified, so it is refused too.
+        """
+        if not IS_FROZEN:
+            return
+        from component_runtime import verify_component_tree
+        if verify_component_tree("captcha-solver", "Captcha") is None:
+            raise RuntimeError("captcha solver is not installed from a signed package")
+
     def _solver_package_root(self):
         selected = self._selected_solver_executable()
         if selected is not None:
@@ -376,6 +387,7 @@ class CaptchaBridge:
                 or state.get("telegram_error") or state["monitor_pid"]):
             return {"monitor_start_requested": False}
         try:
+            self._verify_package_before_launch()
             command = self._monitor_command(state["pid"])
         except Exception:
             return {"monitor_start_requested": False,
@@ -424,6 +436,10 @@ class CaptchaBridge:
                 return {**state, "ok": False, "error": "captcha_key_rejected"}
             self.data_dir.mkdir(parents=True, exist_ok=True)
             (self.data_dir / "stop-requested.marker").unlink(missing_ok=True)
+            try:
+                self._verify_package_before_launch()
+            except Exception:
+                return {"ok": False, "error": "captcha_solver_package_invalid"}
             command = self._command() + ["--owner-pid", str(os.getpid())]
             if bool(ctypes.windll.shell32.IsUserAnAdmin()):
                 flags = (getattr(subprocess, "DETACHED_PROCESS", 0) |

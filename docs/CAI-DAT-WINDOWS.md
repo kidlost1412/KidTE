@@ -105,3 +105,5 @@ Mức phí và điều kiện cấp chứng chỉ phải kiểm tại thời đi
 "Run anyway" một lần mỗi máy + đối chiếu SHA-256 là đủ. Khi phát hành rộng cho khách
 ngoài thì nên mua chứng chỉ; lúc đó chỉ cần thêm bước `signtool sign` sau Inno Setup
 trong `packaging/build.ps1` (rồi mới tính SHA-256).
+
+> Ghi chú kỹ thuật: tiện ích Chrome/Shopee và các công cụ nội bộ đang gọi thẳng `http://127.0.0.1:8793` (cổng cố định, chưa cấu hình được); vì vậy khi cổng bị chiếm phải đóng chương trình đang giữ cổng.

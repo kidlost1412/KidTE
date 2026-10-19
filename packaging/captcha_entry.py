@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -34,8 +35,7 @@ def _start_monitor(data_dir: Path):
         script_dir = Path(__file__).resolve().parent / "captcha-monitor"
     script = script_dir / "monitor.ps1"
     if not script.is_file() or ffmpeg is None:
-        (data_dir / "monitor-error.txt").write_text(
-            "Telegram monitor or FFmpeg is missing.", encoding="utf-8")
+        _safe_write(data_dir / "monitor-error.txt", "Telegram monitor or FFmpeg is missing.")
         return
     # PowerShell cannot run -File with DETACHED_PROCESS; it exits silently.
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) |
@@ -212,6 +212,37 @@ def selftest(data_dir: Path | None) -> dict:
     return {"ok": all(item["ok"] for item in checks), "checks": checks}
 
 
+def _is_reparse(path: Path) -> bool:
+    try:
+        return bool(os.lstat(path).st_file_attributes & 0x400)   # symlink / junction / mount point
+    except (OSError, AttributeError):
+        return False
+
+
+def _safe_write(path: Path, text: str) -> None:
+    """Write a status file from the ELEVATED process without following planted links.
+
+    The data folder is writable by the normal user, who could pre-place a symlink,
+    junction or hard link named like our file so an Administrator write hits a
+    system file. Remove any such link (this deletes the link, never its target)
+    and create the file fresh with O_EXCL.
+    """
+    path = Path(path)
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        info = None
+    if info is not None:
+        if stat.S_ISDIR(info.st_mode):
+            if not _is_reparse(path):
+                raise OSError(f"{path.name} is a directory")
+            os.rmdir(path)                      # junction: removes the link only
+        else:
+            path.unlink()                       # file, symlink or hard-link name: never touches the target
+    with open(path, "x", encoding="utf-8") as stream:
+        stream.write(text)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path)
@@ -229,6 +260,8 @@ def main() -> int:
         return 0 if report["ok"] else 1
     if args.data_dir is None:
         parser.error("--data-dir is required")
+    if _is_reparse(args.data_dir):
+        return 5          # refuse a data folder that is a junction/symlink (could redirect Administrator writes)
     data_dir = args.data_dir.resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
     # Keep a handle to the original owner: a recycled PID cannot keep us alive.
@@ -250,27 +283,23 @@ def main() -> int:
     if mutex is None:
         return 0
     if not bool(ctypes.windll.shell32.IsUserAnAdmin()):
-        (data_dir / "startup-error.txt").write_text(
-            "Solver requires Administrator permission.", encoding="utf-8")
+        _safe_write(data_dir / "startup-error.txt", "Solver requires Administrator permission.")
         return 3
     try:
         api_key = load_key(data_dir)
     except (OSError, UnicodeError) as error:
-        (data_dir / "startup-error.txt").write_text(
-            f"Could not load SadCaptcha key: {type(error).__name__}", encoding="utf-8")
+        _safe_write(data_dir / "startup-error.txt", f"Could not load SadCaptcha key: {type(error).__name__}")
         return 4
     (data_dir / "startup-error.txt").unlink(missing_ok=True)
-    (data_dir / "solver-session.json").write_text(json.dumps({
+    _safe_write(data_dir / "solver-session.json", json.dumps({
         "pid": os.getpid(), "started_at": datetime.now(timezone.utc).isoformat(),
         "admin": True,
-    }), encoding="utf-8")
+    }))
     monitor = None
     try:
         monitor = _start_monitor(data_dir)
     except Exception as error:
-        (data_dir / "monitor-error.txt").write_text(
-            f"Could not start Telegram monitor: {type(error).__name__}",
-            encoding="utf-8")
+        _safe_write(data_dir / "monitor-error.txt", f"Could not start Telegram monitor: {type(error).__name__}")
     def watch_owner():
         while True:
             if (data_dir / "stop-requested.marker").exists() or (owner and kernel.WaitForSingleObject(owner, 0) != 258):
@@ -289,13 +318,12 @@ def main() -> int:
         solve_loop(ApiClient(api_key))
     except SystemExit as error:
         if error.code == 2:
-            (data_dir / "key-rejected.marker").write_text(json.dumps({
+            _safe_write(data_dir / "key-rejected.marker", json.dumps({
                 "key_sha256": hashlib.sha256(api_key.encode("utf-8")).hexdigest(),
-            }), encoding="utf-8")
+            }))
         return int(error.code or 0)
     except Exception as error:
-        (data_dir / "startup-error.txt").write_text(
-            f"Solver stopped: {type(error).__name__}", encoding="utf-8")
+        _safe_write(data_dir / "startup-error.txt", f"Solver stopped: {type(error).__name__}")
         raise
     return 0
 

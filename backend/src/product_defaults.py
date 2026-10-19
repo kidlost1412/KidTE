@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import copy
+import gzip
+import io
 import json
 import re
 from datetime import datetime, timezone
@@ -88,6 +90,26 @@ def audit(records):
     return errors
 
 
+_MAX_SEED_BYTES = 64 * 1024 * 1024
+
+
+def _default_seed_path():
+    """Prefer the compressed seed (.json.gz); fall back to the plain .json."""
+    folder = Path(__file__).resolve().parent.parent / "prompts"
+    packed = folder / "product_defaults.json.gz"
+    return packed if packed.is_file() else folder / "product_defaults.json"
+
+
+def _decode(raw):
+    """Bytes of a profile bundle, transparently un-gzipped (size-capped) -> text."""
+    if raw[:2] == b"\x1f\x8b":
+        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
+            raw = stream.read(_MAX_SEED_BYTES + 1)
+        if len(raw) > _MAX_SEED_BYTES:
+            raise ValueError("Bộ hồ sơ giải nén vượt giới hạn.")
+    return raw.decode("utf-8-sig")
+
+
 class DefaultProfiles:
     def __init__(self, engine, ingest, seed_path=None):
         self.engine, self.ingest = engine, ingest
@@ -98,16 +120,14 @@ class DefaultProfiles:
         self.seed_path = (
             Path(seed_path)
             if seed_path
-            else Path(__file__).resolve().parent.parent
-            / "prompts"
-            / "product_defaults.json"
+            else _default_seed_path()
         )
 
     def _bundle(self, source=""):
         path = source or (
             self.export_path if self.export_path.is_file() else self.seed_path
         )
-        payload = json.loads(read_source(path).decode("utf-8-sig"))
+        payload = json.loads(_decode(read_source(path)))
         validate_package(payload)
         groups = payload["content"]["nhom_san_pham"]
         if any(

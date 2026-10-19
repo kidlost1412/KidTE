@@ -257,3 +257,14 @@ class IncomingBundleGuardTests(DefaultTests):
         self.assertNotIn("X", self.k.approved_product_codes())
         self.assertNotIn("sku-1", self.k.by_shop_id)
         self.assertEqual(out["unmapped_stale"], 1)
+
+
+class SeedGzipTests(unittest.TestCase):
+    def test_gzip_and_plain_seed_decode_identically_and_repo_prefers_gz(self):
+        import gzip
+        from product_defaults import _decode, _default_seed_path
+        raw = json.dumps({"x": "đ"}, ensure_ascii=False).encode("utf-8")
+        self.assertEqual(_decode(raw), _decode(gzip.compress(raw)))
+        seed = _default_seed_path()
+        self.assertEqual(seed.name, "product_defaults.json.gz")
+        self.assertTrue(json.loads(_decode(seed.read_bytes()))["content"]["nhom_san_pham"])

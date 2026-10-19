@@ -4,7 +4,6 @@ import json
 import time
 import zipfile
 from datetime import datetime, timedelta, timezone
-from http.server import ThreadingHTTPServer
 from threading import Thread
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -240,7 +239,7 @@ def test_ready_and_update_routes_are_local_only_and_do_not_call_provider(tmp_pat
         pass
 
     Handler.engine = engine
-    http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    http = server.LoopbackHTTPServer(("127.0.0.1", 0), Handler)
     worker = Thread(target=http.serve_forever, kwargs={"poll_interval": .05}, daemon=True)
     worker.start()
     origin = f"http://127.0.0.1:{http.server_port}"

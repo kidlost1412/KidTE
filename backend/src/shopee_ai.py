@@ -97,6 +97,9 @@ class ShopeeAiEngine:
         self.memory.close()
 
     def reply(self, payload):
+        seen = getattr(self.owner, "_note_comment_seen", None)
+        if seen is not None:
+            seen("shopee")          # O4: mốc bình luận Shopee cuối cùng backend nhận được
         received = payload.get('received_at_ms', time.time() * 1000)
         if (not isinstance(received, (int, float)) or isinstance(received, bool)
                 or not math.isfinite(received) or received > time.time() * 1000 + 5000):

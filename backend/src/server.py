@@ -6137,7 +6137,6 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.engine.live_sources.request_reidentify(payload.get('platform'))
                 self.engine.set_video_position({'platform': payload.get('platform'), 'available': False})
             elif route == "/api/shopee/reply":
-                self.engine._note_comment_seen("shopee")
                 result = (self.engine.queued_reply('shopee', payload) if payload.get('protocol_version') == 2
                           else self.engine.shopee_ai().reply(payload))
             elif route == "/api/shopee/delivery":

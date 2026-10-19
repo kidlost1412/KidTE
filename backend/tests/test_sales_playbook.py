@@ -4,7 +4,6 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,7 +11,7 @@ import pytest
 
 import context_budget as cb
 import sales_playbook as sp
-from server import Handler, ReplyEngine
+from server import Handler, LoopbackHTTPServer, ReplyEngine
 
 SEED = Path(__file__).resolve().parents[1] / "prompts" / "sales_playbook.default.json"
 REQUIRED = {"ban_chiu", "tra_gop", "hang_that_gia", "ai_hay_nguoi", "live_hay_phat_lai", "che_dat_xin_giam",
@@ -218,7 +217,7 @@ def server(path):
     Handler.engine = SimpleNamespace(
         sales_playbook_state=lambda: ReplyEngine.sales_playbook_state(None),
         sales_playbook_save=lambda payload: ReplyEngine.sales_playbook_save(None, payload))
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    httpd = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=httpd.serve_forever, args=(0.1,), daemon=True).start()
     yield httpd.server_address[1]
     httpd.shutdown()

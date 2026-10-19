@@ -171,6 +171,9 @@ class CustomerMemory:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
+        # Xoá thật khi quên khách: trang bị xoá được ghi đè 0 (dùng được với WAL; khung WAL cũ
+        # được cắt bằng wal_checkpoint(TRUNCATE) + VACUUM ở nền, xem backup_policy).
+        self._db.execute("PRAGMA secure_delete=ON")
         self._create_schema()
         with self._lock, self._db:
             self._db.execute(

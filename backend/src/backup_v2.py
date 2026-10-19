@@ -300,6 +300,127 @@ class BackupV2:
             if record['kind'] == 'sqlite':
                 privacy.purge_db_by_tombstones(destination / _safe_relative(record['path']), union, secret)
 
+    def _collect_scrub_garbage(self):
+        """Gom đối tượng cũ của các lần làm sạch (``.scrub-gc-*.json``) không còn manifest nào
+        tham chiếu. Gọi trong ``_write``. Đọc được MỌI manifest rồi mới xoá; lỗi → giữ nguyên."""
+        # Đang giữ khoá ghi: thư mục/tệp tạm của lần làm sạch trước (chết giữa chừng) là rác,
+        # có thể chứa bản sao DB khách → xoá.
+        for leftover in self.root.glob('.scrub-stage-*'):
+            if re.fullmatch(r'\.scrub-stage-[a-f0-9]{32}', leftover.name) and leftover.is_dir():
+                _reject_links(leftover, self.root)
+                shutil.rmtree(leftover)
+        for leftover in self.root.glob('.scrub-prev-*.json'):
+            if re.fullmatch(r'\.scrub-prev-[a-f0-9]{32}\.json', leftover.name):
+                leftover.unlink()
+        journals = sorted(self.root.glob('.scrub-gc-*.json'))
+        if not journals:
+            return 0
+        referenced = set()
+        for path in self.manifests.glob('*.json'):
+            manifest = self._load(path.stem)
+            if not isinstance(manifest, dict) or not isinstance(manifest.get('files'), list):
+                raise BackupError('backup_manifest_invalid')
+            referenced.update(row.get('sha256') for row in manifest['files'] if isinstance(row, dict))
+        removed = 0
+        for journal in journals:
+            _reject_links(journal, self.root)
+            if not re.fullmatch(r'\.scrub-gc-[a-f0-9]{32}\.json', journal.name):
+                raise BackupError('backup_scrub_journal_invalid')
+            payload = _strict_json_loads(journal.read_text(encoding='utf-8'))
+            digests = payload.get('objects') if isinstance(payload, dict) else None
+            if (not isinstance(digests, list) or
+                    any(not isinstance(d, str) or not _HASH.fullmatch(d) for d in digests)):
+                raise BackupError('backup_scrub_journal_invalid')
+            for digest in digests:
+                if digest in referenced:
+                    continue
+                path = self._object_path(digest)
+                if path.exists():
+                    path.unlink()
+                    removed += 1
+            journal.unlink()
+        return removed
+
+    def scrub_privacy(self, backup_id, scrub, check, *, tombstones=None):
+        """Làm sạch một bản sao lưu theo tombstone, giữ nguyên id/định dạng/bó bí mật.
+
+        ``scrub(path) -> int`` áp tombstone lên BẢN SAO tệp sqlite (số dòng đã xoá);
+        ``check(path) -> int`` đếm dòng còn sót (phải 0). Đối tượng mới được xuất bản,
+        manifest mới kiểm xong mới ``os.replace``; manifest cũ giữ làm đường lui tới khi
+        bản mới kiểm lại OK. Đối tượng cũ chỉ bị xoá khi không manifest nào còn dùng.
+        Bó ``secrets.enc`` không đụng tới (AAD gắn với id, id giữ nguyên)."""
+        with self._write():
+            self._collect_scrub_garbage()
+            manifest = self.verify(backup_id, deep=False)
+            token = uuid.uuid4().hex
+            stage = self.root / ('.scrub-stage-' + token)
+            stage.mkdir()
+            previous = self.root / ('.scrub-prev-' + token + '.json')
+            manifest_path = self._manifest_path(backup_id)
+            try:
+                changed = {}
+                deleted = 0
+                for index, record in enumerate(manifest['files']):
+                    if record['kind'] != 'sqlite':
+                        continue
+                    staged = stage / ('%d.sqlite3' % index)
+                    shutil.copyfile(self._object_path(record['sha256']), staged)
+                    if _sha256(staged) != record['sha256']:
+                        raise BackupError('backup_object_corrupt_or_missing')
+                    removed = int(scrub(staged) or 0)
+                    if removed:
+                        changed[index] = staged
+                        deleted += removed
+                if not changed:
+                    return {'changed': False, 'id': backup_id, 'deleted': 0}
+                files = [dict(row) for row in manifest['files']]
+                old = {files[index]['sha256'] for index in changed}
+                for staged in changed.values():
+                    _validate_sqlite(staged)
+                    if check(staged):
+                        raise BackupError('backup_scrub_incomplete')
+                # Ghi nhật ký gom TRƯỚC khi xuất bản: chết giữa chừng thì lần sau gom đối
+                # tượng mồ côi (cũ hoặc mới), không bao giờ gom đối tượng còn được tham chiếu.
+                journal = self.root / ('.scrub-gc-' + token + '.json')
+                new_digests = {index: _sha256(staged) for index, staged in changed.items()}
+                with journal.open('x', encoding='utf-8') as handle:
+                    json.dump({'id': backup_id, 'objects': sorted(old | set(new_digests.values()))}, handle)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                for index, staged in changed.items():
+                    files[index] = self._publish_object(staged, files[index]['path'], 'sqlite')
+                    if files[index]['sha256'] != new_digests[index]:
+                        raise BackupError('backup_object_corrupt')
+                    if check(self._object_path(files[index]['sha256'])):
+                        raise BackupError('backup_scrub_incomplete')
+                updated = {**manifest, 'files': files,
+                           'privacy_tombstones': privacy.merge_tombstones(manifest.get('privacy_tombstones'),
+                                                                          tombstones),
+                           'privacy_scrubbed_at': datetime.now(timezone.utc).isoformat()}
+                self._verify_manifest(updated, deep=False)
+                temporary = stage / 'manifest.json'
+                with temporary.open('w', encoding='utf-8') as handle:
+                    json.dump(updated, handle, ensure_ascii=False, allow_nan=False)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                shutil.copyfile(manifest_path, previous)
+                os.replace(temporary, manifest_path)
+                try:
+                    self.verify(backup_id, deep=False)
+                    for index in changed:
+                        if _sha256(self._object_path(files[index]['sha256'])) != files[index]['sha256']:
+                            raise BackupError('backup_object_corrupt')
+                except Exception:
+                    os.replace(previous, manifest_path)
+                    raise
+                previous.unlink()
+                collected = self._collect_scrub_garbage()
+                return {'changed': True, 'id': backup_id, 'deleted': deleted, 'collected': collected}
+            finally:
+                shutil.rmtree(stage, ignore_errors=True)
+                if previous.exists():
+                    previous.unlink()
+
     def _deletion_preview(self, ids):
         if (not isinstance(ids, list) or not ids or len(ids) > 1000 or
             any(not isinstance(identity, str) or not _ID.fullmatch(identity) for identity in ids)

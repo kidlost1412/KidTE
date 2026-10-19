@@ -1264,10 +1264,10 @@ class ReplyEngine:
             alerts = self._live_alerts_state = LiveAlerts()
         return alerts
 
-    def _note_ai_failure(self, reasons, http_status=None):
+    def _note_ai_failure(self, reasons, http_status=None, platform="tiktok"):
         """O3: đếm lỗi AI liên tiếp; lần đầu chuyển sang báo động thì ghi nhật ký + thông báo Windows."""
         before = self._live_alerts().ai_alert()
-        alert = self._live_alerts().ai_failed(reasons, http_status)
+        alert = self._live_alerts().ai_failed(reasons, http_status, platform)
         if alert and not before:
             report_problem("live_alert_ai", f"{alert['message']} {alert['action']}", severity="error")
             if alert["code"] in ("ai_out_of_balance", "ai_key_rejected"):
@@ -1278,18 +1278,36 @@ class ReplyEngine:
                     with lock:
                         responder._balance_checked_at = 0.0
 
+    def _note_comment_seen(self, platform):
+        """O4: mốc bình luận cuối backend nhận được (Shopee không gửi trạng thái bộ thu)."""
+        seen = getattr(self, "_comment_seen_at", None)
+        if seen is None:
+            seen = self._comment_seen_at = {}
+        seen[platform] = time.time()
+
     def live_alerts(self):
-        """Báo động đang có khi LIVE (O3 AI hỏng, O4 không nhận bình luận TikTok)."""
+        """Báo động đang có khi LIVE (O3 AI hỏng, O4 không nhận bình luận TikTok/Shopee)."""
         from config import COMMENT_SILENCE_ALERT_S
         out = []
         ai = self._live_alerts().ai_alert()
         if ai:
             out.append(ai)
-        heartbeat = (getattr(self, "platform_heartbeats", {}) or {}).get("tiktok") or {}
+        heartbeats = getattr(self, "platform_heartbeats", {}) or {}
+        heartbeat = heartbeats.get("tiktok") or {}
         comments = self._live_alerts().comment_alert(heartbeat, COMMENT_SILENCE_ALERT_S,
                                                      heartbeat.get("live_since") or 0)
         if comments:
             out.append(comments)
+        shopee = heartbeats.get("shopee") or {}
+        # Shopee: tiện ích chỉ đẩy bình luận về backend khi bật AI; tắt AI thì không đủ căn cứ.
+        if shopee.get("live_running") is True and shopee.get("ai_enabled") is True:
+            last = (getattr(self, "_comment_seen_at", None) or {}).get("shopee") or 0
+            synthetic = {**shopee, "collector": {"ok": True, "bridge": True,
+                                                 "last_comment_at_ms": int(last * 1000)}}
+            comments = self._live_alerts().comment_alert(synthetic, COMMENT_SILENCE_ALERT_S,
+                                                         shopee.get("live_since") or 0, platform="shopee")
+            if comments:
+                out.append(comments)
         return out
 
     def heartbeat(self, payload):
@@ -1466,6 +1484,7 @@ class ReplyEngine:
             comment_id = payload.get('comment_id')
             return {'ok': True, **self.comment_queue.cancel(platform, room, comment_id)}
         if operation == 'enqueue':
+            self._note_comment_seen(platform)
             batch = payload.get('comment_payloads')
             if batch is not None:
                 # Lô nhiều comment: giữ đúng thứ tự FIFO, mỗi comment có kết quả riêng.
@@ -5964,6 +5983,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.engine.live_sources.request_reidentify(payload.get('platform'))
                 self.engine.set_video_position({'platform': payload.get('platform'), 'available': False})
             elif route == "/api/shopee/reply":
+                self.engine._note_comment_seen("shopee")
                 result = (self.engine.queued_reply('shopee', payload) if payload.get('protocol_version') == 2
                           else self.engine.shopee_ai().reply(payload))
             elif route == "/api/shopee/delivery":

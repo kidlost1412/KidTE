@@ -48,6 +48,7 @@ from config import (
 from log_viewer import recent_logs
 import dose_rules as _dose_rules
 from write_journal import WriteJournal
+from swallowed import note as _note_swallowed
 from video_library import VIDEO_DIR, list_videos, load_timeline, validate_timeline
 
 
@@ -2382,7 +2383,7 @@ class WorkspaceStore:
         try:
             self.danh_dau_mau_can_xem_lai()
         except Exception:
-            pass
+            _note_swallowed("workspace_mark_examples_review_failed", level=30)
         return next(row for row in self._profiles() if row["id"] == record_id)
 
     def _patch_video(self, record_id, before, changes):

@@ -145,8 +145,8 @@ def proxy_info():
                     info["registry_" + name] = str(winreg.QueryValueEx(key, name)[0])
                 except OSError:
                     pass
-    except Exception:
-        pass
+    except (ImportError, OSError):
+        log.debug("proxy registry read failed", exc_info=True, extra={"event": "proxy_registry_read_failed"})
     return info
 
 

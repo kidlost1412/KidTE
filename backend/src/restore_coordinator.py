@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import time
 from pathlib import Path
+from swallowed import note as _note_swallowed
 
 
 class RestoreError(RuntimeError):
@@ -135,7 +136,7 @@ class RestoreCoordinator:
             try:
                 self.reinit()
             except Exception:
-                pass
+                _note_swallowed("restore_rollback_reinit_failed", level=30)
             if isinstance(exc, RestoreError):
                 raise
             raise RestoreError('restore_failed/' + type(exc).__name__, phase) from exc

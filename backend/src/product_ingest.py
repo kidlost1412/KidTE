@@ -18,6 +18,7 @@ import json
 import re
 import socket
 import threading
+from swallowed import note as _note_swallowed
 import time
 import urllib.error
 import urllib.parse
@@ -210,7 +211,7 @@ def read_public_url(url, limit, timeout=URL_TIMEOUT, headers=None, total_timeout
         try:
             response.close()
         except Exception:
-            pass
+            _note_swallowed("ingest_response_close_failed", once=True)
     return b"".join(chunks)
 
 
@@ -231,7 +232,7 @@ def _read_limited(url, limit, kinds):
         try:
             response.close()
         except Exception:
-            pass
+            _note_swallowed("ingest_response_close_failed", once=True)
     return data[:limit], len(data) > limit, ctype
 
 

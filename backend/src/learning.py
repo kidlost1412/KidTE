@@ -49,6 +49,7 @@ from pathlib import Path
 
 from ai_context import system_with_brief, task_block
 from knowledge import clean, fold
+from swallowed import note as _note_swallowed
 
 KINDS = ("alias", "fact", "rule")
 STATUSES = ("suggested", "active", "retired", "rejected")
@@ -907,7 +908,7 @@ class Learner:
                 try:
                     self.maybe_auto_relearn()
                 except Exception:
-                    pass
+                    _note_swallowed("learning_auto_relearn_check_failed", level=30)
 
     BUSY_WINDOW_S = 120
     BUSY_POLL_S = 15
@@ -948,8 +949,8 @@ class Learner:
         system = system_with_brief(system)          # APP_BRIEF luôn đứng đầu (cache tiền tố)
         try:
             client = client.with_options(timeout=timeout)
-        except Exception:
-            pass
+        except (AttributeError, TypeError):
+            pass                    # client cũ/giả không có with_options: dùng timeout mặc định
         started = time.monotonic()
         request = {"model": model, "messages": [{"role": "system", "content": system},
                                                 {"role": "user", "content": user}],

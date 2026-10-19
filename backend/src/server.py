@@ -85,6 +85,7 @@ import prompt_view
 from learning import Learner, LearningStore, MAX_STYLE_CHARS, style_text as _persona_style_text
 from ai_context import task_block as _task_block
 from media_assets import ProductImageCache, VideoAssetManager
+from swallowed import note as _note_swallowed
 from knowledge import (
     KnowledgeBase, clean, fold, general_knowledge_hint, has_explicit_product_reference, is_approvable,
     name_tokens, profile_completeness,
@@ -1071,7 +1072,7 @@ class ReplyEngine:
                 if store is not None:
                     by_platform[name]["unknown"] += store.unknown_count(window_s)
         except Exception:
-            pass
+            _note_swallowed("delivery_health_count_failed", once=True)
         total = {key: sum(b[key] for b in by_platform.values()) for key in ("pending", "expired", "unknown")}
         total["oldest_age_s"] = max(b["oldest_age_s"] for b in by_platform.values())
         return {**total, "by_platform": by_platform, "queue_mode": bool(self.backend_queue_mode())}
@@ -4633,6 +4634,7 @@ class ReplyEngine:
                 try:
                     manifest, verified = store._load(path.stem), False
                 except Exception:
+                    _note_swallowed("backup_manifest_unreadable", once=True, key=path.stem)
                     continue
             if not isinstance(manifest, dict) or manifest.get('scope') not in ('full', 'partial'):
                 continue

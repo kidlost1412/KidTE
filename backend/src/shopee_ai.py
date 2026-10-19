@@ -25,6 +25,7 @@ from shopee_commerce import select_product, price_context, price_violation, proc
 from live_conversation import resolve_question, conversation_state
 from conversation_context import shared_shop_context, platform_video_context, product_reference, EXAMPLE_POLICY
 from ai_context import system_with_brief, task_block
+from swallowed import note as _note_swallowed
 
 
 # Khối nhiệm vụ cho từng đường gọi DeepSeek của Shopee LIVE (APP_BRIEF luôn đứng đầu, xem ai_context.py).
@@ -538,7 +539,7 @@ class ShopeeAiEngine:
             by_sku = {'shopee:' + str(p.get('product_id')): p for p in products if isinstance(p, dict)}
             top = [by_sku[c['sku']] for c in pref.get('candidates', []) if c.get('sku') in by_sku][:3]
         except Exception:
-            pass
+            _note_swallowed("shopee_product_ref_probe_failed", once=True)
         if candidate_ids:
             # Router khoanh vùng ứng viên: đứng trước, rồi bù bằng ứng viên của mã.
             by_id = {str(p.get('product_id')): p for p in products if isinstance(p, dict)}

@@ -2,7 +2,7 @@
 
 Ứng dụng Windows hỗ trợ vận hành TikTok LIVE và Shopee LIVE: trả lời bình luận bằng DeepSeek, quản lý sản phẩm và khách hàng trên máy, ghim theo lịch video, đồng bộ âm thanh và chép lời. Backend cục bộ mặc định ở `http://127.0.0.1:8793/app`.
 
-Kho công khai chứa mã nguồn, tài nguyên chương trình và fixture kiểm thử. Dữ liệu shop, DB, video, model đã tải, log và khóa truy cập nằm ngoài kho này. Bộ hồ sơ đã chốt trong `backend/prompts/product_defaults.json` gồm 38 hồ sơ, 3 hồ sơ nguồn tham chiếu và 41 ảnh. Máy mới chọn dùng bộ này hoặc tự thêm; gói kiến thức website `knowledge_seed.json` vẫn có thể nạp thủ công.
+Kho công khai chứa mã nguồn, tài nguyên chương trình và fixture kiểm thử. Dữ liệu shop, DB, video, model đã tải, log và khóa truy cập nằm ngoài kho này. Bộ hồ sơ đã chốt trong `backend/prompts/product_defaults.json.gz` (gzip, nội dung JSON không đổi; vẫn đọc được bản `.json` thường) gồm 38 hồ sơ, 3 hồ sơ nguồn tham chiếu và 41 ảnh. Máy mới chọn dùng bộ này hoặc tự thêm; gói kiến thức website `knowledge_seed.json` vẫn có thể nạp thủ công.
 
 ## Cài và cập nhật
 

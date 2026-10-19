@@ -281,3 +281,59 @@ def test_closing_app_writes_cooperative_stop_and_blocks_late_autostart(tmp_path)
         assert bridge.stop(closing=True)["ok"]
     assert (tmp_path / "stop-requested.marker").is_file()
     assert bridge.start() == {"ok": False, "error": "captcha_app_closing"}
+
+
+def _signed_package(tmp_path, monkeypatch, files):
+    import hashlib
+    import component_runtime
+    app = tmp_path / "App"
+    base = app / "packages" / "captcha-solver" / "1.0.0"
+    records = []
+    for name, data in files.items():
+        target = base / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        records.append({"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    active = {"generation": 1, "components": {"captcha-solver": {
+        "path": "packages/captcha-solver/1.0.0", "files": records}}}
+    store = SimpleNamespace(load_active=lambda: active)
+    monkeypatch.setenv("KIDTE_APP_ROOT", str(app))
+    monkeypatch.setattr(component_runtime, "ComponentStore", lambda root: store)
+    component_runtime._VERIFIED.clear()
+    return component_runtime, base
+
+
+def test_verify_component_tree_accepts_intact_and_rejects_tampered_or_planted(tmp_path, monkeypatch):
+    runtime, base = _signed_package(tmp_path, monkeypatch, {
+        "Captcha/KidTECaptcha.exe": b"exe", "Captcha/_internal/a.dll": b"dll",
+        "Captcha/_internal/captcha-monitor/monitor.ps1": b"ps"})
+    assert runtime.verify_component_tree("captcha-solver", "Captcha") == base / "Captcha"
+    (base / "Captcha/_internal/a.dll").write_bytes(b"EVIL")
+    with pytest.raises(Exception):
+        runtime.verify_component_tree("captcha-solver", "Captcha")
+    (base / "Captcha/_internal/a.dll").write_bytes(b"dll")
+    runtime._VERIFIED.clear()
+    runtime.verify_component_tree("captcha-solver", "Captcha")
+    (base / "Captcha/_internal/planted.dll").write_bytes(b"x")
+    with pytest.raises(Exception, match="not in the signed inventory"):
+        runtime.verify_component_tree("captcha-solver", "Captcha")
+
+
+def test_start_refuses_elevation_when_package_tree_fails_verification(tmp_path):
+    bridge = CaptchaBridge(tmp_path / "captcha-data")
+    exe = tmp_path / "Captcha" / "KidTECaptcha.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"x")
+    resolver = SimpleNamespace(component_path=mock.Mock(return_value=exe),
+                               verify_component_tree=mock.Mock(side_effect=RuntimeError("digest mismatch")))
+    with (mock.patch.dict(sys.modules, {"component_runtime": resolver}),
+          mock.patch("captcha_bridge.IS_FROZEN", True),
+          mock.patch("captcha_bridge.has_key", return_value=True),
+          mock.patch.object(bridge, "_key_rejected", return_value=False),
+          mock.patch.object(bridge, "_processes", return_value=([], [])),
+          mock.patch("captcha_bridge.subprocess.Popen") as popen,
+          mock.patch("captcha_bridge.ctypes") as ct):
+        result = bridge.start()
+    assert result["ok"] is False and result["error"] == "captcha_solver_package_invalid"
+    popen.assert_not_called()
+    ct.windll.shell32.ShellExecuteW.assert_not_called()

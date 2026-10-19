@@ -137,3 +137,26 @@ def test_package_probe_is_json_and_does_not_require_data_dir(tmp_path, monkeypat
     assert report["ok"] is True
     assert report["resource_count"] == 3
     assert report["ffmpeg"] == str(tmp_path / "ffmpeg.exe")
+
+
+def test_safe_write_replaces_planted_hardlink_without_touching_target(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep", encoding="utf-8")
+    target = tmp_path / "startup-error.txt"
+    os.link(victim, target)
+    captcha_entry._safe_write(target, "new")
+    assert victim.read_text(encoding="utf-8") == "keep"
+    assert target.read_text(encoding="utf-8") == "new"
+
+
+def test_safe_write_replaces_planted_symlink_without_touching_target(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep", encoding="utf-8")
+    target = tmp_path / "solver-session.json"
+    try:
+        os.symlink(victim, target)
+    except OSError:
+        pytest.skip("symlink not permitted")
+    captcha_entry._safe_write(target, "new")
+    assert victim.read_text(encoding="utf-8") == "keep"
+    assert target.read_text(encoding="utf-8") == "new" and not target.is_symlink()

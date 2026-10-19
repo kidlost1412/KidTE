@@ -49,3 +49,38 @@ def component_path(component_id: str, relative_path: str) -> Path | None:
     with _LOCK:
         _VERIFIED[cache_key] = stamp
     return target
+
+
+_CODE_SUFFIXES = {".exe", ".dll", ".pyd", ".ps1", ".bat", ".cmd", ".vbs", ".js", ".py", ".sys", ".com", ".scr"}
+
+
+def verify_component_tree(component_id: str, prefix: str) -> Path | None:
+    """Hash-check EVERY signed-inventory file under ``prefix`` and refuse planted code.
+
+    Used before running a component with elevated rights: the executable alone
+    is not enough, because it loads DLLs/.pyd/scripts from the same writable
+    tree. Returns the package directory (``<app>/<path>/<prefix>``), or None when
+    the component is not installed from a signed package. Raises
+    ComponentStoreError on any missing/changed file or any unlisted code file.
+    """
+    prefix = prefix.strip("/")
+    root = os.environ.get("KIDTE_APP_ROOT", "").strip()
+    if not root or not _safe_path(prefix):
+        return None
+    app_root = Path(root).absolute()
+    active = ComponentStore(app_root).load_active()
+    selected = (active or {}).get("components", {}).get(component_id)
+    if selected is None:
+        return None
+    wanted = {row["path"] for row in selected["files"]
+              if row["path"] == prefix or row["path"].startswith(prefix + "/")}
+    if not wanted:
+        raise ComponentStoreError("component resource is not in signed inventory")
+    for relative in sorted(wanted):
+        component_path(component_id, relative)      # size + SHA-256 against the signed inventory
+    base = app_root / selected["path"] / prefix
+    known = {(app_root / selected["path"] / item).resolve() for item in wanted}
+    for found in base.rglob("*"):
+        if found.suffix.lower() in _CODE_SUFFIXES and found.resolve() not in known:
+            raise ComponentStoreError("component folder contains a file that is not in the signed inventory")
+    return base

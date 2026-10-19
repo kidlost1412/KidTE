@@ -60,3 +60,65 @@ def test_route_passes_user_initiated(tmp_path, monkeypatch):
     routes_live.post_route_endswith_catalog_sync(handler, "/api/catalog/sync",
                                                  {"live_context": _tiktok(), "user_initiated": True}, None)
     assert seen == {"u": True, "n": 37}
+
+
+def _bulk(tmp_path, monkeypatch):
+    fake, sync = _engine(tmp_path, monkeypatch)
+    for name in ("_bulk_ids", "removed_listings", "trash_listings", "restore_listings", "purge_listings"):
+        attr = getattr(server_module.ReplyEngine, name)
+        setattr(fake, name, attr if name == "_bulk_ids" else attr.__get__(fake))
+    sync(_tiktok(5))
+    return fake, sync
+
+
+def test_trash_restore_purge_batch(tmp_path, monkeypatch):
+    import pytest
+    fake, sync = _bulk(tmp_path, monkeypatch)
+    out = fake.trash_listings({"product_ids": ["p1", "p2", "nope"]})
+    assert sorted(out["removed"]) == ["p1", "p2"] and out["missing"] == ["nope"]
+    assert fake.catalog.snapshot["product_count"] == 3
+    trash = fake.removed_listings()
+    assert {r["product_id"] for r in trash} == {"p1", "p2"}
+    assert all(r["in_saved_catalog"] and r["bag_index"] for r in trash)
+    assert fake.restore_listings({"product_ids": ["p1"]})["restored"] == ["p1"]
+    assert fake.catalog.snapshot["product_count"] == 4
+    # Xoá tất cả -> thùng rác; khôi phục tất cả.
+    fake.trash_listings({"all": True})
+    assert fake.catalog.snapshot["product_count"] == 0 and len(fake.removed_listings()) == 5
+    fake.restore_listings({"all": True})
+    assert fake.catalog.snapshot["product_count"] == 5
+    # Xoá vĩnh viễn: khỏi danh mục đã lưu và khỏi thùng rác.
+    fake.trash_listings({"product_ids": ["p4", "p5"]})
+    assert sorted(fake.purge_listings({"all": True})["purged"]) == ["p4", "p5"]
+    assert fake.removed_listings() == []
+    assert [p["product_id"] for p in fake.catalog.raw_products()] == ["p1", "p2", "p3"]
+    assert fake.catalog.snapshot["product_count"] == 3
+    # Quét tay sau đó vẫn lấy lại nếu TikTok còn bán.
+    assert sync(_tiktok(5), user_initiated=True)["product_count"] == 5
+    with pytest.raises(ValueError):
+        fake.trash_listings({"product_ids": []})
+    with pytest.raises(ValueError):
+        fake.purge_listings({"product_ids": ["p1"]})  # không nằm trong thùng rác
+
+
+def test_purge_rolls_back_catalog_when_tombstone_write_fails(tmp_path, monkeypatch):
+    import pytest
+    fake, _sync = _bulk(tmp_path, monkeypatch)
+    fake.trash_listings({"product_ids": ["p1"]})
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(product_blocklist, "set_removed_many", boom)
+    with pytest.raises(OSError):
+        fake.purge_listings({"product_ids": ["p1"]})
+    assert len(fake.catalog.raw_products()) == 5
+    assert "p1" in product_blocklist.removed_products()
+
+
+def test_old_removed_file_shows_in_trash(tmp_path, monkeypatch):
+    import json
+    fake, _sync = _bulk(tmp_path, monkeypatch)
+    (tmp_path / "removed.json").write_text(json.dumps({"products": {"p2": {"product_id": "p2", "title": "cu"}}}),
+                                           encoding="utf-8")
+    product_blocklist._cache.clear()
+    rows = fake.removed_listings()
+    assert rows[0]["product_id"] == "p2" and rows[0]["title"] == "cu" and rows[0]["in_saved_catalog"]

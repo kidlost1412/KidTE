@@ -1108,6 +1108,72 @@ class EngineStatusMixin:
         self.workspace._touch("profiles", "products", "dashboard")
         return {"ok": True, "product_id": pid, "restored": restore}
 
+    @staticmethod
+    def _bulk_ids(payload, pool):
+        payload = payload if isinstance(payload, dict) else {}
+        if payload.get("all") is True:
+            return list(pool)
+        raw = payload.get("product_ids")
+        if not isinstance(raw, list) or not raw:
+            raise ValueError("Chưa chọn sản phẩm nào.")
+        if len(raw) > 2000:
+            raise ValueError("Quá nhiều sản phẩm trong một lần.")
+        ids = list(dict.fromkeys(clean(i, 160) for i in raw if clean(i, 160)))
+        if not ids:
+            raise ValueError("Chưa chọn sản phẩm nào.")
+        return ids
+
+    def removed_listings(self):
+        """Thùng rác: tombstone + dữ liệu sản phẩm còn trong danh mục đã lưu (nếu có)."""
+        raw = {str(p.get("product_id")): p for p in self.catalog.raw_products() if isinstance(p, dict)}
+        rows = []
+        for pid, row in product_blocklist.removed_products().items():
+            product = raw.get(str(pid)) or {}
+            rows.append({**{k: product.get(k) for k in ("bag_index", "price", "image_url", "stock") if k in product},
+                         **row, "in_saved_catalog": bool(product)})
+        rows.sort(key=lambda r: str(r.get("removed_at") or ""), reverse=True)
+        return rows
+
+    def trash_listings(self, payload):
+        """Đưa nhiều sản phẩm vào thùng rác (tombstone) trong một lần ghi."""
+        current = {str(p.get("product_id")): p for p in self.catalog.snapshot.get("products", [])}
+        ids = self._bulk_ids(payload, current)
+        found = [current[i] for i in ids if i in current]
+        if not found:
+            raise ValueError("Không tìm thấy sản phẩm này trong danh sách.")
+        with self.catalog._lock:
+            changed = product_blocklist.set_removed_many(found, True)
+        self.workspace._touch("profiles", "products", "dashboard")
+        return {"ok": True, "removed": changed, "missing": [i for i in ids if i not in current]}
+
+    def restore_listings(self, payload):
+        removed = product_blocklist.removed_products()
+        ids = self._bulk_ids(payload, removed)
+        with self.catalog._lock:
+            changed = product_blocklist.set_removed_many([removed[i] for i in ids if i in removed], False)
+        self.workspace._touch("profiles", "products", "dashboard")
+        return {"ok": True, "restored": changed}
+
+    def purge_listings(self, payload):
+        """Xoá vĩnh viễn: gỡ khỏi danh mục đã lưu VÀ khỏi thùng rác, cùng một khoá.
+
+        Ghi tombstone lỗi => trả danh mục về như cũ (không để dở dang).
+        Quét tay sau này vẫn lấy lại nếu TikTok còn bán.
+        """
+        removed = product_blocklist.removed_products()
+        ids = [i for i in self._bulk_ids(payload, removed) if i in removed]
+        if not ids:
+            raise ValueError("Không có sản phẩm nào trong thùng rác để xoá.")
+        with self.catalog._lock:
+            before = self.catalog.drop_products(ids)
+            try:
+                product_blocklist.set_removed_many([removed[i] for i in ids], False)
+            except Exception:
+                self.catalog.restore_raw(before)
+                raise
+        self.workspace._touch("profiles", "products", "dashboard", "catalog")
+        return {"ok": True, "purged": ids}
+
     def gemini_models(self, payload=None):
         payload = payload or {}
         typed = str(payload.get("api_key") or "").strip()

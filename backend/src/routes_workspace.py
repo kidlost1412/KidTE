@@ -98,7 +98,7 @@ def get_ingest_prefix(self, route, parsed):
         elif tail == ["defaults-status"]:
             self.send_json(200, self.engine.product_defaults.status())
         elif tail == ["removed-products"]:
-            self.send_json(200, {"ok": True, "products": list(product_blocklist.removed_products().values())})
+            self.send_json(200, {"ok": True, "products": self.engine.removed_listings()})
         elif len(tail) == 2 and tail[0] == "suggest":
             self.send_json(200, {"ok": True, "suggestions": self.engine.ingest.suggest_skus(tail[1])})
         elif len(tail) == 2 and tail[0] == "image":
@@ -262,6 +262,12 @@ def post_ingest_extract(self, route):
             result = self.engine.remove_listing(payload)
         elif route == "/api/ingest/product/restore":
             result = self.engine.remove_listing(payload, restore=True)
+        elif route == "/api/ingest/product/trash-batch":
+            result = self.engine.trash_listings(payload)
+        elif route == "/api/ingest/product/restore-batch":
+            result = self.engine.restore_listings(payload)
+        elif route == "/api/ingest/product/purge-batch":
+            result = self.engine.purge_listings(payload)
         else:
             result = ingest.link_draft(clean(payload.get("id"), 80), clean(payload.get("product_id"), 160),
                                        use_image=payload.get("use_image") is not False)

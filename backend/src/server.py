@@ -444,6 +444,31 @@ class LiveCatalogStore:
 
     LIVE_ACTIVE_SECONDS = 600
 
+    def raw_products(self):
+        """Sản phẩm đã lưu CHƯA lọc tombstone (để thùng rác hiện ảnh/giá)."""
+        return list((getattr(self, "_snapshot", {}) or {}).get("products") or [])
+
+    def drop_products(self, product_ids):
+        """Gỡ hẳn sản phẩm khỏi danh mục đã lưu (một lần ghi). Trả bản cũ để hoàn tác."""
+        ids = {str(i) for i in product_ids}
+        with self._lock:
+            before = dict(getattr(self, "_snapshot", {}) or {})
+            products = [p for p in before.get("products") or [] if str(p.get("product_id")) not in ids]
+            if len(products) == len(before.get("products") or []):
+                return before
+            after = {**before, "products": products, "product_count": len(products)}
+            if after.get("pin_id") in ids:
+                after["pin_id"] = ""
+            atomic_json(LIVE_CATALOG_PATH, after)
+            self.snapshot = after
+            return before
+
+    def restore_raw(self, snapshot):
+        with self._lock:
+            atomic_json(LIVE_CATALOG_PATH, snapshot)
+            self.snapshot = snapshot
+
+
     @staticmethod
     def _owner_key(host):
         if not isinstance(host, dict):

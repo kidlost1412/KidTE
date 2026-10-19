@@ -73,3 +73,27 @@ export function bulkApproveText(count) {
     text: 'Sau khi duyệt, AI dùng các hồ sơ này để tư vấn khách ngay.',
   };
 }
+
+/** Hộp xác nhận đưa sản phẩm vào thùng rác (không xoá trên sàn). */
+export function trashProductsText(count, all = false) {
+  return {
+    title: all ? `Xoá tất cả ${count} sản phẩm khỏi KidTE?` : (count === 1 ? 'Xoá 1 sản phẩm khỏi KidTE?' : `Xoá ${count} sản phẩm đã chọn khỏi KidTE?`),
+    text: `${count} sản phẩm sẽ vào Thùng rác: AI không dùng nữa, tự đồng bộ giỏ không đưa lại. Có thể Khôi phục. Bấm quét giỏ bằng tay trên tiện ích sẽ lấy lại đủ như TikTok. Không xoá trên sàn.`,
+  };
+}
+
+/** Hộp xác nhận xoá vĩnh viễn khỏi thùng rác. */
+export function purgeProductsText(count) {
+  return {
+    title: count === 1 ? 'Xoá vĩnh viễn 1 sản phẩm?' : `Xoá vĩnh viễn ${count} sản phẩm?`,
+    text: `${count} sản phẩm bị gỡ khỏi danh mục đã lưu và khỏi Thùng rác, không khôi phục được. Quét giỏ bằng tay sau này vẫn lấy lại nếu TikTok còn bán. Hồ sơ kỹ thuật vẫn giữ.`,
+  };
+}
+
+/** Hộp xác nhận khôi phục sản phẩm từ thùng rác. */
+export function restoreProductsText(count) {
+  return {
+    title: count === 1 ? 'Khôi phục 1 sản phẩm?' : `Khôi phục ${count} sản phẩm?`,
+    text: 'Sản phẩm quay lại danh sách và AI dùng lại nếu còn trong giỏ đã đồng bộ.',
+  };
+}

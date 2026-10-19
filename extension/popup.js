@@ -113,6 +113,24 @@ async function readAiStatus(snapshot) {
   render();
 }
 
+// Bộ đếm request TikTok/phút và trạng thái tạm dừng do TikTok đòi xác minh.
+function readApiGuard(stored) {
+  const box = $("#api-guard");
+  if (!box) return;
+  const guard = stored?.liveReApiGuard;
+  const fresh = guard && Date.now() - Number(guard.updatedAtMs || 0) < 120000;
+  const pausedMs = fresh ? Number(guard.pausedUntil || 0) - Date.now() : 0;
+  const otherBrowser = fresh ? String(guard.otherBrowser || "") : "";
+  box.classList.toggle("bad", pausedMs > 0 || Boolean(otherBrowser));
+  if (otherBrowser) {
+    box.textContent = otherBrowser;
+  } else if (pausedMs > 0) {
+    box.textContent = `TikTok đang yêu cầu xác minh – tạm dừng gọi tự động (còn ${Math.ceil(pausedMs / 1000)} giây)`;
+  } else {
+    box.textContent = `Gọi TikTok: ${fresh ? Number(guard.perMinute || 0) : 0} request/phút`;
+  }
+}
+
 async function readPageStatus(snapshot) {
   const stored = snapshot || await chrome.storage.local.get("liveRePageStatus");
   const page = stored.liveRePageStatus;
@@ -269,7 +287,8 @@ async function refreshSnapshot() {
   refreshPromise = (async () => {
     do {
       refreshAgain = false;
-      const stored = await chrome.storage.local.get(['liveReState','liveRePageStatus','liveReAiEnabled','liveReAiStatus','liveReCollector']);
+      const stored = await chrome.storage.local.get(['liveReState','liveRePageStatus','liveReAiEnabled','liveReAiStatus','liveReCollector','liveReApiGuard']);
+      readApiGuard(stored);
       if (stored.liveReState) state = {...state,...stored.liveReState};
       await readPageStatus(stored);
       await readCollectorStatus(stored);
@@ -287,7 +306,7 @@ async function refreshSnapshot() {
   } finally { refreshPromise = null; }
 }
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && ['liveReState','liveRePageStatus','liveReAiEnabled','liveReAiStatus','liveReCollector'].some(key => key in changes)) refreshSnapshot();
+  if (area === 'local' && ['liveReState','liveRePageStatus','liveReAiEnabled','liveReAiStatus','liveReCollector','liveReApiGuard'].some(key => key in changes)) refreshSnapshot();
 });
 
 chrome.runtime.sendMessage({ type: "LIVE_RE_GET_STATE" })

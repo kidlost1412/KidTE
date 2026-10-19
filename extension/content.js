@@ -4,11 +4,16 @@
   window.__LIVE_RE_PIN_LOADED__ = true;
 
   const SCHEDULE = globalThis.KidTESchedule;
-  const VERSION = "3.10.1";
+  const VERSION = "3.11.5";
   const UNPIN_GAP_MS = 500;
   const CONFIRM_TIMEOUT_MS = 6000;
-  const CONFIRM_POLL_MS = 300;
-  const OBSERVE_EVERY_MS = 3000;
+  const CONFIRM_POLL_MS = 700;
+  // Doc trang thai ghim 10 giay/lan (truoc 3 giay) de giam tai TikTok.
+  const OBSERVE_EVERY_MS = 10000;
+  // Loi lien tiep: gian cach truoc khi goi lai TikTok (giong duong chat).
+  const API_RETRY_STEPS_MS = [10000, 30000, 60000, 120000, 300000];
+  // Tab chua co phong: tham do toi da 1 lan/15s, gian dan toi 2 phut.
+  const PROBE_STEPS_MS = [15000, 30000, 60000, 120000];
   const MANUAL_OVERRIDE_MS = 60 * 1000;
   const repinEveryMs = () => Number(SCHEDULE.REPIN_EVERY_MS) || 20 * 1000;
   // Dong bo tu dong theo tieng video. Nguong 3s vi ranh gioi ghim cach nhau
@@ -53,6 +58,11 @@
   let observedPin = null;
   let tickTimer = null;
   let isController = false;
+  let lastSnapshotAt = 0;
+  let lastPinId = "";
+  let apiFailStreak = 0;
+  let apiPauseUntil = 0;
+  let apiGuard = null;
   if (globalThis.KidTELiveWidget) document.querySelector('#live-re-pin-host')?.remove();
 
   document.documentElement.setAttribute("data-live-re-pin", VERSION);
@@ -160,8 +170,13 @@
         + ` · lệch ${(videoSync.driftMs / 1000).toFixed(1)}s`
         + ` · tin cậy ${videoSync.margin.toFixed(2)}`;
     }
-    root.querySelector("#status").textContent = currentStatusMessage;
-    root.querySelector("#status").classList.toggle("bad", !currentStatusOk);
+    const guardPaused = apiGuard && Number(apiGuard.pausedUntil || 0) > Date.now();
+    const otherBrowser = apiGuard && Date.now() - Number(apiGuard.updatedAtMs || 0) < 120000
+      ? String(apiGuard.otherBrowser || "") : "";
+    root.querySelector("#status").textContent = otherBrowser || (guardPaused
+      ? `TikTok đang yêu cầu xác minh – tạm dừng gọi tự động (còn ${Math.ceil((apiGuard.pausedUntil - Date.now()) / 1000)} giây)`
+      : currentStatusMessage);
+    root.querySelector("#status").classList.toggle("bad", Boolean(otherBrowser) || Boolean(guardPaused) || !currentStatusOk);
 
     const now = Date.now();
     if (isController && now - lastStatusWriteAt > 1800 && hasExtensionContext()) {
@@ -174,6 +189,8 @@
             positionMs: resolved.positionMs,
             productKey: resolved.productKey,
             pinnedProductTitle: observedPin?.title || '',
+            pinId: lastPinId,
+            snapshotAtMs: lastSnapshotAt,
             pinObservedAtMs: observedPin?.at || 0,
             roomId,
             controlMode: "tiktok_api",
@@ -328,6 +345,9 @@
       type: "LIVE_RE_TIKTOK_API",
       request: { action, roomId, ...payload }
     });
+    if (response?.paused) {
+      apiPauseUntil = Math.max(apiPauseUntil, Number(response.paused_until_ms || 0));
+    }
     if (!response?.ok) {
       const lookup = response?.room_lookup || {};
       const detail = [
@@ -401,6 +421,11 @@
     const products = Array.isArray(snapshot.products) ? snapshot.products : [];
     const pinned = products.find(item => String(item.product_id) === String(snapshot.pin_id || ''));
     observedPin = {at: Date.now(), title: pinned ? String(pinned.title || pinned.name || '') : ''};
+    lastSnapshotAt = observedPin.at;
+    // Chia se cho comments.js (cung tab, cung isolated world): AI/nhan ghim/
+    // dong bo gio doc tu day thay vi tu goi TikTok.
+    globalThis.__KidTELiveSnapshot = { snapshot, at: lastSnapshotAt };
+    lastPinId = String(snapshot.pin_id || "");
     if (refreshProducts || productCache.size === 0) {
       validateAndCacheProducts(products);
     }
@@ -442,13 +467,13 @@
     return ok;
   }
 
-  async function canRepin(expectedRoom, expectedSession, expectedRevision, expectedSource) {
+  // freshRoom: room_id cua snapshot xac nhan bo ghim vua lay (khong hoi lai TikTok).
+  async function canRepin(expectedRoom, expectedSession, expectedRevision, expectedSource, freshRoom) {
     if (!hasExtensionContext() || !isController || !liveState.running) return false;
     const control = await chrome.runtime.sendMessage({type:'LIVE_RE_GET_STATE'});
     if (!control?.isController || !control.state?.running || control.state.sessionId !== expectedSession ||
         control.state.revision !== expectedRevision) return false;
-    const fresh = await getSnapshot(false);
-    if (String(fresh.room_id || '') !== expectedRoom) return false;
+    if (String(freshRoom || '') !== expectedRoom) return false;
     if (expectedSource?.lockId) {
       const source = await chrome.runtime.sendMessage({type:'LIVE_RE_VIDEO_POSITION'});
       if (!source?.ok || !source.available || source.lock_id !== expectedSource.lockId ||
@@ -459,7 +484,7 @@
   }
 
   async function pinProduct(product, forceRefresh) {
-    await getSnapshot(productCache.size === 0);
+    let snapshot = await getSnapshot(productCache.size === 0);
     const cached = cachedProduct(product, true);
     if (!cached) {
       updateWidget(
@@ -469,7 +494,6 @@
       return false;
     }
     let target = cached;
-    let snapshot = await getSnapshot(false);
     const startingRoom = String(snapshot.room_id || '');
     const startingSession = liveState.sessionId;
     const startingRevision = liveState.revision;
@@ -485,12 +509,13 @@
     if (currentPinId === target.product_id && forceRefresh) {
       updateWidget(`API làm mới ghim mỗi ${Math.round(repinEveryMs() / 1000)} giây: ${product.shortName}…`, true);
       await apiRequest("unpin", { productId: target.product_id });
-      if (!(await waitForPin(target.product_id, false))) {
+      const unpinned = await waitForPin(target.product_id, false);
+      if (!unpinned) {
         throw new Error(`API chưa xác nhận bỏ ghim ${product.shortName}`);
       }
       await sleep(UNPIN_GAP_MS);
       if (!liveState.running) return true;
-      if (!await canRepin(startingRoom, startingSession, startingRevision, startingSource)) return false;
+      if (!await canRepin(startingRoom, startingSession, startingRevision, startingSource, unpinned.room_id)) return false;
 
       const latest = SCHEDULE.resolve(elapsedMs()).product;
       if (!latest) return unpinCurrent();
@@ -556,12 +581,13 @@
     const currentPinId = String(snapshot.pin_id || "");
     if (currentPinId !== productId) return;
     await apiRequest("unpin", { productId });
-    if (!(await waitForPin(productId, false))) {
+    const unpinned = await waitForPin(productId, false);
+    if (!unpinned) {
       throw new Error("API chưa xác nhận bỏ ghim sản phẩm thủ công");
     }
     await sleep(UNPIN_GAP_MS);
     if (!liveState.running || manualOverride?.productId !== productId) return;
-    if (!await canRepin(startingRoom, startingSession, startingRevision, startingSource)) return;
+    if (!await canRepin(startingRoom, startingSession, startingRevision, startingSource, unpinned.room_id)) return;
     await apiRequest("pin", { productId });
     if (!(await waitForPin(productId, true))) {
       throw new Error("API chưa xác nhận ghim lại sản phẩm thủ công");
@@ -580,6 +606,8 @@
     if (!liveState.running) return;
 
     if (reason === "observe") {
+      // Vua co snapshot tu thao tac ghim: khong hoi lai TikTok.
+      if (Date.now() - lastSnapshotAt < OBSERVE_EVERY_MS) return;
       await observeExternalPin();
       return;
     }
@@ -603,6 +631,23 @@
     await pinProduct(resolved.product, reason === "pulse");
   }
 
+  // Loi tam thoi KHONG xoa roomId (truoc day xoa lam lan sau ton them 2-3
+  // request hoi lai phong). Chi bo roomId khi loi lien tiep >= 3 lan hoac loi
+  // noi ro ve phong, de van tu hoi phuc khi TikTok doi phong LIVE moi.
+  function noteApiFailure(error) {
+    const text = String(error?.message || error);
+    apiFailStreak += 1;
+    productCache = new Map();
+    liveProductsById = new Map();
+    if (apiFailStreak >= 3 || /room_id|phòng/i.test(text)) roomId = "";
+    const step = API_RETRY_STEPS_MS[Math.min(apiFailStreak - 1, API_RETRY_STEPS_MS.length - 1)];
+    apiPauseUntil = Math.max(apiPauseUntil, Date.now() + step);
+    const waitS = Math.ceil((apiPauseUntil - Date.now()) / 1000);
+    console.warn(`[Kid TE] TikTok API lỗi (${apiFailStreak} lần), thử lại sau ${waitS}s:`, text);
+    updateWidget(`Lỗi TikTok API: ${text}. Thử lại sau ${waitS} giây.`, false);
+  }
+  const apiPaused = () => Date.now() < apiPauseUntil;
+
   const PRIORITY = Object.freeze({ observe: 1, pulse: 2, transition: 3, stop: 4 });
   function queueOperation(reason) {
     if (!isController) return;
@@ -617,11 +662,9 @@
         pendingOperation = null;
         try {
           await performOperation(next);
+          apiFailStreak = 0;
         } catch (error) {
-          productCache = new Map();
-          liveProductsById = new Map();
-          roomId = "";
-          updateWidget(`Lỗi TikTok API: ${String(error?.message || error)}. Sẽ tự thử lại.`, false);
+          noteApiFailure(error);
         }
       }
       operationBusy = false;
@@ -632,24 +675,37 @@
   // (một lần, không có tab điều khiển khác, tôn trọng lệnh Dừng của người vận hành).
   // Tab controller dùng roomId đã có; tab khác hỏi snapshot thưa hơn.
   let autoStartAt = 0, autoStartBusy = false, autoStartPause = 0, autoReportedRoom = "";
+  let probeMisses = 0;
+  function onLiveDashboard() {
+    return String(globalThis.location?.pathname || "").startsWith("/streamer/live/product/dashboard");
+  }
   async function autoStartProbe() {
     if (autoStartBusy || !hasExtensionContext()) return;
     const now = Date.now();
-    if (now - autoStartAt < (isController ? 3000 : 15000) || now < autoStartPause) return;
+    const probeGap = isController ? 3000
+      : PROBE_STEPS_MS[Math.min(probeMisses, PROBE_STEPS_MS.length - 1)];
+    if (now - autoStartAt < probeGap || now < autoStartPause) return;
+    let room = String(roomId || "");
+    // Chi hoi TikTok khi o trang LIVE dashboard, khong bi tam dung vi loi/xac
+    // minh. Background con chan them: chi MOT tab duoc goi TikTok.
+    const needsApi = !isController && !room;
+    if (needsApi && (!onLiveDashboard() || apiPaused())) return;
     autoStartAt = now;
     autoStartBusy = true;
     try {
-      let room = String(roomId || "");
-      if (!isController && !room) {
+      if (needsApi) {
         const response = await apiRequest("snapshot");
         room = String(response?.snapshot?.room_id || "");
+        probeMisses = room ? 0 : probeMisses + 1;
       }
       if (!room || (isController && room === autoReportedRoom)) return;
       const result = await chrome.runtime.sendMessage({ type: "LIVE_RE_AUTO_START", roomId: room });
       if (isController || result?.started || result?.resumed) autoReportedRoom = room;
       if (result?.reason === "other_controller") autoStartPause = Date.now() + 60000;
-    } catch {
-      // Chưa có phòng live hoặc API chưa sẵn sàng; thử lại ở nhịp sau.
+    } catch (error) {
+      // Chưa có phòng live, API chưa sẵn sàng, hoặc tab khác đang giữ quyền gọi.
+      probeMisses += 1;
+      console.debug("[Kid TE] Tự nhận phòng chưa được:", String(error?.message || error));
     } finally {
       autoStartBusy = false;
     }
@@ -672,6 +728,9 @@
     autoStartProbe();
 
     if (!isController || !liveState.running) return;
+    // Dang gian cach vi loi / TikTok doi xac minh: khong xep thao tac nao,
+    // giu nguyen transition de chay ngay khi het tam dung.
+    if (apiPaused()) return;
     const now = Date.now();
     const resolved = SCHEDULE.resolve(elapsedMs(now));
 
@@ -756,6 +815,10 @@
       aiEnabled = changes.liveReAiEnabled.newValue === true;
       updateWidget();
     }
+    if (areaName === "local" && changes.liveReApiGuard) {
+      apiGuard = changes.liveReApiGuard.newValue || null;
+      updateWidget();
+    }
     if (areaName === "local" && changes.liveReCollector?.newValue) {
       collector = changes.liveReCollector.newValue;
       updateWidget();
@@ -797,6 +860,8 @@
       getProductCache: () => [...productCache.entries()],
       getManualOverride: () => manualOverride ? { ...manualOverride } : null,
       getNextRepinAt: () => nextRepinAt,
+      getApiPause: () => ({ apiPauseUntil, apiFailStreak, roomId }),
+      clearApiPause: () => { apiPauseUntil = 0; apiFailStreak = 0; },
       pollVideoPosition,
       driftMs,
       applyTimeline,

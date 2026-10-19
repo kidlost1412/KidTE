@@ -750,7 +750,12 @@ require("./comments.js");
     assert.match(storage.liveReAiStatus.message, /Chưa LIVE/);
     snapshotContext = { room_id: "r1", pin_id: "p1", products: [] };
     // AI tắt: tab trang khác không làm mới định kỳ; tab dashboard đang hiện thì có.
-    debug.setRuntimeForTest({ enabled: false, aiReady: false });
+    // Chưa có phòng LIVE hoặc không giữ vai quan sát: không đồng bộ định kỳ.
+    debug.setRuntimeForTest({ enabled: true, aiReady: true, isObserver: true, roomId: "" });
+    assert.equal(debug.shouldPeriodicSync(), false, "no periodic sync before LIVE");
+    debug.setRuntimeForTest({ enabled: true, aiReady: true, isObserver: false, isController: false, roomId: "r1" });
+    assert.equal(debug.shouldPeriodicSync(), false, "only the LIVE owner tab syncs");
+    debug.setRuntimeForTest({ enabled: false, aiReady: false, isObserver: true, roomId: "r1" });
     global.location = { pathname: "/workbench/orders" };
     global.document = { visibilityState: "visible" };
     assert.equal(debug.shouldPeriodicSync(), false);
@@ -763,6 +768,35 @@ require("./comments.js");
     global.location = { pathname: "/workbench/orders" };
     assert.equal(debug.shouldPeriodicSync(), true);
     delete global.location; delete global.document;
+  }
+  {
+    // Đọc cache trước: snapshot còn mới (do chu kỳ ghim ghi) thì không gọi TikTok.
+    let tiktokCalls = 0;
+    const realSend = chrome.runtime.sendMessage;
+    chrome.runtime.sendMessage = async (message) => {
+      if (message?.type === "LIVE_RE_TIKTOK_API") tiktokCalls += 1;
+      return realSend(message);
+    };
+    globalThis.__KidTELiveSnapshot = { snapshot: { room_id: "r-cache", pin_id: "p9", products: [] }, at: Date.now() };
+    const hit = await debug.liveSnapshot(60000, "r-cache");
+    assert.equal(hit.cached, true);
+    assert.equal(hit.snapshot.pin_id, "p9");
+    assert.equal(tiktokCalls, 0, "fresh cache must not call TikTok");
+    // Đổi phòng: hỏi TikTok đúng một lần, kể cả khi nhiều comment cùng chờ.
+    await Promise.all([debug.liveSnapshot(60000, "r1"), debug.liveSnapshot(60000, "r1")]);
+    assert.equal(tiktokCalls, 1, "concurrent cache misses share one request");
+    // Giá/sản phẩm ít đổi: cache 15 phút; 10 phút tuổi vẫn dùng cache.
+    assert.equal(debug.PRODUCT_CACHE_MAX_AGE_MS, 15 * 60 * 1000);
+    assert.equal(debug.CATALOG_SYNC_EVERY_MS, 15 * 60 * 1000, "periodic catalog sync ~15 min");
+    globalThis.__KidTELiveSnapshot.at = Date.now() - 10 * 60 * 1000;
+    assert.equal((await debug.liveSnapshot()).cached, true);
+    assert.equal(tiktokCalls, 1, "10-minute-old product cache must not call TikTok");
+    // Cache quá 15 phút: làm mới.
+    globalThis.__KidTELiveSnapshot.at = Date.now() - 16 * 60 * 1000;
+    await debug.liveSnapshot();
+    assert.equal(tiktokCalls, 2);
+    chrome.runtime.sendMessage = realSend;
+    globalThis.__KidTELiveSnapshot = null;
   }
 
   console.log("LIVE_RE_COMMENTS_TEST_OK");

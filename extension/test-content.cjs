@@ -43,6 +43,10 @@ let browser;
           if (message.type !== "LIVE_RE_TIKTOK_API") return { ok: true };
           const request = message.request;
           window.__apiCalls.push(JSON.parse(JSON.stringify(request)));
+          if (window.__failNext) {
+            window.__failNext = false;
+            return { ok: false, error: "network timeout" };
+          }
           if (request.action === "snapshot") {
             return {
               ok: true,
@@ -147,6 +151,11 @@ let browser;
   }), beforePulse);
   assert.equal(pulse.pinId, "p1");
   assert.deepEqual(pulse.calls, [["unpin", "p1"], ["pin", "p1"]]);
+  // Chu kỳ làm mới ghim vẫn bỏ ghim rồi ghim lại, nhưng không còn snapshot thừa
+  // (trước: 5 snapshot; nay: 1 đầu + 1 xác nhận bỏ ghim + 1 xác nhận ghim).
+  const pulseSnapshots = await page.evaluate((before) => window.__apiCalls.slice(before)
+    .filter((call) => call.action === "snapshot").length, beforePulse);
+  assert.ok(pulseSnapshots <= 3, `pulse used ${pulseSnapshots} snapshots`);
 
   const beforeOwnershipChange = await page.evaluate(() => {
     const count = window.__apiCalls.length;
@@ -197,6 +206,19 @@ let browser;
   await page.evaluate(() => window.__LIVE_RE_DEBUG__.expireManualOverride());
   await page.waitForTimeout(250);
   assert.equal(await pinId(), "p2");
+
+  // Lỗi tạm thời: giữ roomId (không hỏi lại phòng), giãn cách trước khi gọi lại.
+  await page.evaluate(() => { window.__failNext = true; window.__LIVE_RE_DEBUG__.queueOperation("transition"); });
+  await page.waitForTimeout(200);
+  const afterError = await page.evaluate(() => window.__LIVE_RE_DEBUG__.getApiPause());
+  assert.equal(afterError.roomId, "room-test", "transient error must keep roomId");
+  assert.equal(afterError.apiFailStreak, 1);
+  assert.ok(afterError.apiPauseUntil - Date.now() > 5000, "error must back off");
+  const callsDuringBackoff = await page.evaluate(() => window.__apiCalls.length);
+  await page.waitForTimeout(600);
+  assert.equal(await page.evaluate(() => window.__apiCalls.length), callsDuringBackoff,
+    "no TikTok calls during backoff");
+  await page.evaluate(() => window.__LIVE_RE_DEBUG__.clearApiPause());
 
   const mode = await page.getAttribute("html", "data-live-re-mode");
   assert.equal(mode, "tiktok-api");

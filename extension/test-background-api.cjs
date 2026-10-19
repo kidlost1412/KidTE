@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+// Không bao giờ chạm backend thật (cổng 8793) khi test.
+global.fetch = async () => { throw new Error("backend offline (test)"); };
 
 const calls = [];
 let pinResponse = { code: 0 };

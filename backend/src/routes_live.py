@@ -60,6 +60,12 @@ def post_heartbeat(self, route, payload, flags):
     return result
 
 
+def post_tiktok_lease(self, route, payload, flags):
+    # Lease "người gọi TikTok" giữa các trình duyệt/profile (chỉ trong bộ nhớ).
+    import tiktok_lease
+    return tiktok_lease.LEASE.handle(payload)
+
+
 def post_shopee_sync(self, route, payload, flags):
     result = self.engine.sync_shopee_catalog(payload)
     return result

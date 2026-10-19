@@ -199,14 +199,18 @@ confirmTwice($("#start"), "Bấm lại để đặt về 00:00", () => command("
 confirmTwice($("#stop"), "Bấm lại để dừng và bỏ ghim", () => command("LIVE_RE_STOP"));
 $("#adjust-back").addEventListener("click", () => command("LIVE_RE_ADJUST", { deltaMs: -1000 }));
 $("#adjust-forward").addEventListener("click", () => command("LIVE_RE_ADJUST", { deltaMs: 1000 }));
-$("#pause").addEventListener("click", () => command(state.running ? "LIVE_RE_PAUSE" : "LIVE_RE_RESUME"));
+$("#pause").addEventListener("click", async () => {
+  // Mốc người dùng bấm: lệnh app phát ra TRƯỚC mốc này không được ghi đè (comments.js).
+  await chrome.storage.local.set({ liveRePinChangedAtMs: Date.now() }).catch(() => {});
+  return command(state.running ? "LIVE_RE_PAUSE" : "LIVE_RE_RESUME");
+});
 $("#ai-toggle").addEventListener("click", async () => {
   if (busy) return;
   busy = true;
   render();
   try {
     const next = !aiEnabled;
-    await chrome.storage.local.set({ liveReAiEnabled: next });
+    await chrome.storage.local.set({ liveReAiEnabled: next, liveReAiChangedAtMs: Date.now() });
     aiEnabled = next;
     globalThis.KidTEPopupUX?.notify(next ? 'Đã bật AI · đang chờ bình luận' : 'Đã tắt trả lời tự động');
   } catch (error) { globalThis.KidTEPopupUX?.notify(error.message, true); }

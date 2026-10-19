@@ -527,10 +527,17 @@ function noteSendFailure(detail) {
         liveReControlError: "Lệnh từ app đã quá hạn (hơn 10 phút); không áp" });
       return false;
     }
+    // Lựa chọn MỚI NHẤT thắng: người dùng đã bấm trong popup SAU lúc app phát lệnh
+    // thì giữ lựa chọn của popup (vẫn ghi nhận seq + báo lý do để app hiện trạng thái thật).
+    const local = await chrome.storage.local.get(["liveReAiChangedAtMs", "liveRePinChangedAtMs"]);
+    const skipped = [];
     if (typeof control.ai_enabled === "boolean") {
-      await chrome.storage.local.set({ liveReAiEnabled: control.ai_enabled });
+      if (Number(local?.liveReAiChangedAtMs || 0) > issuedMs) skipped.push("AI");
+      else await chrome.storage.local.set({ liveReAiEnabled: control.ai_enabled, liveReAiChangedAtMs: issuedMs });
     }
-    if (typeof control.auto_pin === "boolean") {
+    if (typeof control.auto_pin === "boolean" && Number(local?.liveRePinChangedAtMs || 0) > issuedMs) {
+      skipped.push("Tự ghim");
+    } else if (typeof control.auto_pin === "boolean") {
       const current = await chrome.runtime.sendMessage({ type: "LIVE_RE_GET_STATE" }).catch(() => null);
       const pinState = current?.state || {};
       if (control.auto_pin === false && pinState.running === true) {
@@ -540,8 +547,11 @@ function noteSendFailure(detail) {
         await chrome.runtime.sendMessage({ type: "LIVE_RE_RESUME" });
       }
     }
-    await chrome.storage.local.set({ liveReControlSeq: seq, liveReControlError: "" });
-    return true;
+    await chrome.storage.local.set({ liveReControlSeq: seq, liveReControlError: skipped.length
+      ? `Giữ lựa chọn mới hơn trong tiện ích (${skipped.join(", ")})` : "" });
+    // Báo app ngay (không đợi 10 giây) để công tắc ở app hết "Đang gửi…".
+    sendHeartbeat().catch(() => {});
+    return !skipped.length;
   }
 
   async function sendHeartbeat() {
@@ -1284,12 +1294,16 @@ function noteSendFailure(detail) {
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.liveReAiEnabled) {
-      applyEnabled(changes.liveReAiEnabled.newValue);
+      // Đổi trong popup/widget/app: gửi heartbeat ngay sau khi áp để app thấy trong vài giây.
+      Promise.resolve(applyEnabled(changes.liveReAiEnabled.newValue))
+        .finally(() => { sendHeartbeat().catch(() => {}); });
     }
     if (area === "local" && changes.liveReState) {
       liveStateCache = changes.liveReState.newValue || {};
+      const pinChanged = (changes.liveReState.oldValue || {}).running !== liveStateCache.running;
       liveRunning = liveStateCache.running === true;
       ensureBridge().catch(() => {});
+      if (pinChanged) sendHeartbeat().catch(() => {});
       if (enabled) install().catch(() => { aiReady = false; });
     }
   });

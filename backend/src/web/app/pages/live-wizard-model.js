@@ -113,7 +113,8 @@ export function toggleRequest(id, on, ctx = {}) {
 }
 
 // Khối Bật/tắt nhanh. dash.live_control vắng (backend cũ) => AI/Tự ghim chỉ hiển thị + "Cách bật".
-export function quickToggles(dash, use = null) {
+export const PENDING_STALE_S = 25;
+export function quickToggles(dash, use = null, now = Date.now() / 1000) {
   const d = dash || {};
   const ext = d.extension || {};
   const ch = d.live_channels || {};
@@ -131,16 +132,23 @@ export function quickToggles(dash, use = null) {
   const aiTk = !!(ext.ai_enabled && ext.ai_ready);
   const spExt = sp.extension || {};
   const aiSp = !!(spExt.connected !== false && spExt.ai_enabled && spExt.ai_ready === true);
+  // Lệnh app chỉ "thắng" khi còn đang chờ tiện ích nhận. Đã nhận rồi thì công tắc luôn theo
+  // trạng thái THẬT từ heartbeat — để đổi trong popup/widget tiện ích hiện ngay ở app.
   const ctl = (pf, key, actual) => {
     if (!lc) return {mode: 'info', on: actual};
     const c = lc[pf] || {};
     const want = c[key];
     const pending = want !== null && want !== undefined && c.applied === false;
-    // Tiện ích đã nhận lệnh nhưng không áp được (vd. DeepSeek chưa sẵn sàng, lệnh quá hạn): hiện trạng thái thật + lý do.
+    const hb = pf === 'tiktok' ? ext : spExt;
+    const age = typeof c.updated_at === 'number' ? now - c.updated_at : 0;
+    const stale = pending && (hb.connected === false || age > PENDING_STALE_S);
+    // Tiện ích đã nhận lệnh nhưng không áp được (vd. DeepSeek chưa sẵn sàng, lệnh quá hạn,
+    // đã có lựa chọn mới hơn trong tiện ích): hiện trạng thái thật + lý do.
     const failed = !pending && c.applied === true && !!c.control_error;
-    return {mode: 'control', on: failed || want === null || want === undefined ? actual : !!want, actual, pending,
+    return {mode: 'control', on: pending ? !!want : actual, actual, pending, stale,
       error: failed ? c.control_error : '',
-      note: pending ? 'Đang chờ tiện ích nhận lệnh…' : failed ? 'Không áp được: ' + c.control_error : null};
+      note: stale ? 'Tiện ích chưa phản hồi — mở tab LIVE trên Chrome (Kid TE đã ghép) rồi đợi vài giây'
+        : pending ? 'Đang gửi tới tiện ích…' : failed ? 'Không áp được: ' + c.control_error : null};
   };
   const ai = (id, label, pf, actual) => {
     const c = ctl(pf, 'ai_enabled', actual);

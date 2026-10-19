@@ -52,21 +52,24 @@
   async function applyAppControl(control, ctx = {}) {
     const seq = Number(control?.seq);
     if (!Number.isInteger(seq) || seq <= 0) return false;
-    const saved = await call(() => chrome.storage.local.get("shopeeControlSeq"));
+    const saved = await call(() => chrome.storage.local.get(["shopeeControlSeq", "shopeeAiChangedAtMs"]));
     if (seq <= Number(saved?.shopeeControlSeq || 0)) return false;
     let error = "";
     const issuedMs = Number(control.issued_at) * 1000;
     if (!Number.isFinite(issuedMs) || issuedMs <= 0 || Date.now() - issuedMs > CONTROL_MAX_AGE_MS) {
       error = "Lệnh từ app đã quá hạn (hơn 10 phút); không áp";
+    } else if (typeof control.ai_enabled === "boolean" && Number(saved?.shopeeAiChangedAtMs || 0) > issuedMs) {
+      // Lựa chọn MỚI NHẤT thắng: bấm popup sau lúc app phát lệnh thì giữ lựa chọn popup.
+      error = "Giữ lựa chọn mới hơn trong tiện ích (AI)";
     } else if (control.ai_enabled === true) {
       error = await core.aiStartCheck({config: ctx.config, tabId: ctx.config?.tabId,
         sessionId: ctx.isController ? core.liveSession(location.href) : null,
         aiStatus: () => send({type: "KIDTE_SHOPEE_BACKEND", resource: "ai_status"}),
         latestConfig: async () => (await call(() => chrome.storage.local.get("shopeeConfig"))).shopeeConfig})
         .catch(e => String(e?.message || e));
-      if (!error) await save({shopeeAiRequested: true});
+      if (!error) await save({shopeeAiRequested: true, shopeeAiChangedAtMs: issuedMs});
     } else if (control.ai_enabled === false) {
-      await save({shopeeAiRequested: false});
+      await save({shopeeAiRequested: false, shopeeAiChangedAtMs: issuedMs});
     }
     await save({shopeeControlSeq: seq, shopeeControlError: error});
     return !error;

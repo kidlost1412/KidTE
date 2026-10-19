@@ -137,3 +137,16 @@ def test_heartbeat_keeps_pin_running(engine):
     assert engine.platform_heartbeats["tiktok"]["pin_running"] is True
     _beat(engine, "tiktok")
     assert engine.platform_heartbeats["tiktok"]["pin_running"] is None
+
+
+def test_extension_change_after_applied_command_is_visible(engine):
+    """Bug 1.15.16: app bật AI (đã áp), chủ shop tắt trong popup -> heartbeat phải phản ánh
+    trạng thái thật; lệnh đã áp không được giao lại."""
+    engine.set_live_control({"platform": "tiktok", "ai_enabled": True})
+    seq = _beat(engine, "tiktok")["control"]["seq"]
+    _beat(engine, "tiktok", ai_enabled=True, ai_ready=True, control_applied_seq=seq)
+    assert engine.live_control()["tiktok"]["applied"] is True
+    _beat(engine, "tiktok", ai_enabled=False, ai_ready=False, control_applied_seq=seq,
+          control_error="Giữ lựa chọn mới hơn trong tiện ích (AI)")
+    assert engine.platform_heartbeats["tiktok"]["ai_enabled"] is False
+    assert engine.live_control()["tiktok"]["applied"] is True

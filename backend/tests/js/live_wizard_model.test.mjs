@@ -95,7 +95,7 @@ test('quickToggles with live_control: desired state, pending note, auto-pin', ()
   assert.equal(ai.on, false);
   assert.equal(ai.actual, true);
   assert.equal(ai.pending, true);
-  assert.match(ai.note, /Đang chờ tiện ích nhận lệnh/);
+  assert.match(ai.note, /Đang gửi tới tiện ích/);
   const sp = t.find(x => x.id === 'ai-shopee');
   assert.equal(sp.on, false);
   assert.equal(sp.pending, false);
@@ -224,4 +224,29 @@ test('stageChips: chỉ bước chưa xong của chặng, nhãn ngắn, bỏ bư
   const c = stageChips(steps, 'once');
   assert.deepEqual(c.map(x => x.id), ['A3', 'A8']);
   assert.equal(c[0].label, 'AI'); assert.equal(c[1].tone, 'danger');
+});
+
+test('quickToggles: đổi trong tiện ích sau lệnh app đã nhận -> app theo trạng thái thật (bug 1.15.16)', () => {
+  const base = baseDash();
+  const now = 1000;
+  // App từng bật AI + ghim (đã áp); sau đó chủ shop TẮT trong popup tiện ích.
+  const dash = {...base, extension: {...base.extension, connected: true, ai_enabled: false, ai_ready: false, pin_running: false},
+    live_control: {tiktok: {ai_enabled: true, auto_pin: true, applied: true, control_error: '', updated_at: now - 300}, queue_mode: false}};
+  const t = quickToggles(dash, null, now);
+  const ai = t.find(x => x.id === 'ai-tiktok');
+  assert.equal(ai.on, false, 'phải theo heartbeat, không theo lệnh cũ của app');
+  assert.equal(ai.pending, false);
+  assert.equal(t.find(x => x.id === 'pin-tiktok').on, false);
+});
+
+test('quickToggles: lệnh app đang chờ -> "Đang gửi…"; quá lâu/mất kết nối -> tiện ích chưa phản hồi', () => {
+  const base = baseDash();
+  const lc = (age) => ({tiktok: {ai_enabled: false, auto_pin: null, applied: false, control_error: '', updated_at: 1000 - age}, queue_mode: false});
+  const fresh = quickToggles({...base, extension: {...base.extension, connected: true}, live_control: lc(3)}, null, 1000).find(x => x.id === 'ai-tiktok');
+  assert.equal(fresh.on, false); assert.equal(fresh.pending, true); assert.equal(fresh.stale, false);
+  assert.match(fresh.note, /Đang gửi tới tiện ích/);
+  const old = quickToggles({...base, extension: {...base.extension, connected: true}, live_control: lc(60)}, null, 1000).find(x => x.id === 'ai-tiktok');
+  assert.equal(old.stale, true); assert.match(old.note, /chưa phản hồi/);
+  const off = quickToggles({...base, extension: {...base.extension, connected: false}, live_control: lc(1)}, null, 1000).find(x => x.id === 'ai-tiktok');
+  assert.equal(off.stale, true);
 });

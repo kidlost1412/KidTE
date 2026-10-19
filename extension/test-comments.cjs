@@ -716,6 +716,21 @@ require("./comments.js");
     assert.equal(storage.liveReControlSeq, 9);
     await debug.sendHeartbeat();
     assert.match(beats.at(-1).control_error, /quá hạn/);
+    // Lựa chọn mới nhất thắng: popup bấm SAU lúc app phát lệnh -> lệnh app không ghi đè.
+    storage.liveReAiEnabled = false;
+    storage.liveReAiChangedAtMs = Date.now();
+    const beatsBefore = beats.length;
+    assert.equal(await debug.applyAppControl({ seq: 10, ai_enabled: true, issued_at: Date.now() / 1000 - 5 }), false);
+    assert.equal(storage.liveReAiEnabled, false, "lệnh app cũ không được ghi đè lựa chọn mới trong popup");
+    assert.equal(storage.liveReControlSeq, 10);
+    assert.match(storage.liveReControlError, /mới hơn/);
+    await new Promise(r => setTimeout(r, 20));
+    assert.ok(beats.length > beatsBefore, "áp/ghi nhận lệnh xong phải gửi heartbeat ngay");
+    // Lệnh app MỚI hơn lần bấm popup thì áp, và ghi mốc để popup cũ hơn không giành lại.
+    storage.liveReAiChangedAtMs = Date.now() - 60000;
+    assert.equal(await debug.applyAppControl({ seq: 11, ai_enabled: true, issued_at: Date.now() / 1000 }), true);
+    assert.equal(storage.liveReAiEnabled, true);
+    assert.equal(storage.liveReControlError, "");
     chrome.runtime.sendMessage = priorSend;
   }
 

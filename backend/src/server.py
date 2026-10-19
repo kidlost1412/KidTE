@@ -4183,6 +4183,101 @@ class ReplyEngine:
                              r"(?=\s*(?:$|[.,!?;)]|(?:nha|nhe|nghe|nhen|luon|a|thoi|do|ha|roi|anh|chi|em|ban|"
                              r"ca nha)(?![a-z])))")
 
+    # Số tiền viết bằng chữ (M.6): "ba trăm nghìn", "một trăm tám lăm nghìn", "hai triệu rưỡi",
+    # "năm chục", "trăm rưỡi". Chỉ tính khi kèm đơn vị tiền (nghìn/ngàn/k/triệu/đồng); "X chục"
+    # và "trăm rưỡi" đứng cuối câu/trước từ đệm (tiếng lóng giá) — "hai chai", "ba ngày" không bắt.
+    _WORD_DIGITS = {"mot": 1, "hai": 2, "ba": 3, "bon": 4, "tu": 4, "nam": 5, "lam": 5, "sau": 6,
+                    "bay": 7, "tam": 8, "chin": 9}
+    _WORD_TOKEN = re.compile(r"[a-z]+|\d+|[.,!?;:()\n]")
+    _WORD_END = frozenset({"nha", "nhe", "nghe", "nhen", "luon", "a", "thoi", "do", "ha", "roi", "anh", "chi",
+                           "em", "ban", "ca", "a.", "thui", "ne", "nhaa", "ak"})
+    # Chỉ từ không trùng chữ thường khi bỏ dấu ("hợp", "cần", "còn", "hả" không có ở đây).
+    _WORD_COUNTED = frozenset({"nguoi", "khach", "luot", "don", "cay", "chai", "lit", "ml", "kg", "thung", "m2"})
+    _CLAUSE_GIA = re.compile(r"\bgia\b(?!\s+(?:dinh|tri|vi|han|cong|su))")
+
+    @classmethod
+    def _word_group(cls, toks, i):
+        """Số 1–999 bằng chữ bắt đầu ở toks[i] → (giá trị, vị trí sau, cờ) hoặc None."""
+        digits, n = cls._WORD_DIGITS, len(toks)
+
+        def dig(k):
+            return digits.get(toks[k]) if k < n else None
+        value, j, hundreds, flags = 0, i, False, set()
+        if dig(j) is not None and j + 1 < n and toks[j + 1] == "tram":
+            value, j, hundreds = dig(j) * 100, j + 2, True
+        elif j < n and toks[j] == "tram":
+            value, j, hundreds = 100, j + 1, True
+        if hundreds:
+            if j < n and toks[j] == "ruoi":
+                return value + 50, j + 1, {"ruoi"}
+            if j + 1 < n and toks[j] in ("linh", "le") and dig(j + 1) is not None:
+                return value + dig(j + 1), j + 2, flags
+        if dig(j) is not None and j + 1 < n and toks[j + 1] in ("muoi", "chuc"):
+            if toks[j + 1] == "chuc" and not hundreds:
+                flags.add("chuc")
+            value, j = value + dig(j) * 10, j + 2
+            if dig(j) is not None and "chuc" not in flags:
+                value, j = value + dig(j), j + 1
+        elif j < n and toks[j] == "muoi":
+            value, j = value + 10, j + 1
+            if dig(j) is not None:
+                value, j = value + dig(j), j + 1
+        elif dig(j) is not None:
+            if hundreds and dig(j + 1) is not None:          # "trăm tám lăm" = 185
+                value, j = value + dig(j) * 10 + dig(j + 1), j + 2
+            elif hundreds:                                    # "hai trăm tư" = 240
+                value, j = value + dig(j) * 10, j + 1
+            else:
+                value, j = dig(j), j + 1
+        if j == i:
+            return None
+        return value, j, flags
+
+    @classmethod
+    def _word_amounts(cls, folded):
+        toks = cls._WORD_TOKEN.findall(folded)
+        n, i, out = len(toks), 0, set()
+
+        def end_at(k):
+            return k >= n or toks[k] in cls._WORD_END or not toks[k].isalnum()
+        while i < n:
+            group = cls._word_group(toks, i)
+            if not group:
+                i += 1
+                continue
+            value, j, flags = group
+            unit = toks[j] if j < n else ""
+            if unit == "chuc" and j + 1 < n and toks[j + 1] in ("nghin", "ngan"):   # "năm chục nghìn"
+                value, j, unit = value * 10, j + 1, toks[j + 1]
+            if unit in ("nghin", "ngan", "k", "trieu") and j + 1 < n and toks[j + 1] in cls._WORD_COUNTED:
+                i = j + 1                                   # "ba nghìn người", "hai triệu lượt xem"
+            elif unit in ("nghin", "ngan", "k"):
+                out.add(value * 1000)
+                i = j + 1
+            elif unit == "trieu":
+                amount, j = value * 1_000_000, j + 1
+                if j < n and toks[j] == "ruoi":
+                    amount, j = amount + 500_000, j + 1
+                else:
+                    tail = cls._word_group(toks, j)
+                    if tail and tail[1] < n and toks[tail[1]] in ("nghin", "ngan", "k"):
+                        amount, j = amount + tail[0] * 1000, tail[1] + 1
+                    elif tail and end_at(tail[1]):
+                        t = tail[0]
+                        amount += t * (100_000 if t < 10 else 10_000 if t < 100 else 1000)
+                        j = tail[1]
+                out.add(amount)
+                i = j
+            elif unit in ("dong", "d", "vnd"):
+                out.add(value)
+                i = j + 1
+            elif flags & {"chuc", "ruoi"} and end_at(j):           # "năm chục", "trăm rưỡi"
+                out.add(value * 1000)
+                i = j
+            else:
+                i += 1
+        return out
+
     @classmethod
     def _unit_after(cls, low, folded, pos, units):
         """Đơn vị ngay sau vị trí pos: so trên chữ có dấu; không dấu chỉ khi đoạn đó viết không dấu."""
@@ -4193,6 +4288,14 @@ class ReplyEngine:
             m = cls._PLAIN_UNIT.match(folded, pos)
             return bool(m and low[pos:m.end()] == folded[pos:m.end()])
         return bool(cls._PLAIN_UNIT.match(folded, pos))
+
+    @classmethod
+    def _goc_after_price(cls, low, folded, start, end):
+        """Giá 450.000 gốc: "gốc" sau số là giá gốc (tiền) khi cùng mệnh đề có "giá" phía trước."""
+        if not re.match(r"\s*goc(?![a-z])", folded[end:]):
+            return False
+        clause = re.split(r"[;!?\n]|[.,](?=\s|$)", folded[:start])[-1]
+        return bool(cls._CLAUSE_GIA.search(clause))
 
     @classmethod
     def _price_values(cls, text):
@@ -4217,7 +4320,8 @@ class ReplyEngine:
                 continue                    # "1k lít": quy cách/liều
             if not dong and not k and (cls._unit_after(low, folded, m.end(4), cls._MEASURE_UNIT)
                                        or cls._unit_after(low, folded, m.end(4), cls._COUNT_UNIT)):
-                continue                    # "1.000 lít", "20.000 cây"
+                if not cls._goc_after_price(low, folded, m.start(4), m.end(4)):
+                    continue                # "1.000 lít", "20.000 cây"
             number = int(re.sub(r"[.,]", "", digits))
             values.add(number * 1000 if k else number)
         for m in cls._DECIMAL_K.finditer(folded):
@@ -4225,6 +4329,7 @@ class ReplyEngine:
         for m in cls._TOTAL_BARE.finditer(folded):
             number = int(m.group(1))
             values.add(number * 1000 if number < 1000 else number)
+        values |= cls._word_amounts(folded)
         # >= 1.000đ: bắt cả "1k", "5k", "5 nghìn" (C2). Số trần không đơn vị đã bỏ ở trên.
         return {v for v in values if v >= 1_000}
 

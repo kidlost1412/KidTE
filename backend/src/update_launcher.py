@@ -51,6 +51,9 @@ class CoreCrashLoop(LauncherError):
 BASELINE_IDS = ("core", "runtime", "app", "extensions")
 SPLIT_IDS = ("runtime", "app", "extensions")
 LAUNCHER_CAPS = "split-components restart-exit"
+# Số thứ tự bản launcher, đưa cho core qua KIDTE_LAUNCHER_REV. TĂNG khi launcher đổi hành vi
+# quan trọng (core so với REQUIRED_LAUNCHER_REV trong launcher_rev.py để nhắc chạy lại Setup).
+LAUNCHER_REV = 2
 MAX_RESTARTS_PER_WINDOW = 3
 CRASH_RESTART_LIMIT = 3
 CRASH_WINDOW_SECONDS = 600
@@ -840,6 +843,7 @@ def _environment(app_root: Path, data_root: Path, port: int, environ: dict[str, 
     if app_dir is not None:
         child["KIDTE_APP_PACKAGE_DIR"] = str(app_dir)
     child["KIDTE_LAUNCHER_CAPS"] = LAUNCHER_CAPS
+    child["KIDTE_LAUNCHER_REV"] = str(LAUNCHER_REV)
     child["KIDTE_APP_ROOT"] = str(app_root.resolve())
     # Normalize explicit overrides to their absolute target while retaining the
     # legacy LIVE_RE_ROOT variable for callers that still inspect it.

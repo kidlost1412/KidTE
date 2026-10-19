@@ -132,3 +132,11 @@ export function restartNeeded(state) {
 
 // Văn bản xác nhận khi bấm khởi động lại lúc đang LIVE (chủ app chọn cho phép).
 export const LIVE_RESTART_TEXT = 'Đang LIVE — app sẽ tắt khoảng 20–30 giây rồi tự mở lại; bình luận đến trong lúc đó vẫn được giữ trong hàng chờ.';
+
+export const LAUNCHER_OUTDATED_TEXT = 'Trình khởi động Kid TE đã cũ — một số bảo vệ mới (tự mở lại khi lỗi, thông báo lỗi tiếng Việt) chưa có hiệu lực. Đóng Kid TE, tải và chạy bộ cài mới (cài đè vào đúng thư mục cũ, dữ liệu giữ nguyên).';
+
+export function launcherNotice(state) {
+  if (!state || state.launcher_outdated !== true) return null;
+  const url = typeof state.launcher_download_url === 'string' && state.launcher_download_url.startsWith('https://github.com/') ? state.launcher_download_url : '';
+  return {text: LAUNCHER_OUTDATED_TEXT, url};
+}

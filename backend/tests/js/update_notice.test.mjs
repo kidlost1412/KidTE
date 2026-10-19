@@ -140,3 +140,14 @@ test('formatCheckedAt shows Vietnam local time hh:mm dd/mm', () => {
   assert.equal(formatCheckedAt('2026-12-31T18:00:00Z'), '01:00 01/01');
   assert.equal(formatCheckedAt(''), '');
 });
+
+test('launcher banner only when the core reports an outdated launcher', async () => {
+  const {launcherNotice} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+  assert.equal(launcherNotice({}), null);
+  assert.equal(launcherNotice(null), null);
+  assert.equal(launcherNotice({launcher_outdated: false}), null);
+  const n = launcherNotice({launcher_outdated: true, launcher_download_url: 'https://github.com/kidlost1412/KidTE/releases/tag/v1.15.17-p4'});
+  assert.match(n.text, /Trình khởi động Kid TE đã cũ/);
+  assert.match(n.url, /releases\/tag\/v1\.15\.17-p4$/);
+  assert.equal(launcherNotice({launcher_outdated: true, launcher_download_url: 'javascript:alert(1)'}).url, '');
+});

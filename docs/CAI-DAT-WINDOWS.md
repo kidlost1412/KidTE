@@ -44,6 +44,12 @@ trang rồi khởi động lại solver. Key và token cần nhập lại trên 
 - **Phần mềm diệt virus** chặn/cách ly `KidTE.exe` hoặc `KidTELauncher.exe`: khôi phục tệp và thêm thư mục cài Kid TE vào danh sách loại trừ; nếu tệp bị xoá, chạy lại bộ cài vào đúng thư mục cũ (dữ liệu giữ nguyên).
 - **Mất điện khi đang mở app**: lần mở sau Kid TE tự dọn tệp khoá cũ; không cần xoá tay.
 
+## Cập nhật trình khởi động (KidTELauncher.exe)
+
+Gói app tự cập nhật qua trang **Cập nhật**, nhưng `KidTELauncher.exe` chỉ được thay bằng bộ cài. Nếu trang Cập nhật hiện băng vàng
+"Trình khởi động đã cũ": đóng hẳn Kid TE, tải bộ cài mới (nút trong băng), chạy đè lên bản đang dùng và chọn **đúng thư mục cũ**
+(ví dụ `D:\KidTE`). Dữ liệu và các gói đã tải được giữ nguyên.
+
 ## Mọi thứ nằm trong MỘT thư mục
 
     D:\KidTE\            (thư mục anh chọn lúc cài)

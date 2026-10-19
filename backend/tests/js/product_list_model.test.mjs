@@ -45,3 +45,14 @@ test('confirm dialogs for bulk actions show the count', () => {
   assert.match(bulkApproveText(2).title, /2 hồ sơ/);
   assert.match(bulkApproveText(2).text, /AI/);
 });
+
+test('product trash confirm texts carry counts and rescan note', async () => {
+  const m = await import('../../src/web/app/pages/product-list-model.js');
+  assert.match(m.trashProductsText(3).title, /3 sản phẩm/);
+  assert.match(m.trashProductsText(37, true).title, /tất cả 37/);
+  assert.match(m.trashProductsText(1).text, /Thùng rác/);
+  const purge = m.purgeProductsText(2);
+  assert.match(purge.title, /vĩnh viễn 2/);
+  assert.match(purge.text, /Quét giỏ bằng tay sau này vẫn lấy lại nếu TikTok còn bán/);
+  assert.match(m.restoreProductsText(4).title, /4 sản phẩm/);
+});

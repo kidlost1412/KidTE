@@ -836,6 +836,46 @@ require("./comments.js");
     globalThis.__KidTELiveSnapshot = null;
   }
 
+  {
+    // 3.11.7: nút quét của popup (LIVE_RE_SCAN_CATALOG_PAGE) -> gọi thẳng TikTok
+    // (userInitiated), đẩy catalog kèm user_initiated để backend bỏ tombstone,
+    // kể cả khi cache 15 phút còn mới. TikTok 37 -> báo đúng 37.
+    const apiRequests = [], pushes = [];
+    const realSend = chrome.runtime.sendMessage;
+    chrome.runtime.sendMessage = async (message) => {
+      if (message?.type === "LIVE_RE_TIKTOK_API") apiRequests.push(message.request);
+      if (message?.type === "LIVE_RE_CATALOG_SYNC") {
+        pushes.push(message.payload);
+        return { ok: true, product_count: message.payload.user_initiated ? 37 : 35,
+          received_count: 37, synced_at: "x" };
+      }
+      return realSend(message);
+    };
+    const saved = snapshotContext;
+    snapshotContext = { room_id: "", phase: "prelive", pin_id: "",
+      products: Array.from({ length: 37 }, (_, i) => ({ product_id: `p${i}` })) };
+    globalThis.__KidTELiveSnapshot = { snapshot: { room_id: "", products: [{ product_id: "old" }] }, at: Date.now() };
+    const response = await new Promise((resolve) =>
+      runtimeListeners[0]({ type: "LIVE_RE_SCAN_CATALOG_PAGE" }, {}, resolve));
+    assert.equal(response.ok, true, JSON.stringify(response));
+    assert.equal(response.product_count, 37);
+    assert.equal(response.tiktok_count, 37);
+    assert.equal(apiRequests.at(-1).userInitiated, true, "popup scan must reach background as userInitiated");
+    assert.equal(apiRequests.at(-1).action, "snapshot");
+    assert.equal(pushes.at(-1).user_initiated, true);
+    assert.equal(pushes.at(-1).live_context.products.length, 37);
+    // Backend bỏ qua (live_active) -> báo lỗi, không báo "đã lưu".
+    chrome.runtime.sendMessage = async (message) => message?.type === "LIVE_RE_CATALOG_SYNC"
+      ? { ok: true, skipped: "live_active", product_count: 35 } : realSend(message);
+    const skipped = await new Promise((resolve) =>
+      runtimeListeners[0]({ type: "LIVE_RE_SCAN_CATALOG_PAGE" }, {}, resolve));
+    assert.equal(skipped.ok, false);
+    assert.match(skipped.error, /chưa ghi/);
+    snapshotContext = saved;
+    chrome.runtime.sendMessage = realSend;
+    globalThis.__KidTELiveSnapshot = null;
+  }
+
   console.log("LIVE_RE_COMMENTS_TEST_OK");
   process.exit(0);
 })().catch((error) => {

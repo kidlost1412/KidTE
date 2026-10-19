@@ -111,7 +111,7 @@ POST_EARLY_ROUTES = [
     (exact('/api/system/documents/upload'), routes_settings.post_system_documents_upload),
     (exact('/api/ingest/upload'), routes_workspace.post_ingest_upload),
     (expr(lambda self, route, flags: route.startswith("/api/profiles/") and route.endswith(("/enrich", "/enrich/apply", "/enrich-batch", "/enrich-batch/cancel"))), routes_workspace.post_profiles_prefix),
-    (one_of('/api/ingest/extract', '/api/ingest/draft', '/api/ingest/link', '/api/ingest/combo/propose', '/api/ingest/combo/propose-batch', '/api/ingest/combo/draft', '/api/ingest/product/remove', '/api/ingest/product/restore', '/api/ingest/defaults/save', '/api/ingest/defaults/choose'), routes_workspace.post_ingest_extract),
+    (one_of('/api/ingest/extract', '/api/ingest/draft', '/api/ingest/link', '/api/ingest/combo/propose', '/api/ingest/combo/propose-batch', '/api/ingest/combo/draft', '/api/ingest/product/remove', '/api/ingest/product/restore', '/api/ingest/product/trash-batch', '/api/ingest/product/restore-batch', '/api/ingest/product/purge-batch', '/api/ingest/defaults/save', '/api/ingest/defaults/choose'), routes_workspace.post_ingest_extract),
     (prefix('/api/system/'), routes_settings.post_system_prefix),
     (prefix('/api/learning/'), routes_workspace.post_learning_prefix),
 ]

@@ -58,9 +58,20 @@ def removed_products():
 
 def set_removed(product, removed=True):
     """Persist a local listing tombstone; no shop deletion or profile deletion."""
-    pid = str(product.get("product_id") or "").strip()
-    if not pid or len(pid) > 160:
-        raise ValueError("product_id_required")
+    return set_removed_many([product], removed)
+
+
+def set_removed_many(products, removed=True):
+    """Ghi/gỡ tombstone cho nhiều sản phẩm trong MỘT lần ghi (có khoá, ghi nguyên tử).
+
+    Một id hỏng => ValueError, không ghi gì. Trả danh sách id đã đổi.
+    """
+    items = []
+    for product in products or []:
+        pid = str((product or {}).get("product_id") or "").strip()
+        if not pid or len(pid) > 160:
+            raise ValueError("product_id_required")
+        items.append((pid, product))
     with _lock:
         if REMOVED_PATH.exists():
             try:
@@ -72,16 +83,23 @@ def set_removed(product, removed=True):
                 raise ValueError("Danh sách sản phẩm đã xóa bị hỏng; chưa ghi thay đổi.") from None
         else:
             rows = {}
-        if removed:
-            rows[pid] = {"product_id": pid, "title": str(product.get("title") or pid)[:500],
-                         "removed_at": datetime.now(timezone.utc).isoformat()}
-        else:
-            rows.pop(pid, None)
+        changed = []
+        stamp = datetime.now(timezone.utc).isoformat()
+        for pid, product in items:
+            if removed:
+                rows[pid] = {"product_id": pid, "title": str(product.get("title") or pid)[:500],
+                             "removed_at": stamp}
+                changed.append(pid)
+            elif rows.pop(pid, None) is not None:
+                changed.append(pid)
+        if not changed:
+            return changed
         REMOVED_PATH.parent.mkdir(parents=True, exist_ok=True)
         temporary = REMOVED_PATH.with_suffix(".json.tmp")
         temporary.write_text(json.dumps({"schema_version": 1, "products": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(REMOVED_PATH)
         _cache.pop(REMOVED_PATH, None)
+        return changed
 
 
 def _rules():

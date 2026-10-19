@@ -444,6 +444,31 @@ class LiveCatalogStore:
 
     LIVE_ACTIVE_SECONDS = 600
 
+    def raw_products(self):
+        """Sản phẩm đã lưu CHƯA lọc tombstone (để thùng rác hiện ảnh/giá)."""
+        return list((getattr(self, "_snapshot", {}) or {}).get("products") or [])
+
+    def drop_products(self, product_ids):
+        """Gỡ hẳn sản phẩm khỏi danh mục đã lưu (một lần ghi). Trả bản cũ để hoàn tác."""
+        ids = {str(i) for i in product_ids}
+        with self._lock:
+            before = dict(getattr(self, "_snapshot", {}) or {})
+            products = [p for p in before.get("products") or [] if str(p.get("product_id")) not in ids]
+            if len(products) == len(before.get("products") or []):
+                return before
+            after = {**before, "products": products, "product_count": len(products)}
+            if after.get("pin_id") in ids:
+                after["pin_id"] = ""
+            atomic_json(LIVE_CATALOG_PATH, after)
+            self.snapshot = after
+            return before
+
+    def restore_raw(self, snapshot):
+        with self._lock:
+            atomic_json(LIVE_CATALOG_PATH, snapshot)
+            self.snapshot = snapshot
+
+
     @staticmethod
     def _owner_key(host):
         if not isinstance(host, dict):
@@ -1018,13 +1043,31 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         )
         return result
 
-    def sync_catalog(self, snapshot):
+    def sync_catalog(self, snapshot, user_initiated=False):
+        incoming = [p for p in ((snapshot or {}).get("products") or []) if isinstance(p, dict)]             if isinstance(snapshot, dict) else []
+        restored = []
+        if user_initiated and incoming:
+            # Người dùng bấm "lấy lại/quét": giỏ TikTok là nguồn đúng. Sản phẩm từng
+            # bị xoá cục bộ (tombstone) mà TikTok vẫn trả về thì đưa lại danh mục.
+            # Tự động đồng bộ vẫn giữ tombstone như trước.
+            removed = product_blocklist.removed_products()
+            for product in incoming:
+                pid = str(product.get("product_id") or "").strip()
+                if pid and pid in removed:
+                    product_blocklist.set_removed(removed[pid], False)
+                    restored.append(pid)
         saved = self.catalog.sync(snapshot)
         self.workspace._touch("products", "catalog", "dashboard")
         result = {"ok": True, "product_count": saved["product_count"], "synced_at": saved["synced_at"],
-                  "phase": saved.get("phase", "")}
+                  "phase": saved.get("phase", ""), "received_count": len(incoming)}
+        if restored:
+            result["restored_ids"] = restored
         if saved.get("skipped"):
             result["skipped"] = saved["skipped"]
+            if user_initiated:
+                result.update(ok=False, error=(
+                    "Phiên LIVE đang hoạt động: giỏ trước LIVE không ghi đè danh mục LIVE. "
+                    "Hãy quét từ tab LIVE dashboard."))
         return result
 
     def acknowledge_reply(self, payload):

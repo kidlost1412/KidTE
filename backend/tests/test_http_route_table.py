@@ -64,7 +64,7 @@ OLD_POST_EARLY = [
     'route == "/api/system/documents/upload"',
     'route == "/api/ingest/upload"',
     'route.startswith("/api/profiles/") and route.endswith(("/enrich", "/enrich/apply", "/enrich-batch", "/enrich-batch/cancel"))',
-    'route in ("/api/ingest/extract", "/api/ingest/draft", "/api/ingest/link", "/api/ingest/combo/propose", "/api/ingest/combo/propose-batch", "/api/ingest/combo/draft", "/api/ingest/product/remove", "/api/ingest/product/restore", "/api/ingest/defaults/save", "/api/ingest/defaults/choose")',
+    'route in ("/api/ingest/extract", "/api/ingest/draft", "/api/ingest/link", "/api/ingest/combo/propose", "/api/ingest/combo/propose-batch", "/api/ingest/combo/draft", "/api/ingest/product/remove", "/api/ingest/product/restore", "/api/ingest/product/trash-batch", "/api/ingest/product/restore-batch", "/api/ingest/product/purge-batch", "/api/ingest/defaults/save", "/api/ingest/defaults/choose")',
     'route.startswith("/api/system/")',
     'route.startswith("/api/learning/")',
 ]

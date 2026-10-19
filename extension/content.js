@@ -4,7 +4,7 @@
   window.__LIVE_RE_PIN_LOADED__ = true;
 
   const SCHEDULE = globalThis.KidTESchedule;
-  const VERSION = "3.11.6";
+  const VERSION = "3.11.7";
   const UNPIN_GAP_MS = 500;
   const CONFIRM_TIMEOUT_MS = 6000;
   const CONFIRM_POLL_MS = 700;

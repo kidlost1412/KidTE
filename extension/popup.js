@@ -246,7 +246,12 @@ $("#scan-catalog").addEventListener("click", async () => {
   try {
     const response = await chrome.runtime.sendMessage({ type: "LIVE_RE_SCAN_CATALOG" });
     if (!response?.ok) throw new Error(response?.error || "Không quét được giỏ");
-    box.textContent = `Đã lưu ${Number(response.product_count || 0)} SKU · có thể phân tích video khi chưa LIVE.`;
+    const saved = Number(response.product_count || 0);
+    const fromTikTok = Number(response.tiktok_count ?? response.received_count ?? saved);
+    if (saved <= 0) throw new Error("Kid TE chưa lưu được sản phẩm nào");
+    box.textContent = fromTikTok > saved
+      ? `TikTok trả ${fromTikTok} SKU · đã lưu ${saved} (${fromTikTok - saved} SKU bị loại theo danh sách loại khỏi AI).`
+      : `Đã lưu ${saved} SKU lấy thẳng từ TikTok · có thể phân tích video khi chưa LIVE.`;
     box.className = "ok";
   } catch (error) {
     box.textContent = `Chưa quét được: ${error.message}`;

@@ -401,3 +401,92 @@ def test_restore_v1_holds_backup_lock(env, monkeypatch):
     monkeypatch.setattr(backup_policy, "_restore_operational_backup", fake)
     assert backup_policy.restore_operational_backup("x") == {"ok": True}
     assert seen == {"other_got_lock": False}    # bộ làm sạch không chen vào lúc khôi phục
+
+
+def _ws_ids(path):
+    with closing(sqlite3.connect(path)) as db:
+        return ([r[0] for r in db.execute("SELECT correction_id FROM corrections ORDER BY 1")],
+                [r[0] for r in db.execute("SELECT snapshot_id FROM operator_snapshots ORDER BY 1")])
+
+
+def test_restore_v1_unscrubbed_backup_applies_full_filter(env, monkeypatch):
+    backup_dir = _v1(env)                       # bản chưa làm sạch, còn Alice
+    _forget_alice(env)
+    monkeypatch.setattr(backup_policy, "create_operational_backup", lambda **k: {"backup_id": "safety"})
+    result = backup_policy.restore_operational_backup(backup_dir.name)
+    assert result["privacy_reapplied"]["deleted"] > 0
+    assert _keys(env["mem"]) == [BOB]
+    assert _ws_ids(env["ws"]) == (["c-333444"], ["s-333444"])
+
+
+def test_restore_v2_unscrubbed_backup_applies_full_filter(env, tmp_path):
+    store, backup_id = _v2(env)
+    _forget_alice(env)
+    stage = tmp_path / "stage2"
+    store.stage_restore(backup_id, stage, password=PASSWORD, current_privacy_db=env["mem"],
+                        privacy_key_path=env["key"])
+    assert _keys(stage / "data" / "customer_memory.sqlite3") == [BOB]
+    assert _ws_ids(stage / "data" / "operator_workspace.sqlite3") == (["c-333444"], ["s-333444"])
+
+
+def test_data_snapshots_scrubbed_and_manifest_updated(env):
+    snap = env["data"] / "snapshots"
+    snap.mkdir()
+    db = _make_memory_db(snap / "customer_memory.sqlite3")
+    digest = hashlib.sha256(db.read_bytes()).hexdigest()
+    (snap / "manifest.json").write_text(json.dumps({"created_at": "x", "method": "sqlite-backup", "databases": [
+        {"file": db.name, "bytes": db.stat().st_size, "sha256": digest, "quick_check": "ok",
+         "rows": {"customers": 2}}]}), encoding="utf-8")
+    (snap / "README.md").write_text("doc", encoding="utf-8")
+    _forget_alice(env)
+    result = backup_policy.scrub_backups_for_privacy()
+    assert "snapshot:customer_memory.sqlite3" in result["cleaned"] and not result["pending"]
+    assert _keys(db) == [BOB] and not _contains(db.read_bytes(), ALICE_NICK)
+    row = json.loads((snap / "manifest.json").read_text(encoding="utf-8"))["databases"][0]
+    assert row["sha256"] == hashlib.sha256(db.read_bytes()).hexdigest() and row["bytes"] == db.stat().st_size
+    assert row["rows"] == {"customers": 1}
+    assert (snap / "README.md").read_text(encoding="utf-8") == "doc"
+    assert not list(snap.glob(".scrub-*"))
+
+
+def test_scrub_waits_for_backup_delete(env):
+    import threading
+    import backup_delete
+    backup_dir = _v1(env)
+    _forget_alice(env)
+    before = _tree_digest(backup_dir)
+    held, release = threading.Event(), threading.Event()
+
+    def hold():
+        with backup_delete._LOCK:
+            held.set()
+            release.wait(5)
+
+    t = threading.Thread(target=hold)
+    t.start()
+    held.wait(5)
+    try:
+        assert backup_policy.scrub_backups_for_privacy()["deferred"]
+    finally:
+        release.set()
+        t.join()
+    assert _tree_digest(backup_dir) == before
+    # Xoá dở (còn nhật ký .delete-*) → không đụng bản V1 nào, để recover xử lý trước.
+    journal = env["backups"] / (".delete-" + "d" * 32 + ".json")
+    journal.write_text("{}", encoding="utf-8")
+    result = backup_policy.scrub_backups_for_privacy()
+    assert result["pending"]["v1:" + backup_dir.name] == "backup_delete_pending"
+    assert _tree_digest(backup_dir) == before
+    journal.unlink()
+    assert "v1:" + backup_dir.name in backup_policy.scrub_backups_for_privacy()["cleaned"]
+
+
+def test_delete_after_scrub_needs_new_preview(env):
+    import backup_delete
+    backup_dir = _v1(env)
+    token = backup_delete.preview(env["backups"], [backup_dir.name])["preview_token"]
+    _forget_alice(env)
+    backup_policy.scrub_backups_for_privacy()
+    with pytest.raises(ValueError, match="backup_preview_changed"):
+        backup_delete.execute(env["backups"], [backup_dir.name], token)
+    assert backup_dir.is_dir()

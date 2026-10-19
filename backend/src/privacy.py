@@ -510,6 +510,7 @@ def purge_hmac_tagged(db_path, tombstones):
     if not hashes:
         return 0
     db = sqlite3.connect(Path(db_path), timeout=10)
+    db.execute("PRAGMA secure_delete=ON")
     deleted = 0
     try:
         with db:
@@ -557,3 +558,14 @@ def count_tombstoned(db_path, tombstones, secret):
         return found
     finally:
         db.close()
+
+
+def purge_all_by_tombstones(db_path, tombstones, secret):
+    """Áp ĐỦ tombstone lên một tệp sqlite (bản khôi phục / bản sao lưu đang làm sạch):
+    dòng theo khoá thô (``purge_db_by_tombstones``), dòng gắn thẻ HMAC (sửa câu, câu mẫu,
+    kiến thức học) và bản chụp/thùng rác/lịch sử sửa của workspace. Trả số dòng đã xoá."""
+    import workspace
+    deleted = purge_db_by_tombstones(db_path, tombstones, secret)["deleted"]
+    deleted += purge_hmac_tagged(db_path, tombstones)
+    deleted += workspace.purge_history_by_tombstones(db_path, tombstones, secret)
+    return deleted

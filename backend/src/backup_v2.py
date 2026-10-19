@@ -298,7 +298,7 @@ class BackupV2:
             raise BackupError('backup_privacy_secret_required')
         for record in manifest['files']:
             if record['kind'] == 'sqlite':
-                privacy.purge_db_by_tombstones(destination / _safe_relative(record['path']), union, secret)
+                privacy.purge_all_by_tombstones(destination / _safe_relative(record['path']), union, secret)
 
     def _collect_scrub_garbage(self):
         """Gom đối tượng cũ của các lần làm sạch (``.scrub-gc-*.json``) không còn manifest nào

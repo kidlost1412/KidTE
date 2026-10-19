@@ -160,6 +160,7 @@ def purge_history_by_tombstones(db_path, tombstones, secret, *, dry_run=False):
         db = sqlite3.connect(_privacy.readonly_uri(db_path), uri=True, timeout=10)
     else:
         db = sqlite3.connect(str(db_path), timeout=10)
+        db.execute("PRAGMA secure_delete=ON")
     db.row_factory = sqlite3.Row
     resources = WorkspaceStore._CUSTOMER_RESOURCES
     marks = ",".join("?" for _ in resources)

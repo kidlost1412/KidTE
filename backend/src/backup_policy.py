@@ -394,7 +394,8 @@ def _reapply_privacy_state(state):
             finally:
                 db.close()
         if state["tombstones"]:
-            deleted += privacy.purge_db_by_tombstones(db_path, state["tombstones"], state["secret"])["deleted"]
+            # Đủ như bộ làm sạch: cả dòng gắn thẻ HMAC và lịch sử workspace (bản chưa kịp làm sạch).
+            deleted += privacy.purge_all_by_tombstones(db_path, state["tombstones"], state["secret"])
     return {"deleted": deleted, "tombstones": len(state["tombstones"])}
 
 
@@ -610,10 +611,7 @@ def _compact_sqlite(path):
 def scrub_sqlite_copy(path, tombstones, secret):
     """Áp tombstone lên MỘT BẢN SAO sqlite. Trả số dòng đã xoá (0 = coi như không đổi)."""
     import privacy
-    import workspace
-    deleted = privacy.purge_db_by_tombstones(path, tombstones, secret)["deleted"]
-    deleted += privacy.purge_hmac_tagged(path, tombstones)
-    deleted += workspace.purge_history_by_tombstones(path, tombstones, secret)
+    deleted = privacy.purge_all_by_tombstones(path, tombstones, secret)
     if deleted:
         _compact_sqlite(path)
     _remove_sidecars(path)
@@ -787,6 +785,56 @@ def _schema_backup_dir():
     return Path(DATA_DIR) / "schema_backups"
 
 
+def _snapshot_dir():
+    """data/snapshots: bản chụp DB làm tay một lần (README + manifest riêng); không mã nào đọc."""
+    return Path(DATA_DIR) / "snapshots"
+
+
+def _loose_dirs():
+    return (("schema", _schema_backup_dir()), ("snapshot", _snapshot_dir()))
+
+
+def _update_snapshot_manifest(path):
+    """Cập nhật bytes/sha256/rows của tệp vừa làm sạch trong data/snapshots/manifest.json
+    (ghi nguyên tử). Manifest chỉ để người đọc; lỗi ở đây không ảnh hưởng tệp DB."""
+    path = Path(path)
+    manifest_path = path.parent / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    rows = data.get("databases") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return False
+    import privacy
+    changed = False
+    for row in rows:
+        if not isinstance(row, dict) or row.get("file") != path.name:
+            continue
+        row["bytes"] = path.stat().st_size
+        row["sha256"] = _sha256(path)
+        if isinstance(row.get("rows"), dict):
+            db = sqlite3.connect(privacy.readonly_uri(path), uri=True, timeout=10)
+            try:
+                for table in list(row["rows"]):
+                    try:
+                        row["rows"][table] = db.execute(
+                            'SELECT COUNT(*) FROM "%s"' % str(table).replace('"', '""')).fetchone()[0]
+                    except sqlite3.Error:
+                        pass
+            finally:
+                db.close()
+        row["privacy_scrubbed_at"] = datetime.now(timezone.utc).isoformat()
+        changed = True
+    if changed:
+        temporary = manifest_path.with_name(manifest_path.name + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, manifest_path)
+    return changed
+
+
 def _v2_root():
     return Path(BACKUP_DIR) / "v2"
 
@@ -828,8 +876,9 @@ def _recover_scrub_leftovers(logger=None):
             except Exception as exc:  # noqa: BLE001 - giữ nguyên, lần sau thử lại
                 _scrub_log_event(logger, "warning", f"{name}: {_scrub_error_code(exc)}",
                                  "privacy_scrub_recover_failed")
-    folder = _schema_backup_dir()
-    if folder.is_dir():
+    for _kind, folder in _loose_dirs():
+        if not folder.is_dir():
+            continue
         for entry in folder.iterdir():
             match = _SCRUB_FILE.fullmatch(entry.name)
             if not match or not entry.is_file():
@@ -866,8 +915,9 @@ def _scrub_targets():
                 targets.append((f"v2:{path.stem}", "v2", path.stem, _sha256(path)))
             except OSError:
                 continue
-    folder = _schema_backup_dir()
-    if folder.is_dir():
+    for kind, folder in _loose_dirs():
+        if not folder.is_dir():
+            continue
         for path in sorted(folder.iterdir()):
             if (path.name.startswith(".") or not path.is_file()
                     or path.suffix.casefold() not in _SQLITE_SUFFIXES):
@@ -876,7 +926,7 @@ def _scrub_targets():
                 stat = path.stat()
             except OSError:
                 continue
-            targets.append((f"schema:{path.name}", "schema", path, f"{stat.st_size}:{stat.st_mtime_ns}"))
+            targets.append((f"{kind}:{path.name}", kind, path, f"{stat.st_size}:{stat.st_mtime_ns}"))
     return targets
 
 
@@ -950,7 +1000,13 @@ def scrub_backups_for_privacy(*, should_stop=None, logger=None, vacuum_paths=Non
     if not fingerprint:
         result["status"] = "no_tombstones"
         return result
+    import backup_delete
     if stop() or not OPERATIONAL_BACKUP_LOCK.acquire(blocking=False):
+        result["deferred"] = True
+        return result
+    # Dùng chung khoá với xoá bản sao lưu V1: không hoán đổi thư mục đang bị xoá.
+    if not backup_delete._LOCK.acquire(blocking=False):
+        OPERATIONAL_BACKUP_LOCK.release()
         result["deferred"] = True
         return result
     try:
@@ -978,6 +1034,8 @@ def scrub_backups_for_privacy(*, should_stop=None, logger=None, vacuum_paths=Non
             try:
                 if secret is None:
                     raise ValueError("privacy_secret_missing")
+                if kind == "v1" and any(Path(BACKUP_DIR).glob(".delete-*.json")):
+                    raise ValueError("backup_delete_pending")    # xoá dở: để backup_delete.recover xử lý trước
                 if kind == "v1":
                     outcome = _scrub_v1_backup(ref, tombstones, secret)
                     new_content = _sha256(Path(ref) / "manifest.json")
@@ -990,6 +1048,12 @@ def scrub_backups_for_privacy(*, should_stop=None, logger=None, vacuum_paths=Non
                     new_content = _sha256(store._manifest_path(ref))
                 else:
                     outcome = _scrub_loose_sqlite(ref, tombstones, secret)
+                    if kind == "snapshot" and outcome.get("changed"):
+                        try:
+                            _update_snapshot_manifest(ref)
+                        except (OSError, ValueError, sqlite3.Error) as exc:
+                            _scrub_log_event(logger, "warning", f"{key}: {type(exc).__name__}",
+                                             "privacy_scrub_snapshot_manifest_failed")
                     stat = Path(ref).stat()
                     new_content = f"{stat.st_size}:{stat.st_mtime_ns}"
             except Exception as exc:  # noqa: BLE001 - bản cũ giữ nguyên, thử lại lần sau
@@ -1022,6 +1086,7 @@ def scrub_backups_for_privacy(*, should_stop=None, logger=None, vacuum_paths=Non
         _scrub_log_event(logger, "warning", result["error"], "privacy_scrub_failed")
         return result
     finally:
+        backup_delete._LOCK.release()
         OPERATIONAL_BACKUP_LOCK.release()
 
 

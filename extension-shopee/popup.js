@@ -106,11 +106,11 @@ action("ai-start", async () => {
       aiStatus: () => chrome.runtime.sendMessage({type: "KIDTE_SHOPEE_BACKEND", resource: "ai_status"}),
       latestConfig: async () => (await chrome.storage.local.get("shopeeConfig")).shopeeConfig});
     if (blocked) throw new Error(blocked);
-    await chrome.storage.local.set({shopeeAiRequested: true});
+    await chrome.storage.local.set({shopeeAiRequested: true, shopeeAiChangedAtMs: Date.now()});
     await refreshStatus();
 }, 'Đã bật AI · đang chờ bình luận');
 action("ai-stop", async () => {
-  await chrome.storage.local.set({shopeeAiRequested: false});
+  await chrome.storage.local.set({shopeeAiRequested: false, shopeeAiChangedAtMs: Date.now()});
   await refreshStatus();
 }, 'Đã tắt trả lời tự động', 'Bấm lại để tắt AI');
 chrome.storage.onChanged.addListener((changes, area) => {

@@ -96,6 +96,12 @@ const pause = () => new Promise(r => setTimeout(r, 10));
   assert.equal(await context.KidTEShopeeApplyControl({seq:7,ai_enabled:true,issued_at:(clock-11*60000)/1000},{config,isController:true}),false);
   assert.equal(storage.shopeeAiRequested,false,'lệnh quá 10 phút không áp'); assert.equal(storage.shopeeControlSeq,7);
   assert.match(storage.shopeeControlError,/quá hạn/);
+  // Lựa chọn mới nhất thắng: popup bấm sau lúc app phát lệnh -> lệnh app không ghi đè.
+  storage.shopeeAiChangedAtMs=clock;
+  assert.equal(await context.KidTEShopeeApplyControl({seq:8,ai_enabled:true,issued_at:(clock-5000)/1000},{config,isController:true}),false);
+  assert.equal(storage.shopeeAiRequested,false); assert.equal(storage.shopeeControlSeq,8); assert.match(storage.shopeeControlError,/mới hơn/);
+  assert.equal(await context.KidTEShopeeApplyControl({seq:9,ai_enabled:false,issued_at:(clock+1000)/1000},{config,isController:true}),true);
+  assert.equal(storage.shopeeControlError,''); assert.equal(storage.shopeeAiChangedAtMs,clock+1000);
   chrome.runtime.sendMessage=realSend; appControl=null;
   owner=true; location.href='https://live.shopee.vn/pc/preview?session=456'; clock+=3000; await tick();
   assert.equal(calls.filter(x=>x.resource==='sync').at(-1).payload.session_id,'456');

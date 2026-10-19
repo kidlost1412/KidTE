@@ -53,9 +53,12 @@ const api = (tabId, request = { action: "snapshot" }) => new Promise((resolve) =
   assert.equal((await api(owner)).ok, true, "owner stays stable");
   assert.deepEqual([...new Set(injected)], [owner], "refused tab never reaches TikTok");
 
-  // Trang không phải LIVE dashboard: luôn bị từ chối, kể cả thao tác tay.
+  // Trang không phải LIVE dashboard: gọi tự động bị từ chối.
   assert.equal((await api(9)).not_owner, true);
-  assert.equal((await api(9, { action: "snapshot", userInitiated: true })).not_owner, true);
+  // 3.11.6: quét giỏ bằng tay (popup) từ trang TikTok Shop khác (chuẩn bị LIVE,
+  // quản lý sản phẩm) PHẢI chạy — 3.11.5 từ chối nên chủ shop không lấy được SP.
+  const manualOther = await api(9, { action: "snapshot", userInitiated: true });
+  assert.equal(manualOther.ok, true, "manual scan from non-dashboard shop page must run");
 
   // Thao tác tay (quét giỏ từ popup) từ tab dashboard khác vẫn chạy.
   assert.equal((await api(other, { action: "snapshot", userInitiated: true })).ok, true);

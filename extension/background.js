@@ -957,7 +957,13 @@ async function claimObserver(tabId) {
   if (holder && holder !== tabId && !expired) {
     // Tab giữ vai có thể đã bị đóng; kiểm tra thật trước khi nhường.
     const alive = await chrome.tabs.get(holder).catch(() => null);
-    if (alive) return false;
+    // 3.11.8: tab LIVE dashboard giành vai từ tab TikTok Shop KHÁC trang (vd. trang
+    // sản phẩm). Trước đây tab khác trang giữ vai quan sát -> chỉ nó nhận lệnh app,
+    // còn cổng một tab (resolveApiOwner) lại chặn nó gọi TikTok -> bật AI thất bại.
+    if (alive) {
+      const self = isLiveDashboardTab(alive) ? null : await chrome.tabs.get(tabId).catch(() => null);
+      if (!self || !isLiveDashboardTab(self)) return false;
+    }
   }
   await chrome.storage.local.set({
     liveReObserverTabId: tabId,

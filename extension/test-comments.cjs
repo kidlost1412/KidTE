@@ -682,12 +682,14 @@ require("./comments.js");
     const priorSend = chrome.runtime.sendMessage;
     const beats = [], pinCalls = [];
     let control = { seq: 3, ai_enabled: true, auto_pin: false, issued_at: Date.now() / 1000 };
+    catalogCount = 42;
+    snapshotContext = { room_id: "r1", pin_id: "p1", products: [{ product_id: "p1", title: "SP 1" }] };
     delete storage.liveReControlSeq;
     storage.liveReAiEnabled = false;
     chrome.runtime.sendMessage = async (message) => {
       if (message.type === "LIVE_RE_HEARTBEAT") { beats.push(message.payload); return { ok: true, control }; }
       if (message.type === "LIVE_RE_PAUSE" || message.type === "LIVE_RE_RESUME") { pinCalls.push(message.type); return { ok: true }; }
-      if (message.type === "LIVE_RE_GET_STATE") return { ok: true, state: { running: pinCalls.length === 0, startedAtMs: 1 } };
+      if (message.type === "LIVE_RE_GET_STATE") return { ok: true, isController: true, state: { running: pinCalls.length === 0, startedAtMs: 1 } };
       return priorSend(message);
     };
     debug.setRuntimeForTest({ isController: true });
@@ -731,6 +733,40 @@ require("./comments.js");
     assert.equal(await debug.applyAppControl({ seq: 11, ai_enabled: true, issued_at: Date.now() / 1000 }), true);
     assert.equal(storage.liveReAiEnabled, true);
     assert.equal(storage.liveReControlError, "");
+    // 3.11.8: tab không giữ vai (vd. trang TikTok Shop khác) KHÔNG nuốt seq; để tab LIVE áp.
+    debug.setRuntimeForTest({ isController: false, isObserver: false });
+    assert.equal(await debug.applyAppControl({ seq: 12, ai_enabled: false, issued_at: Date.now() / 1000 }), false);
+    assert.equal(storage.liveReControlSeq, 11, "tab không giữ vai không ghi nhận seq");
+    assert.equal(storage.liveReAiEnabled, true);
+    debug.setRuntimeForTest({ isController: true });
+    // Bật AI từ app nhưng cài AI thất bại (chưa có phòng LIVE): báo lý do thật về app.
+    storage.liveReAiEnabled = false;
+    await debug.applyEnabled(false);
+    snapshotContext = { room_id: "", phase: "prelive", products: [{ product_id: "x" }] };
+    assert.equal(await debug.applyAppControl({ seq: 13, ai_enabled: true, issued_at: Date.now() / 1000 }), false);
+    assert.equal(storage.liveReAiEnabled, false);
+    assert.match(storage.liveReControlError, /AI: Chưa LIVE/);
+    await debug.sendHeartbeat();
+    assert.equal(beats.at(-1).control_applied_seq, 13);
+    assert.match(beats.at(-1).control_error, /Chưa LIVE/);
+    snapshotContext = { room_id: "r1", pin_id: "p1", products: [{ product_id: "p1", title: "SP 1" }] };
+    // Bật tự ghim khi chưa có phiên ghim nào: không im lặng báo "đã áp".
+    const priorGet = chrome.runtime.sendMessage;
+    chrome.runtime.sendMessage = async (message) => message.type === "LIVE_RE_GET_STATE"
+      ? { ok: true, isController: true, state: { running: false, startedAtMs: 0 } } : priorGet(message);
+    assert.equal(await debug.applyAppControl({ seq: 14, auto_pin: true, issued_at: Date.now() / 1000 }), false);
+    assert.match(storage.liveReControlError, /chưa có phiên ghim/);
+    // Có phiên đang tạm dừng: RESUME và cập nhật trạng thái ghim ngay cho heartbeat.
+    pinCalls.length = 0;
+    chrome.runtime.sendMessage = async (message) => {
+      if (message.type === "LIVE_RE_GET_STATE") return { ok: true, isController: true, state: { running: false, startedAtMs: 5 } };
+      if (message.type === "LIVE_RE_RESUME") { pinCalls.push("RESUME"); return { ok: true, state: { running: true, startedAtMs: 5 } }; }
+      return priorGet(message);
+    };
+    assert.equal(await debug.applyAppControl({ seq: 15, auto_pin: true, issued_at: Date.now() / 1000 }), true);
+    assert.deepEqual(pinCalls, ["RESUME"]);
+    await debug.sendHeartbeat();
+    assert.equal(beats.at(-1).pin_running, true);
     chrome.runtime.sendMessage = priorSend;
   }
 

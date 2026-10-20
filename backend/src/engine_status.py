@@ -161,6 +161,10 @@ class EngineStatusMixin:
                     'applied': row.get('applied') is True,
                     'control_error': str(row.get('control_error') or '')[:200],
                     'updated_at': row.get('updated_at') if isinstance(row.get('updated_at'), (int, float)) else None}
+            fields = row.get('fields')
+            # Trường mà lệnh hiện tại thực sự đổi (None = bản cũ chưa ghi: gửi hết như trước).
+            item['fields'] = ([f for f in fields if f in ('ai_enabled', 'auto_pin')]
+                              if isinstance(fields, list) else None)
             if platform == 'tiktok':
                 item['auto_pin'] = row.get('auto_pin') if isinstance(row.get('auto_pin'), bool) else None
             state[platform] = item
@@ -172,7 +176,7 @@ class EngineStatusMixin:
         state = self._live_control_load()
         result = {}
         for platform, row in state.items():
-            result[platform] = {key: value for key, value in row.items() if key != 'seq'}
+            result[platform] = {key: value for key, value in row.items() if key not in ('seq', 'fields')}
         result['queue_mode'] = bool(self.backend_queue_mode())
         return result
 
@@ -194,6 +198,10 @@ class EngineStatusMixin:
         with self._LIVE_CONTROL_LOCK:
             state = {key: dict(value) for key, value in self._live_control_load().items()}
             row = state[platform]
+            # Chỉ gửi trường vừa đổi: trước đây lệnh bật AI mang theo auto_pin cũ (và ngược
+            # lại) nên ép lại lựa chọn cũ. Lệnh trước chưa được nhận thì gộp trường.
+            previous = row.get('fields') if row.get('applied') is False and isinstance(row.get('fields'), list) else []
+            row['fields'] = sorted(set(previous) | set(changes))
             row.update(changes)
             row['seq'] = int(row.get('seq') or 0) + 1
             row['applied'] = False
@@ -227,6 +235,11 @@ class EngineStatusMixin:
                    'issued_at': row.get('updated_at')}
         if platform == 'tiktok':
             control['auto_pin'] = row.get('auto_pin')
+        fields = row.get('fields')
+        if isinstance(fields, list):
+            for key in ('ai_enabled', 'auto_pin'):
+                if key in control and key not in fields:
+                    control[key] = None
         return control
 
     def set_queue_mode(self, payload):

@@ -4,7 +4,7 @@
   window.__LIVE_RE_PIN_LOADED__ = true;
 
   const SCHEDULE = globalThis.KidTESchedule;
-  const VERSION = "3.11.10";
+  const VERSION = "3.11.11";
   const UNPIN_GAP_MS = 500;
   const CONFIRM_TIMEOUT_MS = 6000;
   const CONFIRM_POLL_MS = 700;
@@ -348,6 +348,12 @@
     if (response?.paused) {
       apiPauseUntil = Math.max(apiPauseUntil, Number(response.paused_until_ms || 0));
     }
+    if (!response?.ok && (response?.blocked || response?.not_owner)) {
+      // Bị chặn bởi lease/cổng một-tab/guard: KHÔNG phải lỗi TikTok.
+      const blocked = new Error(response?.error || "Tab khác đang giữ quyền gọi TikTok");
+      blocked.blocked = true;
+      throw blocked;
+    }
     if (!response?.ok) {
       const lookup = response?.room_lookup || {};
       const detail = [
@@ -365,6 +371,11 @@
       throw new Error(
         (response?.error || "TikTok API không phản hồi") + (detail ? ` (${detail})` : "")
       );
+    }
+    const seenRoom = String(response.room_id || response.snapshot?.room_id || "");
+    if (seenRoom && seenRoom !== "0") {
+      if (seenRoom !== lastSeenRoom) resetBackoff("new_room");
+      lastSeenRoom = seenRoom;
     }
     if (response.room_id) roomId = String(response.room_id);
     return response;
@@ -642,8 +653,29 @@
   // Loi tam thoi KHONG xoa roomId (truoc day xoa lam lan sau ton them 2-3
   // request hoi lai phong). Chi bo roomId khi loi lien tiep >= 3 lan hoac loi
   // noi ro ve phong, de van tu hoi phuc khi TikTok doi phong LIVE moi.
+  // Lỗi không phải của TikTok: bị chặn (lease/cổng một tab/guard) hoặc trang chưa
+  // nạp xong client TikTok (vừa mở lại tab). Không đếm vào apiFailStreak, chỉ chờ ngắn.
+  const BLOCKED_RETRY_MS = 5000;
+  function isTransientLocal(error) {
+    return Boolean(error?.blocked) ||
+      /Không tìm thấy TikTok LIVE API client|Extension context/i.test(String(error?.message || error));
+  }
+  function resetBackoff(reason = "") {
+    if (!apiFailStreak && !apiPauseUntil && !probeMisses) return;
+    apiFailStreak = 0;
+    apiPauseUntil = 0;
+    probeMisses = 0;
+    autoStartAt = 0;
+    autoStartPause = 0;
+    if (reason) console.debug(`[Kid TE] Bỏ giãn cách thử lại (${reason})`);
+  }
   function noteApiFailure(error) {
     const text = String(error?.message || error);
+    if (isTransientLocal(error)) {
+      apiPauseUntil = Math.max(apiPauseUntil, Date.now() + BLOCKED_RETRY_MS);
+      updateWidget(error?.blocked ? `Đang chờ quyền gọi TikTok: ${text}` : `Đang chờ trang TikTok sẵn sàng: ${text}`, false);
+      return;
+    }
     apiFailStreak += 1;
     productCache = new Map();
     liveProductsById = new Map();
@@ -686,14 +718,17 @@
   // Tab controller dùng roomId đã có; tab khác hỏi snapshot thưa hơn.
   let autoStartAt = 0, autoStartBusy = false, autoStartPause = 0, autoReportedRoom = "";
   let probeMisses = 0;
+  let lastSeenRoom = "";
   function onLiveDashboard() {
     return String(globalThis.location?.pathname || "").startsWith("/streamer/live/product/dashboard");
+  }
+  function probeGapFor(misses) {
+    return PROBE_STEPS_MS[Math.min(misses, PROBE_STEPS_MS.length - 1)];
   }
   async function autoStartProbe() {
     if (autoStartBusy || !hasExtensionContext()) return;
     const now = Date.now();
-    const probeGap = isController ? 3000
-      : PROBE_STEPS_MS[Math.min(probeMisses, PROBE_STEPS_MS.length - 1)];
+    const probeGap = isController ? 3000 : probeGapFor(probeMisses);
     if (now - autoStartAt < probeGap || now < autoStartPause) return;
     let room = String(roomId || "");
     // Chi hoi TikTok khi o trang LIVE dashboard, khong bi tam dung vi loi/xac
@@ -714,7 +749,9 @@
       if (result?.reason === "other_controller") autoStartPause = Date.now() + 60000;
     } catch (error) {
       // Chưa có phòng live, API chưa sẵn sàng, hoặc tab khác đang giữ quyền gọi.
-      probeMisses += 1;
+      // Bị chặn / trang chưa nạp xong: thử lại sau 5s, không giãn cách dần.
+      if (isTransientLocal(error)) autoStartAt = Date.now() - probeGapFor(probeMisses) + BLOCKED_RETRY_MS;
+      else probeMisses += 1;
       console.debug("[Kid TE] Tự nhận phòng chưa được:", String(error?.message || error));
     } finally {
       autoStartBusy = false;
@@ -811,6 +848,11 @@
   }
 
   chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === "LIVE_RE_LEASE_GRANTED") {
+      resetBackoff("lease_granted");
+      tick();
+      return;
+    }
     if (message?.type === "LIVE_RE_STATE") {
       applyState(message.state, message.isController === true);
     }
@@ -857,8 +899,20 @@
     .catch((error) => updateWidget(`Không đọc được trạng thái: ${error.message}`, false));
 
   tickTimer = setInterval(tick, 250);
-  document.addEventListener("visibilitychange", tick);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") resetBackoff("visible");
+    tick();
+  });
   window.addEventListener("focus", tick);
+  // Người dùng thao tác trên trang: bỏ giãn cách (tối đa 1 lần / 2s).
+  let lastUserResetAt = 0;
+  const onUserAction = () => {
+    if (Date.now() - lastUserResetAt < 2000) return;
+    lastUserResetAt = Date.now();
+    resetBackoff("user");
+  };
+  document.addEventListener("pointerdown", onUserAction, true);
+  document.addEventListener("keydown", onUserAction, true);
 
   if (globalThis.__LIVE_RE_TEST_MODE__) {
     globalThis.__LIVE_RE_DEBUG__ = {
@@ -872,6 +926,9 @@
       getNextRepinAt: () => nextRepinAt,
       getApiPause: () => ({ apiPauseUntil, apiFailStreak, roomId }),
       clearApiPause: () => { apiPauseUntil = 0; apiFailStreak = 0; },
+      noteApiFailure,
+      resetBackoff,
+      getProbe: () => ({ probeMisses, autoStartAt }),
       pollVideoPosition,
       driftMs,
       applyTimeline,

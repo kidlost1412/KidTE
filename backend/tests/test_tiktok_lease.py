@@ -93,3 +93,47 @@ def test_http_lease_route(app, monkeypatch):  # noqa: F811
     assert app.call("POST", "/api/tiktok/lease", body, OTHER)[0] == 403
     status, _, data = app.call("POST", "/api/tiktok/lease", dict(body, action="x"), GOOD)
     assert status == 400
+
+
+# ---- 3.11.11: lease theo tài khoản TikTok ----
+def acc(lease, action, profile, tab, owner="", live=False):
+    return lease.handle({"action": action, "profile_id": profile, "tab_id": tab,
+                         "owner_key": owner, "live": live})
+
+
+def test_two_accounts_never_block_each_other():
+    lease = TikTokCallerLease(ttl=30, clock=Clock())
+    assert acc(lease, "claim", "chrome", "7", "uid:1", live=True)["granted"] is True
+    assert acc(lease, "claim", "coccoc", "9", "uid:2")["granted"] is True       # B trước LIVE
+    assert acc(lease, "claim", "coccoc", "9", "uid:2", live=True)["granted"] is True  # 2 LIVE cùng lúc
+    assert acc(lease, "renew", "chrome", "7", "uid:1", live=True)["granted"] is True
+
+
+def test_same_account_only_one_browser_and_live_wins():
+    clock = Clock()
+    lease = TikTokCallerLease(ttl=30, clock=clock)
+    assert acc(lease, "claim", "coccoc", "9", "uid:1")["granted"] is True        # B chưa LIVE giữ
+    taken = acc(lease, "claim", "chrome", "7", "uid:1", live=True)                # A LIVE thật
+    assert taken["granted"] is True and taken["preempted"] is True
+    denied = acc(lease, "claim", "coccoc", "9", "uid:1")
+    assert denied["granted"] is False and denied["holder_live"] is True
+    assert acc(lease, "claim", "coccoc", "9", "uid:1", live=True)["granted"] is False  # 2 LIVE: chỉ 1
+
+
+def test_closed_browser_frees_account_lease_and_reopen_is_immediate():
+    clock = Clock()
+    lease = TikTokCallerLease(ttl=30, clock=clock)
+    acc(lease, "claim", "chrome", "7", "uid:1", live=True)
+    acc(lease, "claim", "coccoc", "9", "uid:2")
+    assert acc(lease, "release", "chrome", "7")["released"] is True              # A đóng tab
+    assert acc(lease, "claim", "chrome", "11", "uid:1", live=True)["granted"] is True  # mở lại: nhận ngay
+    # B bị kill (không release): hết TTL thì khoá của B tự trống.
+    clock.now += 31
+    assert acc(lease, "claim", "edge", "3", "uid:2")["granted"] is True
+
+
+def test_tab_moving_from_shared_key_to_account_key_drops_old_key():
+    lease = TikTokCallerLease(ttl=30, clock=Clock())
+    acc(lease, "claim", "chrome", "7")                     # chưa biết tài khoản: khoá chung
+    acc(lease, "claim", "chrome", "7", "uid:1")            # biết rồi: chuyển sang uid:1
+    assert acc(lease, "claim", "coccoc", "9")["granted"] is True   # khoá chung không còn bị giữ

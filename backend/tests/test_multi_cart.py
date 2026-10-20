@@ -187,3 +187,36 @@ def test_video_job_catalog_uses_its_own_cart(env, tmp_path):
     # Provider kiểu cũ (không nhận tham số) vẫn chạy.
     legacy = video_analysis.VideoAnalysisManager(root=tmp_path / "v2", catalog_provider=lambda: {"products": []})
     assert legacy._cart_catalog("uid:222") == {"products": []}
+
+
+# ---- 3.11.11: hai trình duyệt, hai tài khoản (kịch bản chủ shop 20/10) ----
+def test_prelive_scan_other_account_not_blocked_by_live_of_account_a(env):
+    """A LIVE tài khoản 1; B (trình duyệt khác, tài khoản 2) quét giỏ trước LIVE."""
+    engine = _engine()
+    live = {**_snap("111", ["a1", "a2"], room="7300", unique_id="shop_mot"), "profile_id": "prof-A"}
+    assert engine.sync(live)["cart_key"] == "uid:111"
+    # Có host: giỏ riêng của tài khoản 2, không bị guard live_active.
+    out = engine.sync({**_snap("222", ["b1"], unique_id="shop_hai"), "profile_id": "prof-B"},
+                      user_initiated=True)
+    assert out["ok"] is True and "skipped" not in out and out["cart_key"] == "uid:222"
+    # Không có host (TikTok chưa trả chủ phòng trước LIVE): vẫn không đè/không bị chặn
+    # bởi giỏ LIVE của A — vào giỏ riêng của profile B.
+    out = engine.sync({**_snap("", ["b2"]), "profile_id": "prof-B"}, user_initiated=True)
+    assert out["ok"] is True and "skipped" not in out
+    assert out["cart_key"] == "profile:prof-B"
+    assert _ids(engine.catalog.cart_snapshot("uid:111")) == ["a1", "a2"]
+    assert engine.catalog.live_key() == "uid:111"
+
+
+def test_prelive_scan_same_account_still_blocked_and_names_account(env):
+    engine = _engine()
+    engine.sync({**_snap("111", ["a1"], room="7300", unique_id="shop_mot"), "profile_id": "prof-A"})
+    # Cùng tài khoản (có host) ở trình duyệt khác.
+    out = engine.sync({**_snap("111", ["x"]), "profile_id": "prof-B"}, user_initiated=True)
+    assert out["ok"] is False and out["skipped"] == "live_active"
+    assert "@shop_mot" in out["error"] and "đang LIVE" in out["error"]
+    # Cùng trình duyệt (cùng profile), không có host: coi là cùng tài khoản -> chặn như cũ.
+    out = engine.sync({**_snap("", ["x"]), "profile_id": "prof-A"}, user_initiated=True)
+    assert out["ok"] is False and out["skipped"] == "live_active"
+    assert "@shop_mot" in out["error"]
+    assert _ids(engine.catalog.cart_snapshot("uid:111")) == ["a1"]

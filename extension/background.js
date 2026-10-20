@@ -839,7 +839,7 @@ function apiGuardBlocked(tabId, request) {
   const remaining = guard.pausedUntil - Date.now();
   if (remaining <= 0 || request?.userInitiated === true) return null;
   return {
-    ok: false, paused: true, paused_until_ms: guard.pausedUntil,
+    ok: false, paused: true, blocked: true, paused_until_ms: guard.pausedUntil,
     error: `TikTok đang yêu cầu xác minh – tạm dừng gọi tự động (còn ${Math.ceil(remaining / 1000)} giây)`
   };
 }
@@ -1052,9 +1052,38 @@ function isLiveDashboardTab(tab) {
 const BROWSER_LEASE_URL = "http://127.0.0.1:8793/api/tiktok/lease";
 const BROWSER_LEASE_CACHE_MS = 5000;
 const BROWSER_LEASE_TTL_MS = 30000;
-const BROWSER_LEASE_DENY_HOLD_MS = 120000;
+// 3.11.11: 120s -> 15s. Giữ chặn lâu khi backend không trả lời làm tab LIVE kẹt.
+const BROWSER_LEASE_DENY_HOLD_MS = 15000;
 const BROWSER_LEASE_DENIED_MESSAGE = "Trình duyệt khác đang LIVE – trình duyệt này tạm không gọi TikTok";
-const browserLease = { tabId: 0, granted: null, checkedAt: 0, grantedAt: 0, deniedAt: 0, warnedAt: 0, failOpen: false };
+const browserLease = { tabId: 0, granted: null, checkedAt: 0, grantedAt: 0, deniedAt: 0, warnedAt: 0, failOpen: false, ownerKey: "", live: false };
+
+// 3.11.11: lease theo TÀI KHOẢN TikTok. Tài khoản của mỗi tab học từ snapshot
+// (host = chủ phòng) -> owner_key giống backend multi-cart (uid:/sec:/handle:).
+// live = tab có room_id hợp lệ (đang LIVE thật): giành lease từ holder chưa LIVE.
+const tabAccounts = new Map();
+function ownerKeyOf(host) {
+  if (!host || typeof host !== "object") return "";
+  for (const [field, prefix] of [["user_id", "uid"], ["sec_uid", "sec"], ["unique_id", "handle"]]) {
+    const value = String(host[field] ?? "").trim().slice(0, 160);
+    if (value) return `${prefix}:${field === "unique_id" ? value.toLowerCase() : value}`;
+  }
+  return "";
+}
+function validRoomId(value) {
+  const text = String(value ?? "").trim();
+  return Boolean(text) && !/^0+$/.test(text) && text !== "null" && text !== "undefined";
+}
+function learnTabAccount(tabId, result) {
+  if (!tabId || !result?.ok) return;
+  const known = tabAccounts.get(tabId) || { ownerKey: "", live: false };
+  const snap = result.snapshot;
+  if (snap && typeof snap === "object") {
+    const ownerKey = ownerKeyOf(snap.host);
+    tabAccounts.set(tabId, { ownerKey: ownerKey || known.ownerKey, live: validRoomId(snap.room_id), at: Date.now() });
+  } else if (validRoomId(result.room_id)) {
+    tabAccounts.set(tabId, { ...known, live: true, at: Date.now() });
+  }
+}
 let browserProfileIdPromise = null;
 
 function browserProfileId() {
@@ -1079,7 +1108,8 @@ async function postBrowserLease(action, tabId) {
   const response = await fetch(BROWSER_LEASE_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, profile_id: profileId, tab_id: String(tabId) }),
+    body: JSON.stringify({ action, profile_id: profileId, tab_id: String(tabId),
+      owner_key: tabAccounts.get(tabId)?.ownerKey || "", live: tabAccounts.get(tabId)?.live === true }),
     signal: globalThis.AbortSignal?.timeout?.(3000)
   });
   const result = await response.json().catch(() => ({}));
@@ -1094,7 +1124,10 @@ async function postBrowserLease(action, tabId) {
 
 async function browserLeaseAllows(tabId, force = false) {
   const now = Date.now();
-  if (!force && browserLease.tabId === tabId && browserLease.granted !== null &&
+  const account = tabAccounts.get(tabId) || { ownerKey: "", live: false };
+  // Tài khoản/LIVE của tab vừa đổi (vd. vừa thấy phòng LIVE): bỏ cache, hỏi lại ngay.
+  const accountChanged = browserLease.ownerKey !== account.ownerKey || browserLease.live !== account.live;
+  if (!force && !accountChanged && browserLease.tabId === tabId && browserLease.granted !== null &&
       now - browserLease.checkedAt < BROWSER_LEASE_CACHE_MS) {
     return browserLease.granted;
   }
@@ -1120,9 +1153,16 @@ async function browserLeaseAllows(tabId, force = false) {
   browserLease.tabId = tabId;
   browserLease.granted = granted;
   browserLease.checkedAt = now;
+  browserLease.ownerKey = account.ownerKey;
+  browserLease.live = account.live;
   if (before !== granted) {
-    diag.event("lease_change", {tab: tabId, on: granted, fail_open: browserLease.failOpen === true});
+    diag.event("lease_change", {tab: tabId, on: granted, fail_open: browserLease.failOpen === true,
+      owner: account.ownerKey ? "known" : "shared", live: account.live});
     writeApiGuard(true).catch(() => {});
+    // Vừa được cấp lease sau khi bị chặn: báo tab bỏ giãn cách, chạy lại ngay.
+    if (granted && before === false) {
+      Promise.resolve(chrome.tabs.sendMessage(tabId, { type: "LIVE_RE_LEASE_GRANTED" })).catch(() => {});
+    }
   }
   return granted;
 }
@@ -1140,11 +1180,21 @@ function releaseBrowserLease(tabId) {
   browserLease.tabId = 0;
   browserLease.granted = null;
   browserLease.checkedAt = 0;
+  browserLease.ownerKey = "";
+  browserLease.live = false;
   postBrowserLease("release", tabId).catch((error) => {
     console.warn(`Kid TE: không trả được lease liên trình duyệt (${error?.message || error}); lease tự hết hạn sau 30s`);
   });
 }
-chrome.tabs?.onRemoved?.addListener?.((tabId) => releaseBrowserLease(tabId));
+chrome.tabs?.onRemoved?.addListener?.((tabId) => { releaseBrowserLease(tabId); tabAccounts.delete(tabId); });
+// Đóng cả cửa sổ: kiểm lại tab giữ lease còn sống trên LIVE dashboard không; không thì trả ngay.
+chrome.windows?.onRemoved?.addListener?.(() => {
+  const tabId = browserLease.tabId;
+  if (!tabId || browserLease.granted !== true) return;
+  Promise.resolve(chrome.tabs.get(tabId)).then((tab) => {
+    if (!tab || !isLiveDashboardTab(tab)) releaseBrowserLease(tabId);
+  }, () => releaseBrowserLease(tabId));
+});
 chrome.tabs?.onUpdated?.addListener?.((tabId, info) => {
   if (info?.url && !isLiveDashboardTab({ url: info.url })) releaseBrowserLease(tabId);
 });
@@ -1159,7 +1209,7 @@ async function tabOnDashboard(tabId) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   return Boolean(tab && isLiveDashboardTab(tab));
 }
-async function resolveApiOwner(tab) {
+async function resolveApiOwner(tab, request) {
   const tabId = Number(tab?.id || 0);
   if (!tabId || !isLiveDashboardTab(tab)) return false;
   const stored = await chrome.storage.local.get(
@@ -1172,6 +1222,10 @@ async function resolveApiOwner(tab) {
   if (holder !== tabId) diag.event("owner_change", {from: holder, to: tabId});
   await chrome.storage.local.set({ liveReObserverTabId: tabId, liveReObserverAt: Date.now() });
   // Đã thắng cổng nội bộ (trong profile này); còn phải giữ lease liên trình duyệt.
+  // 3.11.11: chưa biết tài khoản của tab -> snapshot (chỉ ĐỌC) được đi để học
+  // tài khoản, không giành khoá chung (trước đây tab chưa LIVE ở trình duyệt B
+  // giữ khoá chung và chặn tab LIVE của tài khoản khác ở trình duyệt A).
+  if (!tabAccounts.get(tabId)?.ownerKey && request?.action === "snapshot") return true;
   return (await browserLeaseAllows(tabId)) ? true : "other_browser";
 }
 function apiOwnerAllows(tab, request) {
@@ -1181,7 +1235,7 @@ function apiOwnerAllows(tab, request) {
   if (request?.userInitiated === true) {
     return Promise.resolve(String(tab?.url || "").startsWith("https://shop.tiktok.com/"));
   }
-  const run = apiOwnerQueue.then(() => resolveApiOwner(tab));
+  const run = apiOwnerQueue.then(() => resolveApiOwner(tab, request));
   apiOwnerQueue = run.catch(() => {});
   return run;
 }
@@ -1282,7 +1336,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (owner !== true) {
         const otherBrowser = owner === "other_browser";
         diag.api({tabId, request, blocked: otherBrowser ? "other_browser" : "not_owner"});
-        sendResponse({ ok: false, not_owner: true, other_browser: otherBrowser,
+        sendResponse({ ok: false, not_owner: true, blocked: true, other_browser: otherBrowser,
           error: otherBrowser ? BROWSER_LEASE_DENIED_MESSAGE
             : "Tab khác đang giữ quyền gọi TikTok (chỉ một tab LIVE được gọi)" });
         return;
@@ -1332,6 +1386,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         error: "TikTok API không trả kết quả"
       };
       apiGuardRecord(tabId, result);
+      learnTabAccount(tabId, result);
       diag.api({tabId, request, result, startedAt: diagStartedAt});
       if (durableChat) {
         if (result.ok) result.sent_at_ms = Date.now();
@@ -1406,6 +1461,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       retrySavedReceipts();
       if (message.type === "LIVE_RE_HEARTBEAT") renewBrowserLeaseOnHeartbeat(Number(sender?.tab?.id || 0));
+      if (message.type === "LIVE_RE_CATALOG_SYNC" && message.payload && typeof message.payload === "object") {
+        // Backend cần profile trình duyệt: giỏ trước LIVE không rõ chủ phòng không
+        // được rơi vào giỏ LIVE của tài khoản đang LIVE ở trình duyệt khác.
+        const profileId = await browserProfileId().catch(() => "");
+        const ctx = message.payload.live_context;
+        if (profileId && ctx && typeof ctx === "object") ctx.profile_id = profileId;
+      }
       const ENDPOINTS = {
         LIVE_RE_AI_REPLY: "http://127.0.0.1:8793/api/reply",
         LIVE_RE_AI_ACK: "http://127.0.0.1:8793/api/reply/ack",

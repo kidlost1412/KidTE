@@ -20,6 +20,7 @@ EXPECTED_EXTENSION_TESTS = {
     "test-auto-start.cjs",
     "test-background-api.cjs",
     "test-browser-lease.cjs",
+    "test-two-browsers.cjs",
     "test-collector.cjs",
     "test-comments.cjs",
     "test-diag-log.cjs",

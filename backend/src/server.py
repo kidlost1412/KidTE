@@ -456,6 +456,23 @@ class LiveCatalogStore:
                 return self._selected
             return next(iter(self._carts), self.DEFAULT_CART)
 
+    def _unowned_key(self, incoming_room, profile_id):
+        """Giỏ cho payload không rõ chủ phòng (giỏ trước LIVE thường thiếu host).
+
+        Trước đây luôn rơi về giỏ đang hoạt động = giỏ của tài khoản đang LIVE, nên
+        quét trước LIVE ở trình duyệt khác (tài khoản khác) bị guard live_active chặn.
+        Giờ: đang có giỏ LIVE do profile trình duyệt KHÁC ghi -> giỏ riêng của profile
+        này. Cùng profile (hoặc giỏ LIVE cũ chưa ghi profile) -> như cũ.
+        """
+        active = self.active_key()
+        live = self.live_key()
+        if incoming_room or not profile_id or not live or active != live:
+            return active
+        live_profile = clean(self._carts[live]["snapshot"].get("profile_id"), 80)
+        if live_profile and live_profile != profile_id:
+            return f"profile:{profile_id}"
+        return active
+
     def _resolve_key(self, host):
         """Giỏ của chủ phòng này. So user_id trước, rồi sec_uid, rồi handle."""
         key = self._owner_key(host)
@@ -526,6 +543,8 @@ class LiveCatalogStore:
             return "@" + host["unique_id"]
         if host.get("nickname"):
             return host["nickname"]
+        if key.startswith("profile:"):
+            return "Giỏ trước LIVE (trình duyệt khác)"
         return "Mặc định" if key == "default" else key
 
     def cart_name(self, key=""):
@@ -610,7 +629,8 @@ class LiveCatalogStore:
         owner_key = self._owner_key(host)
         with self._lock:
             # Quyết định bỏ qua và ghi nằm cùng một khoá (tránh 2 sync đè sai).
-            key = self._resolve_key(host) or self.active_key()
+            profile_id = clean(snapshot.get("profile_id"), 80)
+            key = self._resolve_key(host) or self._unowned_key(incoming_room, profile_id)
             cart = self._carts.get(key)
             current = dict((cart or {}).get("snapshot") or {})
             current_owner = clean(current.get("owner_key"), 200)
@@ -620,6 +640,7 @@ class LiveCatalogStore:
                 "room_id": incoming_room,
                 "phase": phase,
                 "owner_key": owner_key or current_owner,
+                "profile_id": profile_id or clean(current.get("profile_id"), 80),
                 "pin_id": clean(snapshot.get("pin_id"), 160),
                 "product_count": len(products),
                 "price_policy": (
@@ -1301,9 +1322,11 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         if saved.get("skipped"):
             result["skipped"] = saved["skipped"]
             if user_initiated:
+                name = self.catalog.cart_name(cart_key) if cart_key and hasattr(self.catalog, "cart_name") else ""
+                who = f"Tài khoản {name} đang LIVE" if name else "Phiên LIVE đang hoạt động"
                 result.update(ok=False, error=(
-                    "Phiên LIVE đang hoạt động: giỏ trước LIVE không ghi đè danh mục LIVE. "
-                    "Hãy quét từ tab LIVE dashboard."))
+                    f"{who}: giỏ trước LIVE không ghi đè danh mục LIVE của tài khoản này. "
+                    "Hãy quét từ tab LIVE dashboard của tài khoản đó."))
         return result
 
     def acknowledge_reply(self, payload):

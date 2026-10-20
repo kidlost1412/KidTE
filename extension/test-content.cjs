@@ -43,6 +43,11 @@ let browser;
           if (message.type !== "LIVE_RE_TIKTOK_API") return { ok: true };
           const request = message.request;
           window.__apiCalls.push(JSON.parse(JSON.stringify(request)));
+          if (window.__blockNext) {
+            window.__blockNext = false;
+            return { ok: false, not_owner: true, blocked: true, other_browser: true,
+              error: "Trình duyệt khác đang LIVE – trình duyệt này tạm không gọi TikTok" };
+          }
           if (window.__failNext) {
             window.__failNext = false;
             return { ok: false, error: "network timeout" };
@@ -219,6 +224,41 @@ let browser;
   assert.equal(await page.evaluate(() => window.__apiCalls.length), callsDuringBackoff,
     "no TikTok calls during backoff");
   await page.evaluate(() => window.__LIVE_RE_DEBUG__.clearApiPause());
+
+  // 3.11.11: bị chặn bởi lease/cổng một tab KHÔNG phải lỗi TikTok: không tăng
+  // apiFailStreak, chỉ chờ ngắn (<=5s), trạng thái nói rõ đang chờ quyền.
+  for (let i = 0; i < 4; i += 1) {
+    await page.evaluate(() => { window.__blockNext = true; window.__LIVE_RE_DEBUG__.queueOperation("transition"); });
+    await page.waitForTimeout(100);
+  }
+  const afterBlocked = await page.evaluate(() => window.__LIVE_RE_DEBUG__.getApiPause());
+  assert.equal(afterBlocked.apiFailStreak, 0, "blocked must not grow the TikTok failure streak");
+  assert.ok(afterBlocked.apiPauseUntil - Date.now() <= 5000, "blocked waits at most 5s");
+  const blockedStatus = await page.evaluate(() =>
+    document.querySelector("#live-re-pin-host").shadowRoot.querySelector("#status").textContent);
+  assert.match(blockedStatus, /Đang chờ quyền gọi TikTok/);
+  // Trang vừa mở lại chưa nạp client TikTok: cũng không đếm lỗi.
+  await page.evaluate(() => window.__LIVE_RE_DEBUG__.noteApiFailure(new Error("Không tìm thấy TikTok LIVE API client")));
+  assert.equal((await page.evaluate(() => window.__LIVE_RE_DEBUG__.getApiPause())).apiFailStreak, 0);
+  // Lỗi TikTok thật vẫn giãn cách; tab hiện lại / lease được cấp / thao tác tay -> bỏ giãn cách.
+  const realFail = () => page.evaluate(() => {
+    window.__LIVE_RE_DEBUG__.noteApiFailure(new Error("network timeout"));
+    window.__LIVE_RE_DEBUG__.noteApiFailure(new Error("network timeout"));
+    return window.__LIVE_RE_DEBUG__.getApiPause();
+  });
+  assert.equal((await realFail()).apiFailStreak, 2);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  let reset = await page.evaluate(() => window.__LIVE_RE_DEBUG__.getApiPause());
+  assert.equal(reset.apiFailStreak, 0, "visibilitychange resets backoff");
+  assert.equal(reset.apiPauseUntil, 0);
+  assert.equal((await realFail()).apiFailStreak, 2);
+  await page.evaluate(() => window.__runtimeListener({ type: "LIVE_RE_LEASE_GRANTED" }));
+  assert.equal((await page.evaluate(() => window.__LIVE_RE_DEBUG__.getApiPause())).apiFailStreak, 0,
+    "lease granted resets backoff");
+  assert.equal((await realFail()).apiFailStreak, 2);
+  await page.mouse.click(10, 10);
+  assert.equal((await page.evaluate(() => window.__LIVE_RE_DEBUG__.getApiPause())).apiFailStreak, 0,
+    "user action resets backoff");
 
   const mode = await page.getAttribute("html", "data-live-re-mode");
   assert.equal(mode, "tiktok-api");

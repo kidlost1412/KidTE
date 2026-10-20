@@ -41,7 +41,7 @@ global.chrome = {
     onUpdated: { addListener(cb) { onUpdated = cb; } }
   },
   action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
-  scripting: { executeScript: async ({ target }) => { injected.push(target.tabId); return [{ result: { ok: true, snapshot: { room_id: "r1" }, api_calls: 1 } }]; } },
+  scripting: { executeScript: async ({ target }) => { injected.push(target.tabId); return [{ result: { ok: true, snapshot: { room_id: "r1", host: { user_id: "u1" } }, api_calls: 1 } }]; } },
   runtime: {
     id: "ext",
     onInstalled: { addListener() {} },
@@ -55,13 +55,18 @@ const api = (request = { action: "snapshot" }, tabId = 7) => new Promise((resolv
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 (async () => {
-  // Thắng lease: được gọi TikTok; định danh = id profile (lưu storage) + tabId.
+  // 3.11.11: snapshot đầu tiên (chưa biết tài khoản) chỉ ĐỌC để học tài khoản, không giành lease.
+  assert.equal((await api()).ok, true);
+  assert.equal(leaseRequests.length, 0, "unknown account snapshot does not claim the shared key");
+  // Thắng lease: được gọi TikTok; định danh = id profile (lưu storage) + tabId + tài khoản.
   assert.equal((await api()).ok, true);
   assert.equal(leaseRequests.length, 1);
   assert.equal(leaseRequests[0].action, "claim");
   assert.equal(leaseRequests[0].tab_id, "7");
   assert.ok(/^[A-Za-z0-9_-]{8,80}$/.test(storage.liveReProfileId));
   assert.equal(leaseRequests[0].profile_id, storage.liveReProfileId);
+  assert.equal(leaseRequests[0].owner_key, "uid:u1");
+  assert.equal(leaseRequests[0].live, true);
   // Kết quả cache vài giây: không gọi backend mỗi request.
   await api();
   assert.equal(leaseRequests.length, 1, "lease result cached");
@@ -86,8 +91,8 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
   clock += 6000;
   assert.equal((await api()).other_browser, true);
   assert.ok(warnings.some((w) => /giữ chặn/.test(w)), "warns instead of failing silently");
-  // Quá 2 phút không liên lạc được backend: fail-open để không tê liệt LIVE.
-  clock += 121000;
+  // Quá 15 giây không liên lạc được backend: fail-open để không tê liệt LIVE (3.11.11: 2 phút -> 15s).
+  clock += 61000; // > 15s hold (và > 60s nhịp cảnh báo)
   warnings.length = 0;
   assert.equal((await api()).ok, true);
   assert.ok(warnings.some((w) => /fail-open/.test(w)));

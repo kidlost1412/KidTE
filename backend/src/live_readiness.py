@@ -202,7 +202,7 @@ def build_readiness(dash, extra=None):
     add(_step("C2", "live", "Video đã nhận diện", "Kid TE nghe/đọc nguồn phát để biết video đang ở đâu.",
               "done" if found else ("todo" if live else "blocked"),
               ("Đã khớp: " + ", ".join(found_names)) if found else reason, required=False,
-              action=None if found else _post("/api/live/reidentify", {}, "Nghe lại")))
+              action=None if found else _post("/api/live/reidentify", {"platform": "tiktok"}, "Nghe lại")))
     # Tự ghim: TikTok theo đồng hồ ghim của tiện ích (pin_running); tiện ích cũ thì suy từ vị trí video.
     # Shopee: pin_running có thể null -> suy từ đang LIVE + có vị trí video.
     tk_found = bool(_d(tiktok.get("position")).get("available"))

@@ -41,10 +41,10 @@ def test_locked_tracker_releases_audio_and_only_verifies_locked_reference(monkey
 
     def sleep(seconds):
         now[0] += seconds
-        if now[0] > 450:
+        if now[0] > 2050:
             raise StopLoop()
-        # During the five minute locked period no capture remains running.
-        if 125 < now[0] < 400:
+        # During the 30-minute locked period no capture remains running (no re-listening).
+        if 125 < now[0] < 1900:
             assert active[0] == 0
 
     def match(rows, block, rate):

@@ -5,10 +5,27 @@ import math
 import time
 import uuid
 
+# Đã khoá video thì KHÔNG nghe lại liên tục: chỉ nghe kiểm định kỳ thưa (mặc định 30 phút,
+# cho phép 20–30 phút qua cài đặt TikTok "reverify_minutes"). Đổi video giữa chừng -> nút "Nghe lại".
+REVERIFY_DEFAULT_S = 30 * 60
+REVERIFY_MIN_S = 20 * 60
+REVERIFY_MAX_S = 30 * 60
+
+
+def reverify_seconds(minutes=None):
+    try:
+        value = float(minutes) * 60
+    except (TypeError, ValueError):
+        return REVERIFY_DEFAULT_S
+    if not math.isfinite(value):
+        return REVERIFY_DEFAULT_S
+    return min(REVERIFY_MAX_S, max(REVERIFY_MIN_S, value))
+
 
 class VideoLock:
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=time.monotonic, reverify_s=REVERIFY_DEFAULT_S):
         self.clock = clock
+        self.reverify_s = reverify_s
         self.reset()
 
     def reset(self):
@@ -73,7 +90,7 @@ class VideoLock:
             self.revision += 1
         self.state = 'locked'
         self.verified_at = now
-        self.next_check = now + 300
+        self.next_check = now + self.reverify_s
         self.previous = None
         return True
 

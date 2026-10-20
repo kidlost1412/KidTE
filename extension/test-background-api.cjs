@@ -420,6 +420,69 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
     assert.equal(live.snapshot.phase, undefined, "LIVE snapshot unchanged");
   }
 
+  {
+    // 3.11.10: hình dạng đúng log chủ shop 20/10. GetLiveRoomInfo CÓ khoá room_id
+    // nhưng giá trị 0/"0"/"" (chưa LIVE), shopping_bag_product_count > 0;
+    // ListLiveProduct({}) trả products: [] ; giỏ thật nằm ở ListLiveProductPagination.
+    const saved = { room: client.GetLiveRoomInfo, list: client.ListLiveProduct };
+    const calls2 = [];
+    let pagedProducts = [{ product_id: "g1", title: "Kích Rễ Cực Mạnh TC01" }, { product_id: "g2", title: "BO TRI ONE" }];
+    client.ListLiveProduct = async (payload) => { calls2.push(["list", payload]); return { code: 0, message: "success",
+      data: { products: [], introduce_id: "", server_time: "1", lucky_bag_info: {}, card_type: 0 } }; };
+    client.ListLiveProductPagination = async (payload) => { calls2.push(["paged", payload]);
+      return { code: 0, data: { products: pagedProducts, has_more: false } }; };
+    client.ListTargetPlanProduct = async (payload) => { calls2.push(["plan", payload]); return { code: 0, data: { products: [] } }; };
+    for (const rawRoom of [0, "0", "", "000"]) {
+      calls2.length = 0;
+      client.GetLiveRoomInfo = async () => ({ code: 0, message: "success", data: { room_id: rawRoom,
+        create_timestamp: 0, user_count: 0, live_gmv: "0", shopping_bag_product_count: 2 } });
+      const pre = await runTikTokLiveApi({ action: "snapshot", roomId: "0" });
+      assert.equal(pre.ok, true, `room_id=${JSON.stringify(rawRoom)} must fall back to prelive cart`);
+      assert.equal(pre.snapshot.phase, "prelive");
+      assert.equal(pre.snapshot.room_id, "");
+      assert.deepEqual(pre.snapshot.products.map((p) => p.product_id), ["g1", "g2"]);
+      assert.ok(!calls2.some(([, p]) => p && p.room_id !== undefined), "never call with room_id 0");
+      assert.ok(calls2.length <= 5, "one bounded round");
+    }
+    // Không method nào có giỏ: lỗi nêu rõ room_id 0 và số SP TikTok báo, gọi tối đa 1 vòng.
+    pagedProducts = [];
+    calls2.length = 0;
+    const fail = await runTikTokLiveApi({ action: "snapshot" });
+    assert.equal(fail.ok, false);
+    assert.match(fail.error, /room_id=0\/rỗng/);
+    assert.match(fail.error, /giỏ có 2 SP/);
+    assert.match(fail.error, /đã thử=\[ListLiveProduct,ListLiveProductPagination,ListTargetPlanProduct/);
+    assert.ok(calls2.filter(([n]) => n !== "list").length <= 4);
+    // room_id số lớn mất chính xác => không dùng; có room_id_str thì dùng bản chuỗi.
+    pagedProducts = [{ product_id: "g1", title: "X" }];
+    client.GetLiveRoomInfo = async () => ({ code: 0, data: { room_id: 7429000000000000123, shopping_bag_product_count: 1 } });
+    const unsafe = await runTikTokLiveApi({ action: "snapshot" });
+    assert.equal(unsafe.snapshot.phase, "prelive");
+    client.GetLiveRoomInfo = async () => ({ code: 0, data: { room_id: 7429000000000000123, room_id_str: "7429000000000000123" } });
+    client.ListLiveProduct = async (payload) => ({ code: 0, data: { products: payload.room_id === "7429000000000000123" ? [{ product_id: "L1" }] : [] } });
+    const big = await runTikTokLiveApi({ action: "snapshot" });
+    assert.equal(big.snapshot.room_id, "7429000000000000123");
+    assert.equal(big.snapshot.products[0].product_id, "L1");
+    // Đang LIVE nhưng ListLiveProduct({room_id}) trả rỗng: thử phân trang đúng 1 lần.
+    client.ListLiveProduct = async () => ({ code: 0, data: { products: [] } });
+    pagedProducts = [{ product_id: "P9", title: "Y" }];
+    calls2.length = 0;
+    const livePaged = await runTikTokLiveApi({ action: "snapshot" });
+    assert.equal(livePaged.snapshot.products[0].product_id, "P9");
+    assert.equal(calls2.filter(([n]) => n === "paged").length, 1);
+    delete client.ListLiveProductPagination; delete client.ListTargetPlanProduct;
+    client.GetLiveRoomInfo = saved.room; client.ListLiveProduct = saved.list;
+  }
+
+  {
+    // Listener return true phải luôn trả lời, kể cả loại tin lạ.
+    const reply = await new Promise((resolve) => {
+      assert.equal(messageListener({ type: "LIVE_RE_UNKNOWN_X" }, {}, resolve), true);
+    });
+    assert.equal(reply.ok, false);
+    assert.match(reply.error, /không hỗ trợ/);
+  }
+
   console.log("LIVE_RE_BACKGROUND_API_TEST_OK");
 })().catch((error) => {
   console.error(error);

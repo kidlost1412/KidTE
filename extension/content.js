@@ -4,7 +4,7 @@
   window.__LIVE_RE_PIN_LOADED__ = true;
 
   const SCHEDULE = globalThis.KidTESchedule;
-  const VERSION = "3.11.9";
+  const VERSION = "3.11.10";
   const UNPIN_GAP_MS = 500;
   const CONFIRM_TIMEOUT_MS = 6000;
   const CONFIRM_POLL_MS = 700;
@@ -388,6 +388,10 @@
   function validateAndCacheProducts(products) {
     const next = new Map();
     const unresolved = [];
+    if (!products.length) {
+      // Snapshot rỗng là MỘT lỗi rõ ràng, không liệt kê hết sản phẩm timeline.
+      throw new Error("Giỏ LIVE đang trống hoặc chưa đọc được (API trả 0 sản phẩm). Kiểm tra đã thêm SP vào giỏ LIVE.");
+    }
     liveProductsById = new Map(
       products
         .filter((item) => item?.product_id)

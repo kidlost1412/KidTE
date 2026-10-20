@@ -12,7 +12,7 @@ Mở bằng biểu tượng Kid TE để launcher chọn đúng phiên bản. **
 
 Từ P3, bộ cài chỉ mang lõi và các processor nhỏ. Công cụ video, CAPTCHA/monitor, đồng bộ video, worker chép lời và GPU là các gói tải theo nhu cầu. Model và dữ liệu giữ riêng. Processor nghiệp vụ vẫn cập nhật cùng lõi cho tới đợt hợp đồng plugin tiếp theo. [Cơ chế cập nhật và phát hành](docs/CAP-NHAT-GITHUB.md).
 
-Bản 1.15.20 P4 cập nhật app và tiện ích qua kênh Thử nghiệm, dùng lại runtime 1.0.0. Máy mới cài bộ P4 rồi kiểm tra cập nhật trước khi nhập dữ liệu. [Thay đổi 1.15.20](docs/THAY-DOI-1.15.20.md).
+Bản 1.15.21 P4 cập nhật app và tiện ích qua kênh Thử nghiệm, dùng lại runtime 1.0.0. Máy mới cài bộ P4 rồi kiểm tra cập nhật trước khi nhập dữ liệu. [Thay đổi 1.15.21](docs/THAY-DOI-1.15.21.md).
 
 ## Phát triển
 

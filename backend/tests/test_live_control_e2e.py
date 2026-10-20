@@ -27,7 +27,7 @@ def engine(tmp_path, monkeypatch):
 
 
 def _run_extension(response, pin="running"):
-    out = subprocess.run([NODE, str(EXT / "test-control-e2e-driver.cjs"), json.dumps(response), pin],
+    out = subprocess.run([NODE, str(EXT / "test_control_e2e_driver.cjs"), json.dumps(response), pin],
                          cwd=str(EXT), capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)

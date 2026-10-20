@@ -22,6 +22,7 @@ EXPECTED_EXTENSION_TESTS = {
     "test-browser-lease.cjs",
     "test-collector.cjs",
     "test-comments.cjs",
+    "test-diag-log.cjs",
     "test-message-delivery.cjs",
     "test-content.cjs",
     "test-popup.cjs",

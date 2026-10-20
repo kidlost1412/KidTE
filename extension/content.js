@@ -664,12 +664,14 @@
       while (pendingOperation) {
         const next = pendingOperation;
         pendingOperation = null;
+        const endPulse = next === "pulse" ? globalThis.KidTEDiag?.pulseStart?.() : null;
         try {
           await performOperation(next);
           apiFailStreak = 0;
         } catch (error) {
           noteApiFailure(error);
         }
+        endPulse?.();
       }
       operationBusy = false;
     })();

@@ -21,7 +21,7 @@ PLUGIN_FILES = {
     "dong-bo-video": ("plugin.json", "chay.py", "live_sync.py", "video_sync.py"),
 }
 EXTENSION_FILES = (
-    "manifest.json", "background.js", "comments.js", "content.js", "message-delivery.js",
+    "manifest.json", "background.js", "comments.js", "content.js", "diag-log.js", "message-delivery.js",
     "popup.html", "popup.css", "popup-ux.js", "live-widget.js", "popup.js", "schedule.js", "README.md",
     "icons/kid-te-16.png", "icons/kid-te-32.png",
     "icons/kid-te-48.png", "icons/kid-te-128.png",

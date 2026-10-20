@@ -236,6 +236,14 @@ $("#ai-toggle").addEventListener("click", async () => {
   setTimeout(() => readAiStatus().catch(() => {}), 350);
 });
 
+// Công tắc nhật ký chẩn đoán captcha (mặc định BẬT khi chưa từng đặt).
+chrome.storage.local.get("liveReDiagEnabled").then((stored) => {
+  $("#diag-log").checked = stored?.liveReDiagEnabled !== false;
+}).catch(() => {});
+$("#diag-log").addEventListener("change", (event) => {
+  Promise.resolve(chrome.storage.local.set({ liveReDiagEnabled: event.target.checked })).catch((error) => console.warn("Kid TE diag", error));
+});
+
 $("#scan-catalog").addEventListener("click", async () => {
   if (busy) return;
   busy = true;

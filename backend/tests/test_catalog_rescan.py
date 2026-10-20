@@ -64,7 +64,7 @@ def test_route_passes_user_initiated(tmp_path, monkeypatch):
 
 def _bulk(tmp_path, monkeypatch):
     fake, sync = _engine(tmp_path, monkeypatch)
-    for name in ("_bulk_ids", "removed_listings", "trash_listings", "restore_listings", "purge_listings"):
+    for name in ("_bulk_ids", "_trash_pool", "removed_listings", "trash_listings", "restore_listings", "purge_listings"):
         attr = getattr(server_module.ReplyEngine, name)
         setattr(fake, name, attr if name == "_bulk_ids" else attr.__get__(fake))
     sync(_tiktok(5))

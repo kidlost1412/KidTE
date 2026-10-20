@@ -67,6 +67,7 @@ def _sources():
             "machine/catalog_mapping.json": MACHINE_CATALOG_MAPPING_PATH,
             "machine/shopee_live_mappings.json": SHOPEE_LIVE_MAPPING_PATH,
             "live_products_current.json": LIVE_CATALOG_PATH,
+            "live_carts.json": Path(LIVE_CATALOG_PATH).with_name("live_carts.json"),
             "live_products_raw_current.json": LIVE_RAW_CATALOG_PATH,
             "local_product_overrides.json": LOCAL_PRODUCT_OVERRIDES_PATH,
             "machine/removed_products.json": Path(DATA_DIR) / "machine" / "removed_products.json",

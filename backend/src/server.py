@@ -360,114 +360,337 @@ def _is_room_host(live_context, user_id, sec_uid, unique_id):
 
 
 class LiveCatalogStore:
+    """Nhiều giỏ sản phẩm, mỗi tài khoản LIVE một giỏ (live_carts.json).
+
+    Khoá giỏ = owner_key của chủ phòng: ``uid:<user_id>`` (ưu tiên, số định danh
+    TikTok không đổi), rồi ``sec:<sec_uid>``, cuối cùng ``handle:<unique_id>``
+    (handle đổi được nên chỉ dùng khi thiếu hai cái trên). Payload không có chủ
+    phòng (bản tiện ích cũ) -> giỏ đang hoạt động. ``snapshot`` luôn là giỏ đang
+    hoạt động: giỏ của tài khoản đang LIVE, không LIVE thì giỏ chủ shop chọn.
+    live_products_current.json giữ làm bản sao giỏ đang hoạt động (quay về bản cũ
+    vẫn chạy); lần đầu chạy nó được di chuyển thành giỏ của owner_key ghi trong
+    file, không có owner thì thành giỏ "Mặc định".
+    """
+
+    DEFAULT_CART = "default"
+    LIVE_ACTIVE_SECONDS = 600
+    DELETED_KEEP = 20
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._carts = {}
+        self._selected = ""
+        self._load()
+
+    # ---- lưu trữ -------------------------------------------------------
     @property
-    def snapshot(self):
-        raw = dict(getattr(self, "_snapshot", {}) or {})
+    def carts_path(self):
+        return LIVE_CATALOG_PATH.with_name("live_carts.json")
+
+    @property
+    def deleted_path(self):
+        return LIVE_CATALOG_PATH.with_name("live_carts_deleted.json")
+
+    def _load(self):
+        path = self.carts_path
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            data = None
+        except (OSError, ValueError):
+            data = False
+        if isinstance(data, dict) and isinstance(data.get("carts"), dict):
+            self._carts = {clean(key, 200): self._clean_cart(cart)
+                           for key, cart in data["carts"].items()
+                           if clean(key, 200) and isinstance(cart, dict)}
+            self._selected = clean(data.get("selected"), 200)
+            return
+        if data is not None:
+            # File hỏng: giữ nguyên một bản để cứu tay, rồi dựng lại từ bản sao cũ.
+            try:
+                path.replace(path.with_name(path.name + ".corrupt"))
+            except OSError:
+                pass
+        self._migrate_legacy()
+
+    def _migrate_legacy(self):
+        try:
+            legacy = json.loads(LIVE_CATALOG_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(legacy, dict) or not (legacy.get("products") or legacy.get("owner_key")):
+            return
+        key = clean(legacy.get("owner_key"), 200) or self.DEFAULT_CART
+        self._carts = {key: {"name": "", "host": {}, "created_at": clean(legacy.get("synced_at"), 60) or now_iso(),
+                             "migrated_from": "live_products_current.json", "snapshot": legacy}}
+        self._selected = key
+        self._save()
+
+    @staticmethod
+    def _clean_cart(cart):
+        host = cart.get("host") if isinstance(cart.get("host"), dict) else {}
+        snap = cart.get("snapshot") if isinstance(cart.get("snapshot"), dict) else {}
+        return {**cart, "name": clean(cart.get("name"), 80), "host": host, "snapshot": snap}
+
+    def _save(self):
+        atomic_json(self.carts_path, {"schema_version": 1, "selected": self._selected, "carts": self._carts})
+        active = self._carts.get(self.active_key())
+        if active is not None:
+            atomic_json(LIVE_CATALOG_PATH, active.get("snapshot") or {})
+
+    # ---- chọn giỏ ------------------------------------------------------
+    def _is_live(self, snap):
+        return bool(snap.get("room_id")) and self._age_seconds(snap.get("synced_at")) < self.LIVE_ACTIVE_SECONDS
+
+    def live_key(self):
+        live = [(str(c["snapshot"].get("synced_at") or ""), key) for key, c in self._carts.items()
+                if c["snapshot"].get("room_id") and self._is_live(c["snapshot"])]
+        return max(live)[1] if live else ""
+
+    def active_key(self):
+        with self._lock:
+            live = self.live_key()
+            if live:
+                return live
+            if self._selected in self._carts:
+                return self._selected
+            return next(iter(self._carts), self.DEFAULT_CART)
+
+    def _resolve_key(self, host):
+        """Giỏ của chủ phòng này. So user_id trước, rồi sec_uid, rồi handle."""
+        key = self._owner_key(host)
+        if not key:
+            return ""
+        if key in self._carts:
+            return key
+        for cart_key, cart in self._carts.items():
+            known = dict(cart.get("host") or {})
+            if not known and cart_key.startswith("uid:"):
+                known = {"user_id": cart_key[4:]}
+            for field in ("user_id", "sec_uid", "unique_id"):
+                mine, theirs = clean(host.get(field), 240), clean(known.get(field), 240)
+                if mine and theirs:
+                    if mine.casefold() == theirs.casefold():
+                        return cart_key
+                    break
+        return key
+
+    @staticmethod
+    def _view(raw):
+        raw = dict(raw or {})
         products = product_blocklist.filter_products(raw.get("products") or [])
         raw.update({"products": products, "product_count": len(products)})
         if raw.get("pin_id") and not any(str(p.get("product_id")) == str(raw["pin_id"]) for p in products):
             raw["pin_id"] = ""
         return raw
 
+    @property
+    def _snapshot(self):
+        cart = self._carts.get(self.active_key())
+        return (cart or {}).get("snapshot") or {}
+
+    @property
+    def snapshot(self):
+        return self._view(self._snapshot)
+
     @snapshot.setter
     def snapshot(self, value):
-        self._snapshot = value
+        with self._lock:
+            if not value and not self._carts:
+                return  # chưa có giỏ nào: không dựng giỏ rỗng
+            key = self.active_key()
+            cart = self._carts.setdefault(key, {"name": "", "host": {}, "created_at": now_iso(), "snapshot": {}})
+            cart["snapshot"] = value if isinstance(value, dict) else {}
+            if not self._selected:
+                self._selected = key
 
-    def __init__(self):
-        self._lock = threading.RLock()
-        self.snapshot = {}
-        try:
-            self.snapshot = json.loads(LIVE_CATALOG_PATH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            pass
+    def cart_snapshot(self, key=""):
+        """Danh mục (đã lọc) của một giỏ; rỗng -> giỏ đang hoạt động."""
+        with self._lock:
+            key = clean(key, 200)
+            if key and key not in self._carts:
+                raise ValueError("cart_not_found")
+            return self._view((self._carts.get(key or self.active_key()) or {}).get("snapshot"))
 
+    def product_cart_keys(self):
+        with self._lock:
+            return {key: {str(p.get("product_id")) for p in (c["snapshot"].get("products") or [])
+                          if isinstance(p, dict)} for key, c in self._carts.items()}
+
+    @staticmethod
+    def _display_name(key, cart):
+        host = cart.get("host") or {}
+        if cart.get("name"):
+            return cart["name"]
+        if host.get("unique_id"):
+            return "@" + host["unique_id"]
+        if host.get("nickname"):
+            return host["nickname"]
+        return "Mặc định" if key == "default" else key
+
+    def cart_name(self, key=""):
+        with self._lock:
+            key = clean(key, 200) or self.active_key()
+            return self._display_name(key, self._carts.get(key) or {})
+
+    def carts_state(self):
+        with self._lock:
+            active, live = self.active_key(), self.live_key()
+            rows = []
+            for key, cart in self._carts.items():
+                snap = self._view(cart["snapshot"])
+                host = cart.get("host") or {}
+                rows.append({"key": key, "name": self._display_name(key, cart),
+                             "custom_name": bool(cart.get("name")),
+                             "unique_id": clean(host.get("unique_id"), 160),
+                             "nickname": clean(host.get("nickname"), 160),
+                             "product_count": snap["product_count"],
+                             "synced_at": clean(snap.get("synced_at"), 60),
+                             "phase": clean(snap.get("phase"), 20), "live": key == live,
+                             "active": key == active, "selected": key == self._selected})
+            return {"ok": True, "active": active, "selected": self._selected, "live": live, "carts": rows}
+
+    def select(self, key):
+        with self._lock:
+            key = clean(key, 200)
+            if key not in self._carts:
+                raise ValueError("cart_not_found")
+            if key != self._selected:
+                self._selected = key
+                self._save()
+            return self.carts_state()
+
+    def rename(self, key, name):
+        with self._lock:
+            key = clean(key, 200)
+            if key not in self._carts:
+                raise ValueError("cart_not_found")
+            self._carts[key]["name"] = clean(name, 80).strip()
+            self._save()
+            return self.carts_state()
+
+    def delete(self, key):
+        """Xoá một giỏ. Bản đã xoá được giữ trong live_carts_deleted.json (cứu tay)."""
+        with self._lock:
+            key = clean(key, 200)
+            if key not in self._carts:
+                raise ValueError("cart_not_found")
+            if key == self.live_key():
+                raise ValueError("cart_is_live")
+            try:
+                trash = json.loads(self.deleted_path.read_text(encoding="utf-8"))
+                trash = trash if isinstance(trash, list) else []
+            except (OSError, ValueError):
+                trash = []
+            trash = ([{"key": key, "deleted_at": now_iso(), "cart": self._carts[key]}] + trash)[:self.DELETED_KEEP]
+            atomic_json(self.deleted_path, trash)
+            del self._carts[key]
+            if self._selected == key:
+                self._selected = next(iter(self._carts), "")
+            self._save()
+            return self.carts_state()
+
+    # ---- ghi danh mục --------------------------------------------------
     def sync(self, snapshot):
-        """Đồng bộ danh mục, nhưng KHÔNG BAO GIỜ để một payload rỗng xoá dữ liệu.
+        """Đồng bộ danh mục vào giỏ của chủ phòng, KHÔNG BAO GIỜ để payload rỗng xoá dữ liệu.
 
         Trước đây mỗi bình luận đều gọi hàm này; một snapshot lỗi là đủ để ghi
         đè danh mục thành 0 sản phẩm và AI mất sạch giá tới lần đồng bộ sau.
+        Giỏ của tài khoản khác không bị đụng tới.
         """
         snapshot = snapshot if isinstance(snapshot, dict) else {}
         # Sản phẩm chủ shop loại khỏi AI: bỏ ngay từ cửa, mọi đường trả lời đều không thấy.
         # Retain raw listing metadata so local removal can be undone after a sync.
-        # Every reader receives the filtered snapshot property above.
+        # Every reader receives the filtered view.
         products = snapshot.get("products") or []
         incoming_room = clean(snapshot.get("room_id"), 160)
         phase = "live" if incoming_room else (clean(snapshot.get("phase"), 20) or "prelive")
-        owner_key = self._owner_key(snapshot.get("host") or snapshot.get("owner"))
-        compact = {
-            "schema_version": 1,
-            "synced_at": now_iso(),
-            "room_id": incoming_room,
-            "phase": phase,
-            "owner_key": owner_key,
-            "pin_id": clean(snapshot.get("pin_id"), 160),
-            "product_count": len(products),
-            "price_policy": (
-                "Khi khách hỏi giá mở, mặc định dùng original_price. Giá khách tự báo "
-                "có thể là giá cuối theo voucher/xu/tài khoản và không được tự động bác bỏ."
-            ),
-            "products": products,
-        }
-        raw = {
-            "schema_version": 1,
-            "synced_at": compact["synced_at"],
-            "room_id": compact["room_id"],
-            "raw_api_data": snapshot.get("raw_api_data") or {},
-        }
+        host = snapshot.get("host") or snapshot.get("owner")
+        host = host if isinstance(host, dict) else {}
+        owner_key = self._owner_key(host)
         with self._lock:
             # Quyết định bỏ qua và ghi nằm cùng một khoá (tránh 2 sync đè sai).
-            current = dict(getattr(self, "_snapshot", {}) or {})
+            key = self._resolve_key(host) or self.active_key()
+            cart = self._carts.get(key)
+            current = dict((cart or {}).get("snapshot") or {})
             current_owner = clean(current.get("owner_key"), 200)
-            if owner_key and current_owner and owner_key != current_owner and products:
-                logging.getLogger("kid-te.core").warning(
-                    "catalog owner changed (%s -> %s); replacing catalog", current_owner[:12], owner_key[:12])
+            compact = {
+                "schema_version": 1,
+                "synced_at": now_iso(),
+                "room_id": incoming_room,
+                "phase": phase,
+                "owner_key": owner_key or current_owner,
+                "pin_id": clean(snapshot.get("pin_id"), 160),
+                "product_count": len(products),
+                "price_policy": (
+                    "Khi khách hỏi giá mở, mặc định dùng original_price. Giá khách tự báo "
+                    "có thể là giá cuối theo voucher/xu/tài khoản và không được tự động bác bỏ."
+                ),
+                "products": products,
+            }
             if (not incoming_room and current.get("room_id") and current.get("products")
                     and (not owner_key or not current_owner or owner_key == current_owner)
                     and self._age_seconds(current.get("synced_at")) < self.LIVE_ACTIVE_SECONDS):
                 # Giỏ prelive không được đè catalog của phiên LIVE còn hoạt động.
-                kept = dict(self.snapshot)
-                kept["skipped"] = "live_active"
+                kept = self._view(current)
+                kept.update(skipped="live_active", cart_key=key)
                 return kept
-            if not products and self.snapshot.get("products") and (
-                    not incoming_room or self.snapshot.get("room_id") == incoming_room):
-                return dict(self.snapshot)
+            filtered = self._view(current)
+            if not products and filtered.get("products") and (
+                    not incoming_room or current.get("room_id") == incoming_room):
+                return {**filtered, "cart_key": key}
             # Chỉ chạm đĩa khi nội dung thật sự đổi: trước đây mỗi bình luận
             # ghi lại ~22KB, cộng 125KB raw mỗi lần extension thử cài lại.
-            changed = self._fingerprint(compact) != self._fingerprint(self._snapshot)
-            self.snapshot = compact
+            changed = cart is None or self._fingerprint(compact) != self._fingerprint(current)
+            if cart is None:
+                cart = self._carts[key] = {"name": "", "host": {}, "created_at": compact["synced_at"], "snapshot": {}}
+            known = {field: clean(host.get(field), 240 if field == "sec_uid" else 160)
+                     for field in ("user_id", "sec_uid", "unique_id", "nickname")}
+            merged = {**cart.get("host", {}), **{k: v for k, v in known.items() if v}}
+            if merged != cart.get("host"):
+                cart["host"] = merged
+                changed = True
+            cart["snapshot"] = compact
+            if not self._selected:
+                self._selected = key
             if changed:
-                atomic_json(LIVE_CATALOG_PATH, compact)
-            if raw["raw_api_data"]:
-                atomic_json(LIVE_RAW_CATALOG_PATH, raw)
-        return self.snapshot
+                self._save()
+            raw_data = snapshot.get("raw_api_data") or {}
+            if raw_data:
+                atomic_json(LIVE_RAW_CATALOG_PATH, {"schema_version": 1, "synced_at": compact["synced_at"],
+                                                    "room_id": incoming_room, "cart_key": key,
+                                                    "raw_api_data": raw_data})
+            return {**self._view(compact), "cart_key": key}
 
-    LIVE_ACTIVE_SECONDS = 600
-
-    def raw_products(self):
+    def raw_products(self, key=""):
         """Sản phẩm đã lưu CHƯA lọc tombstone (để thùng rác hiện ảnh/giá)."""
-        return list((getattr(self, "_snapshot", {}) or {}).get("products") or [])
+        with self._lock:
+            cart = self._carts.get(clean(key, 200) or self.active_key()) or {}
+            return list((cart.get("snapshot") or {}).get("products") or [])
 
-    def drop_products(self, product_ids):
-        """Gỡ hẳn sản phẩm khỏi danh mục đã lưu (một lần ghi). Trả bản cũ để hoàn tác."""
+    def drop_products(self, product_ids, key=""):
+        """Gỡ hẳn sản phẩm khỏi danh mục đã lưu của MỘT giỏ (một lần ghi). Trả bản cũ để hoàn tác."""
         ids = {str(i) for i in product_ids}
         with self._lock:
-            before = dict(getattr(self, "_snapshot", {}) or {})
+            key = clean(key, 200) or self.active_key()
+            cart = self._carts.get(key)
+            before = dict((cart or {}).get("snapshot") or {})
             products = [p for p in before.get("products") or [] if str(p.get("product_id")) not in ids]
-            if len(products) == len(before.get("products") or []):
+            if cart is None or len(products) == len(before.get("products") or []):
                 return before
             after = {**before, "products": products, "product_count": len(products)}
             if after.get("pin_id") in ids:
                 after["pin_id"] = ""
-            atomic_json(LIVE_CATALOG_PATH, after)
-            self.snapshot = after
+            cart["snapshot"] = after
+            self._save()
             return before
 
-    def restore_raw(self, snapshot):
+    def restore_raw(self, snapshot, key=""):
         with self._lock:
-            atomic_json(LIVE_CATALOG_PATH, snapshot)
-            self.snapshot = snapshot
-
+            key = clean(key, 200) or self.active_key()
+            cart = self._carts.setdefault(key, {"name": "", "host": {}, "created_at": now_iso(), "snapshot": {}})
+            cart["snapshot"] = snapshot
+            self._save()
 
     @staticmethod
     def _owner_key(host):
@@ -940,11 +1163,15 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
             raise ValueError("product_image_not_found")
         return fetched
 
-    def video_catalog(self):
-        """Danh mục cho Studio video: một chỗ có đủ ảnh, giá, giỏ, hồ sơ."""
-        live = self.catalog.snapshot or {}
+    def video_catalog(self, cart=""):
+        """Danh mục cho Studio video: một chỗ có đủ ảnh, giá, giỏ, hồ sơ.
+
+        cart = khoá giỏ (tài khoản LIVE) Studio chọn; rỗng = giỏ đang hoạt động.
+        """
+        mapping = self.mapping_state(cart)
+        live = (self.catalog.cart_snapshot(clean(cart, 200)) if clean(cart, 200)
+                else self.catalog.snapshot) or {}
         by_id = {clean(item.get("product_id"), 160): item for item in live.get("products") or []}
-        mapping = self.mapping_state()
         sources = self._product_image_sources()
         self.product_images.prefetch(sources)
         with self.workspace._db() as db:
@@ -976,7 +1203,8 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
             })
         products.sort(key=lambda p: (p["bag_index"] or 999, p["name"]))
         return {"ok": True, "room_id": mapping.get("room_id", ""),
-                "synced_at": mapping.get("synced_at", ""), "products": products}
+                "synced_at": mapping.get("synced_at", ""), "cart_key": mapping.get("cart_key", ""),
+                "cart_name": mapping.get("cart_name", ""), "products": products}
 
     def _asset_media_path(self, video_id="", job_id=""):
         if job_id:
@@ -1057,9 +1285,17 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
                     product_blocklist.set_removed(removed[pid], False)
                     restored.append(pid)
         saved = self.catalog.sync(snapshot)
+        cart_key = saved.get("cart_key", "")
+        if user_initiated and cart_key and not saved.get("skipped") and hasattr(self.catalog, "select"):
+            # Chủ shop vừa bấm quét ở tài khoản này: trang Sản phẩm chuyển sang giỏ đó.
+            self.catalog.select(cart_key)
         self.workspace._touch("products", "catalog", "dashboard")
         result = {"ok": True, "product_count": saved["product_count"], "synced_at": saved["synced_at"],
                   "phase": saved.get("phase", ""), "received_count": len(incoming)}
+        if cart_key:
+            result["cart_key"] = cart_key
+            if hasattr(self.catalog, "cart_name"):
+                result["cart_name"] = self.catalog.cart_name(cart_key)
         if restored:
             result["restored_ids"] = restored
         if saved.get("skipped"):

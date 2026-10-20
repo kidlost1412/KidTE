@@ -12,6 +12,7 @@ import {createTimeline} from './timeline.js';
 import {createTranscript} from './transcript.js';
 import {pickProduct} from './picker.js';
 import {saveRecovery, listRecovery} from './recovery.js';
+import {cartSelect} from '../cart-picker.js';
 
 const ALT_CHOICES = [[30000, '30 giây'], [45000, '45 giây'], [60000, '1 phút'], [90000, '1 phút 30'], [120000, '2 phút'], [180000, '3 phút']];
 // Phát lại từ trước mốc để nghe được cả câu dẫn — host thường giới thiệu vài giây trước khi gọi tên sản phẩm.
@@ -30,6 +31,7 @@ export function mountStudio(ctx, host, {kind, id}) {
   d.add(() => {closed = true; loadGeneration++; loadController.abort();});
   const isReview = kind === 'review';
   let catalog = {byId: {}, products: []};
+  let catalogCart = '';           // giỏ (tài khoản LIVE) của danh mục đang nạp; '' = giỏ đang hoạt động
   let history = null;
   let published = null;
   let original = null;
@@ -88,6 +90,12 @@ export function mountStudio(ctx, host, {kind, id}) {
         if (data.saved_draft && M.sameContent(current, published)) current = published;
         if (current !== published) saveState = {state: 'draft', at: data.draft_saved_at, error: null};
       }
+      if (current.cartKey) {
+        // Timeline nhớ giỏ đã chọn: nạp đúng danh mục giỏ đó.
+        const own = await loadCatalog({force: true, cart: current.cartKey}).catch(() => null);
+        if (closed || generation !== loadGeneration) return;
+        if (own) { catalog = own; catalogCart = current.cartKey; }
+      }
       history = M.createHistory(current);
       lastAutosaved = current;
       build();
@@ -129,10 +137,12 @@ export function mountStudio(ctx, host, {kind, id}) {
     els.redo = iconBtn('redo', 'Làm lại (Ctrl+Y)', () => redo());
     els.primary = h('span', {class: 'row'});
     els.live = h('span', {class: 'row'});
+    // Mỗi tài khoản LIVE một giỏ: chọn giỏ để lấy đúng sản phẩm; lưu vào timeline (cart_key).
+    els.cart = cartSelect(doc().cartKey || '', key => commit({...doc(), cartKey: key}, 'Đổi giỏ sản phẩm'));
     const top = h('header', {class: 'studio-top'},
       iconBtn('arrowLeft', 'Về thư viện video', () => ctx.navigate('video')),
       h('div', {class: 'studio-title'}, els.title, els.sub),
-      els.live, els.saveState, els.undo, els.redo,
+      els.cart, els.live, els.saveState, els.undo, els.redo,
       iconBtn('keyboard', 'Phím tắt (?)', () => ctx.shell.showShortcuts()),
       btn('Phục hồi', {size: 'sm', kind: 'ghost', onClick: restoreRecovery}),
       els.primary);
@@ -192,6 +202,7 @@ export function mountStudio(ctx, host, {kind, id}) {
   // ============================================================ vẽ lại
   function refreshAll() {
     if (closed) return;
+    if ((doc().cartKey || '') !== catalogCart) reloadCartCatalog();
     renderHeader();
     syncTranscriptPins();
     timeline.render();
@@ -200,6 +211,19 @@ export function mountStudio(ctx, host, {kind, id}) {
     renderInspector();
     renderSide();
     if (isReview) renderReviewStrip();
+  }
+
+  let cartLoading = null;
+  function reloadCartCatalog() {
+    const want = doc().cartKey || '';
+    if (cartLoading === want) return;
+    cartLoading = want;
+    loadCatalog({force: true, cart: want}).then(cat => {
+      if (closed || (doc().cartKey || '') !== want) return;
+      catalog = cat; catalogCart = want; cartLoading = null;
+      transcript.setData(transcriptData, catalog.products);
+      refreshAll();
+    }).catch(error => { cartLoading = null; catalogCart = want; toast(friendlyError(error), 'danger'); });
   }
 
   function renderHeader() {
@@ -819,7 +843,7 @@ export function mountStudio(ctx, host, {kind, id}) {
       appliedAt = (out.data && out.data.applied_at) || new Date().toISOString();
       saveState = {state: 'clean', at: null, error: null};
       // Danh mục có thể vừa đổi số giỏ — nạp lại để cảnh báo "lệch giỏ" tính đúng.
-      loadCatalog({force: true}).then(cat => { if (!closed) {catalog = cat; refreshAll();} }).catch(() => {});
+      loadCatalog({force: true, cart: catalogCart}).then(cat => { if (!closed) {catalog = cat; refreshAll();} }).catch(() => {});
       refreshAll(); recomputeLater();
       toast(syncOnly ? 'Đã cập nhật số giỏ — lịch ghim đang dùng cho LIVE.' : 'Đã áp dụng lịch ghim cho LIVE.', 'ok', {action: 'Khôi phục bản trước', onAction: async () => {
         try { await request(`/api/workspace/videos/${encodeURIComponent(id)}/rollback`, {method: 'POST', body: {}}); toast('Đã khôi phục bản trước.', 'ok'); ctx.navigate('video', 'studio', id, {force: true}); } catch (e) { toast(friendlyError(e), 'danger'); }
@@ -928,7 +952,7 @@ export function mountStudio(ctx, host, {kind, id}) {
     if (closed || !history || refreshing || document.visibilityState === 'hidden') return;
     refreshing = true;
     try {
-      const cat = await loadCatalog({force: true}).catch(() => null);
+      const cat = await loadCatalog({force: true, cart: catalogCart}).catch(() => null);
       if (closed) return;
       let reloaded = false;
       if (!isReview && saveState.state === 'clean' && M.sameContent(doc(), published)) {

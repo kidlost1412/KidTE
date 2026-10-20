@@ -184,6 +184,8 @@ class EngineSystemMixin:
             return backup_detail(parts[1])
         if parts == ["shop-info"]:
             return {"ok": True, "fields": SHOP_INFO_FIELDS, "values": load_shop_info()}
+        if parts == ["carts"]:
+            return self.catalog.carts_state()
         if parts == ["documents"]:
             from documents import CATEGORIES
             return {"ok": True, "documents": self.documents.list(), "stats": self.documents.stats(),
@@ -209,6 +211,16 @@ class EngineSystemMixin:
 
     def system_post(self, path, payload):
         parts = [part for part in path.split("/") if part]
+        if len(parts) == 2 and parts[0] == "carts" and parts[1] in ("select", "rename", "delete"):
+            key = clean(payload.get("key"), 200)
+            if parts[1] == "select":
+                result = self.catalog.select(key)
+            elif parts[1] == "rename":
+                result = self.catalog.rename(key, payload.get("name"))
+            else:
+                result = self.catalog.delete(key)
+            self.workspace._touch("products", "catalog", "dashboard")
+            return result
         if parts == ['backup', 'v2', 'start']:
             from backup_crypto import _password_bytes
             password = payload.get('password')

@@ -51,6 +51,7 @@ export function fromLibrary(timeline, {draft = null} = {}) {
     kind: 'library', id: timeline.video_id, title: String(source.title || timeline.title || timeline.video_id || ''),
     durationMs: Math.round(Number(timeline.cycle_ms) || 0), repinEveryMs: Number(timeline.repin_every_ms) || 20000,
     products: clone(timeline.products || {}), segments,
+    cartKey: String(source.cart_key || source.catalog_cart || ''),
   };
 }
 
@@ -67,6 +68,7 @@ export function toLibraryChanges(doc) {
       return event;
     }),
     script_contexts: segments.map(seg => ({at_ms: seg.start, topic: seg.topic || '', facts: seg.facts || []})),
+    ...(doc.cartKey ? {cart_key: doc.cartKey} : {}),
   };
 }
 
@@ -103,6 +105,7 @@ export function fromReview(job) {
   return {
     kind: 'review', id: job.job_id, title: String(draft.title || job.title || job.filename || ''),
     durationMs, repinEveryMs: Number(draft.repin_every_ms) || 20000, products, segments,
+    cartKey: String(draft.catalog_cart || job.catalog_cart || ''),
   };
 }
 
@@ -120,6 +123,7 @@ export function toReviewDraft(doc, original) {
     ...(seg.topic ? {topic: seg.topic} : {}),
   }));
   delete base.saved_at;
+  if (doc.cartKey) base.catalog_cart = doc.cartKey;
   return base;
 }
 
@@ -400,7 +404,7 @@ export function createHistory(initial, limit = 200) {
 
 export function sameContent(a, b) {
   if (!a || !b) return false;
-  const pick = doc => JSON.stringify({t: doc.title, s: doc.segments.map(seg => [seg.start, seg.product, seg.alt, seg.altEvery, seg.topic, seg.review])});
+  const pick = doc => JSON.stringify({t: doc.title, c: doc.cartKey || '', s: doc.segments.map(seg => [seg.start, seg.product, seg.alt, seg.altEvery, seg.topic, seg.review])});
   return pick(a) === pick(b);
 }
 

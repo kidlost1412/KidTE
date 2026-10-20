@@ -475,6 +475,15 @@ class VideoAnalysisManager:
             _atomic_json(self._dir(job_id) / "job.json", current)
             return current
 
+    def _cart_catalog(self, cart=""):
+        """Danh mục của một giỏ; giỏ không còn/không hỗ trợ -> giỏ đang hoạt động."""
+        if cart:
+            try:
+                return self.catalog_provider(cart) or {}
+            except (TypeError, ValueError):
+                pass
+        return self.catalog_provider() or {}
+
     def start_upload(self, filename, total_size, source_probe=""):
         _require_analysis_runtime()
         snapshot = self.catalog_provider() or {}
@@ -499,6 +508,9 @@ class VideoAnalysisManager:
             "created_at": _now(), "updated_at": _now(),
             "catalog_snapshot": catalog_snapshot,
             "catalog_synced_at": str(snapshot.get("synced_at") or ""),
+            # Giỏ (tài khoản LIVE) mà timeline này lấy sản phẩm.
+            "catalog_cart": str(snapshot.get("cart_key") or ""),
+            "catalog_cart_name": str(snapshot.get("cart_name") or ""),
             "catalog_revision": hashlib.sha256(json.dumps(catalog_snapshot, ensure_ascii=False,
                                                 sort_keys=True).encode("utf-8")).hexdigest(),
         }
@@ -806,7 +818,9 @@ class VideoAnalysisManager:
         destination = VIDEO_DIR / video_id
         if destination.exists():
             raise ValueError("video_id_already_exists")
-        catalog = {row["product_id"]: row for row in _catalog_rows(self.catalog_provider())}
+        # Giỏ (tài khoản LIVE) của timeline này: bản duyệt chọn > giỏ lúc tải video.
+        cart = str(revision_draft.get("catalog_cart") or state.get("catalog_cart") or "")
+        catalog = {row["product_id"]: row for row in _catalog_rows(self._cart_catalog(cart))}
         clean_events, used = [], []
         for raw in events if isinstance(events, list) else []:
             at_ms = int(raw.get("at_ms"))
@@ -862,6 +876,7 @@ class VideoAnalysisManager:
             "title": str(title or state.get("title") or video_id).strip()[:200],
             "source_file": state["filename"], "cycle_ms": cycle_ms,
             "repin_every_ms": 20000, "products": products, "events": clean_events,
+            **({"catalog_cart": cart} if cart else {}),
             "script_contexts": [{"at_ms": row["at_ms"],
                                  "topic": (products[row["product"]]["short_name"]
                                            if row["product"] else "Không ghim"),

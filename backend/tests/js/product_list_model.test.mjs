@@ -56,3 +56,19 @@ test('product trash confirm texts carry counts and rescan note', async () => {
   assert.match(purge.text, /Quét giỏ bằng tay sau này vẫn lấy lại nếu TikTok còn bán/);
   assert.match(m.restoreProductsText(4).title, /4 sản phẩm/);
 });
+
+test('cart picker labels, live first, delete text', async () => {
+  const m = await import('../../src/web/app/pages/product-list-model.js');
+  const state = {live: 'uid:2', carts: [
+    {key: 'uid:1', name: '@shopA', product_count: 3},
+    {key: 'uid:2', name: '@shopB', product_count: 5, live: true},
+  ]};
+  assert.deepEqual(m.cartOptions(state).map(o => o[0]), ['uid:2', 'uid:1']);
+  assert.equal(m.cartLabel(state.carts[1]), '@shopB (5 SP · đang LIVE)');
+  assert.match(m.cartLockNote(state), /@shopB/);
+  assert.equal(m.cartLockNote({carts: []}), '');
+  assert.deepEqual(m.cartOptions(null), []);
+  const del = m.deleteCartText(state.carts[0]);
+  assert.match(del.title, /@shopA/);
+  assert.match(del.text, /3 sản phẩm/);
+});

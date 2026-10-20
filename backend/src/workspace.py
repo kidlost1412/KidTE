@@ -2443,7 +2443,7 @@ class WorkspaceStore:
         return next(row for row in self._profiles() if row["id"] == record_id)
 
     def _patch_video(self, record_id, before, changes):
-        allowed = {"title", "repin_every_ms", "events", "script_contexts", "sync_products"}
+        allowed = {"title", "repin_every_ms", "events", "script_contexts", "sync_products", "cart_key"}
         invalid = sorted(set(changes) - allowed)
         if invalid: raise ValueError("video_fields_not_editable:" + ",".join(invalid))
         path = VIDEO_DIR / record_id / "timeline.json"
@@ -2451,15 +2451,22 @@ class WorkspaceStore:
         if errors: raise ValueError("invalid_existing_timeline:" + ";".join(errors))
         updated = copy.deepcopy(timeline)
         sync_products = bool(changes.get("sync_products"))
+        cart_key = _safe_text(changes.get("cart_key"), 200)
         for key, value in changes.items():
-            if key != "sync_products":
+            if key not in ("sync_products", "cart_key"):
                 updated[key] = value
         # Studio được phép ghim sản phẩm CHƯA có trong timeline, miễn là nó có
         # trong danh mục đã quét. Mục ``products`` dựng bằng đúng công thức
         # của bước phát hành (timeline_product_entry), không nhận từ client.
         from video_analysis import timeline_product_entry
-        catalog = {str(row.get("product_id")): row
-                   for row in self.engine.mapping_state().get("products", [])}
+        # Giỏ Studio chọn cho video này (mỗi tài khoản LIVE một giỏ); giỏ đã xoá -> giỏ đang hoạt động.
+        try:
+            state = self.engine.mapping_state(cart_key) if cart_key else self.engine.mapping_state()
+        except ValueError:
+            state, cart_key = self.engine.mapping_state(), ""
+        if cart_key:
+            updated["catalog_cart"] = cart_key
+        catalog = {str(row.get("product_id")): row for row in state.get("products", [])}
         products = dict(updated.get("products") or {})
         wanted = set()
         for event in updated.get("events") or []:

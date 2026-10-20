@@ -991,15 +991,19 @@ class CatalogGuardTests(unittest.TestCase):
         self.assertNotIn("skipped", fresh)
         self.assertEqual(fresh["products"][0]["product_id"], "x1")
 
-    def test_other_owner_replaces_catalog_with_warning(self):
+    def test_other_owner_gets_own_cart_and_keeps_first(self):
+        # Trước: tài khoản khác THAY danh mục. Nay: mỗi tài khoản LIVE một giỏ.
         store = LiveCatalogStore()
         store.snapshot = {}
         store.sync({"room_id": "r1", "host": {"user_id": "777"}, "products": [{"product_id": "p1"}]})
-        with self.assertLogs("kid-te.core", level="WARNING"):
-            other = store.sync({"room_id": "", "phase": "prelive", "host": {"user_id": "888"},
-                                "products": [{"product_id": "z1"}]})
+        other = store.sync({"room_id": "", "phase": "prelive", "host": {"user_id": "888"},
+                            "products": [{"product_id": "z1"}]})
         self.assertEqual(other["owner_key"], "uid:888")
+        self.assertEqual(other["cart_key"], "uid:888")
         self.assertEqual(other["products"][0]["product_id"], "z1")
+        # 777 đang LIVE nên vẫn là giỏ hoạt động, giỏ của 777 còn nguyên.
+        self.assertEqual(store.snapshot["products"][0]["product_id"], "p1")
+        self.assertEqual(store.cart_snapshot("uid:888")["products"][0]["product_id"], "z1")
 
 
 class PricePolicyUnitTests(unittest.TestCase):

@@ -4,15 +4,25 @@ import {productIdForKey} from './model.js';
 let catalogCache = null;
 let catalogAt = 0;
 
-/** Danh mục đang bán (ảnh, giá, giỏ, tên gọn). Cache 30s cho cả khu Video. */
-export async function loadCatalog({force = false} = {}) {
+/**
+ * Danh mục đang bán (ảnh, giá, giỏ, tên gọn). Cache 30s cho cả khu Video.
+ * cart = khoá giỏ (tài khoản LIVE) cho Studio; rỗng = giỏ đang hoạt động (có cache).
+ */
+export async function loadCatalog({force = false, cart = ''} = {}) {
+  if (cart) {
+    const data = await request('/api/video/catalog?cart=' + encodeURIComponent(cart));
+    return withIndex(data);
+  }
   if (!force && catalogCache && Date.now() - catalogAt < 30000) return catalogCache;
-  const data = await request('/api/video/catalog');
-  const byId = {};
-  (data.products || []).forEach(p => { byId[String(p.product_id)] = p; });
-  catalogCache = {...data, byId};
+  catalogCache = withIndex(await request('/api/video/catalog'));
   catalogAt = Date.now();
   return catalogCache;
+}
+
+function withIndex(data) {
+  const byId = {};
+  (data.products || []).forEach(p => { byId[String(p.product_id)] = p; });
+  return {...data, byId};
 }
 
 export function invalidateCatalog() { catalogCache = null; }

@@ -14,6 +14,7 @@ import {openProfileEnrich, openBulkEnrich} from './product-enrich-ui.js';
 import {profilePicker} from '../ui/profile-picker.js';
 import {openComboProfiles} from './combo-profile-ui.js';
 import {defaultProfilesPanel} from './product-defaults-ui.js';
+import {cartBar} from './cart-picker.js';
 
 const TABS = [
   {id: 'products', label: 'Sản phẩm đang bán', icon: 'cart'},
@@ -80,17 +81,20 @@ export default {
     const tab = TABS.some(t => t.id === ctx.route.sub) ? ctx.route.sub : 'products';
     const content = h('div', {}, skeletonRows(6, 80));
     const tabBar = h('div');
+    const mountTab = {products: mountProducts, profiles: mountProfiles, mapping: mountMapping}[tab];
+    let inner = null;
+    // Mỗi tài khoản LIVE một giỏ: đổi giỏ thì tải lại tab đang mở.
+    const carts = cartBar({onChange: () => { invalidateCatalog(); clear(content, skeletonRows(6, 80)); inner = mountTab(ctx, content, d); }});
     clear(ctx.shell.main, h('div', {class: 'page'},
       pageHead('Sản phẩm', 'Sản phẩm đang bán trong giỏ hàng LIVE và hồ sơ kỹ thuật AI được phép dùng để tư vấn. AI chỉ tư vấn sản phẩm đã gắn hồ sơ.'),
-      tabBar, h('div', {style: {marginTop: '16px'}}, content)));
+      carts, tabBar, h('div', {style: {marginTop: '16px'}}, content)));
     let dash = ctx.store.get().dashboard;
     const renderTabs = () => clear(tabBar, tabs(TABS.map(t => ({...t, count: t.id === 'mapping' && dash && dash.catalog && dash.catalog.unmapped ? dash.catalog.unmapped : undefined, alert: t.id === 'mapping'})), tab, id => ctx.navigate('catalog', id)));
     renderTabs();
     d.add(ctx.store.subscribe(state => { dash = state.dashboard; renderTabs(); }));
 
-    const mountTab = {products: mountProducts, profiles: mountProfiles, mapping: mountMapping}[tab];
-    const inner = mountTab(ctx, content, d);
-    return {unmount: () => d.dispose(), isDirty: inner && inner.isDirty};
+    inner = mountTab(ctx, content, d);
+    return {unmount: () => d.dispose(), isDirty: () => Boolean(inner && inner.isDirty && inner.isDirty())};
   },
 };
 

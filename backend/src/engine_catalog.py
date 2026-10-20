@@ -33,8 +33,12 @@ class EngineCatalogMixin:
         self._pinned_cache = (time.monotonic(), ids)
         return ids
 
-    def mapping_state(self):
-        live = self.catalog.snapshot or {}
+    def mapping_state(self, cart=""):
+        # cart rỗng = giỏ đang hoạt động (LIVE, hoặc giỏ chọn trên UI).
+        explicit = clean(cart, 200)
+        live = (self.catalog.cart_snapshot(explicit) if explicit
+                else self.catalog.snapshot) or {}
+        cart_key = explicit or getattr(self.catalog, "active_key", lambda: "")()
         records = self.knowledge.all_records()
         image_sources = self._product_image_sources()
         self._prefetch_mapping_images(image_sources)
@@ -85,6 +89,8 @@ class EngineCatalogMixin:
             "ok": True,
             "room_id": clean(live.get("room_id"), 160),
             "synced_at": clean(live.get("synced_at"), 60),
+            "cart_key": cart_key,
+            "cart_name": self.catalog.cart_name(cart_key) if hasattr(self.catalog, "cart_name") else "",
             "products": products,
             "profiles": profiles,
             "history_count": self.knowledge.mapping_history_count(),

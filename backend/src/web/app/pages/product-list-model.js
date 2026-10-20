@@ -97,3 +97,36 @@ export function restoreProductsText(count) {
     text: 'Sản phẩm quay lại danh sách và AI dùng lại nếu còn trong giỏ đã đồng bộ.',
   };
 }
+
+// ---------- Giỏ theo tài khoản LIVE ----------
+/** Nhãn một giỏ trong ô chọn: tên + số sản phẩm + (đang LIVE). */
+export function cartLabel(cart) {
+  if (!cart) return '';
+  const tags = [`${Number(cart.product_count) || 0} SP`];
+  if (cart.live) tags.push('đang LIVE');
+  return `${cart.name || cart.key} (${tags.join(' · ')})`;
+}
+
+/** [[key, nhãn]] cho ô chọn giỏ; giỏ đang LIVE lên đầu. */
+export function cartOptions(state) {
+  const carts = (state && state.carts) || [];
+  return [...carts].sort((a, b) => Number(Boolean(b.live)) - Number(Boolean(a.live)))
+    .map(c => [c.key, cartLabel(c)]);
+}
+
+/** Đang LIVE thì giỏ hoạt động bị khoá theo tài khoản LIVE (chọn trên UI chỉ có hiệu lực khi hết LIVE). */
+export function cartLockNote(state) {
+  if (!state || !state.live) return '';
+  const live = (state.carts || []).find(c => c.key === state.live);
+  return `Đang LIVE: AI, tự ghim và trang này dùng giỏ ${live ? live.name : state.live}.`;
+}
+
+/** Hộp xác nhận xoá giỏ. */
+export function deleteCartText(cart) {
+  const name = (cart && (cart.name || cart.key)) || '';
+  const count = Number(cart && cart.product_count) || 0;
+  return {
+    title: `Xoá giỏ ${name}?`,
+    text: `Giỏ có ${count} sản phẩm. Xoá giỏ không xoá hồ sơ kỹ thuật hay gắn hồ sơ (dùng chung theo mã sản phẩm). Quét lại ở tài khoản này sẽ tạo lại giỏ.`,
+  };
+}

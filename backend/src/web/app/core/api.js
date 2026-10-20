@@ -137,6 +137,8 @@ const MESSAGES = {
   local_only: 'Chỉ thao tác được từ ứng dụng trên máy này.',
   internal_error: 'Kid TE gặp lỗi nội bộ. Thử lại; nếu lặp lại hãy tạo báo cáo hỗ trợ ở mục Hệ thống.',
   saved_catalog_required: 'Chưa có danh mục sản phẩm đã quét. Mở phiên LIVE để tiện ích quét giỏ hàng trước.',
+  cart_not_found: 'Không tìm thấy giỏ này (có thể đã bị xoá). Tải lại trang.',
+  cart_is_live: 'Giỏ này đang LIVE nên không xoá được.',
   video_extension_not_supported: 'Định dạng video chưa hỗ trợ. Dùng MP4, MOV, MKV, WebM, AVI hoặc M4V.',
   invalid_video_size: 'Kích thước video không hợp lệ. Video phải lớn hơn 0 và tối đa 100 GB.',
   insufficient_disk_space: 'Ổ đĩa lưu video không đủ chỗ trống (cần phần video còn lại + 2 GB dự phòng). Hãy giải phóng ổ rồi thử lại.',

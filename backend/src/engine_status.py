@@ -1123,11 +1123,26 @@ class EngineStatusMixin:
             raise ValueError("Chưa chọn sản phẩm nào.")
         return ids
 
+    def _trash_pool(self):
+        """Tombstone thuộc giỏ đang hoạt động.
+
+        Tombstone lưu theo product_id (dùng chung mọi giỏ). Thùng rác của một giỏ
+        hiện: sản phẩm có trong giỏ đó + sản phẩm không còn trong giỏ nào (mồ côi).
+        Sản phẩm chỉ có ở giỏ khác thì thuộc thùng rác của giỏ khác.
+        """
+        removed = product_blocklist.removed_products()
+        by_cart = self.catalog.product_cart_keys() if hasattr(self.catalog, "product_cart_keys") else {}
+        active = self.catalog.active_key() if hasattr(self.catalog, "active_key") else ""
+        mine = by_cart.get(active, set())
+        anywhere = set().union(*by_cart.values()) if by_cart else set()
+        return {pid: row for pid, row in removed.items()
+                if not by_cart or str(pid) in mine or str(pid) not in anywhere}
+
     def removed_listings(self):
         """Thùng rác: tombstone + dữ liệu sản phẩm còn trong danh mục đã lưu (nếu có)."""
         raw = {str(p.get("product_id")): p for p in self.catalog.raw_products() if isinstance(p, dict)}
         rows = []
-        for pid, row in product_blocklist.removed_products().items():
+        for pid, row in self._trash_pool().items():
             product = raw.get(str(pid)) or {}
             rows.append({**{k: product.get(k) for k in ("bag_index", "price", "image_url", "stock") if k in product},
                          **row, "in_saved_catalog": bool(product)})
@@ -1147,7 +1162,7 @@ class EngineStatusMixin:
         return {"ok": True, "removed": changed, "missing": [i for i in ids if i not in current]}
 
     def restore_listings(self, payload):
-        removed = product_blocklist.removed_products()
+        removed = self._trash_pool()
         ids = self._bulk_ids(payload, removed)
         with self.catalog._lock:
             changed = product_blocklist.set_removed_many([removed[i] for i in ids if i in removed], False)
@@ -1160,16 +1175,24 @@ class EngineStatusMixin:
         Ghi tombstone lỗi => trả danh mục về như cũ (không để dở dang).
         Quét tay sau này vẫn lấy lại nếu TikTok còn bán.
         """
-        removed = product_blocklist.removed_products()
-        ids = [i for i in self._bulk_ids(payload, removed) if i in removed]
-        if not ids:
-            raise ValueError("Không có sản phẩm nào trong thùng rác để xoá.")
         with self.catalog._lock:
-            before = self.catalog.drop_products(ids)
+            removed = self._trash_pool()
+            ids = [i for i in self._bulk_ids(payload, removed) if i in removed]
+            if not ids:
+                raise ValueError("Không có sản phẩm nào trong thùng rác để xoá.")
+            # Chỉ gỡ khỏi giỏ đang hoạt động. Sản phẩm còn ở giỏ khác giữ tombstone
+            # để giỏ kia không tự hiện lại (đúng như trước khi xoá vĩnh viễn).
+            key = self.catalog.active_key() if hasattr(self.catalog, "active_key") else ""
+            by_cart = self.catalog.product_cart_keys() if hasattr(self.catalog, "product_cart_keys") else {}
+            elsewhere = set().union(*(v for k, v in by_cart.items() if k != key)) if by_cart else set()
+            before = self.catalog.drop_products(ids, key) if key else self.catalog.drop_products(ids)
             try:
-                product_blocklist.set_removed_many([removed[i] for i in ids], False)
+                product_blocklist.set_removed_many([removed[i] for i in ids if i not in elsewhere], False)
             except Exception:
-                self.catalog.restore_raw(before)
+                if key:
+                    self.catalog.restore_raw(before, key)
+                else:
+                    self.catalog.restore_raw(before)
                 raise
         self.workspace._touch("profiles", "products", "dashboard", "catalog")
         return {"ok": True, "purged": ids}

@@ -35,7 +35,12 @@ def get_video_catalog(self, route, parsed):
     if not self.local_tool_request():
         self.send_json(403, {"ok": False, "error": "local_only"})
         return
-    self.send_json(200, self.engine.video_catalog())
+    from urllib.parse import parse_qs
+    cart = (parse_qs(parsed.query).get("cart") or [""])[0]
+    try:
+        self.send_json(200, self.engine.video_catalog(cart))
+    except ValueError as exc:
+        self.send_json(404, {"ok": False, "error": str(exc)})
 
 
 def get_video_assets(self, route, parsed):

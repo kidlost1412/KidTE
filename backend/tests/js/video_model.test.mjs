@@ -179,3 +179,18 @@ test('pinRange ghim đúng khoảng rồi trả lại sản phẩm cũ', () => {
   const r2 = M.pinRange(doc, 280000, 295000, 'sku_1');
   assert.deepEqual(r2.doc.segments.map(s => s.start), [0, 60000, 280000, 300000]);
 });
+
+test('timeline remembers its cart (cart_key) across save/load', async () => {
+  const M = await import('../../src/web/app/pages/video/model.js');
+  const timeline = {video_id: 'v1', cycle_ms: 60000, products: {}, events: [{at_ms: 0, product: null}], catalog_cart: 'uid:1'};
+  const doc = M.fromLibrary(timeline);
+  assert.equal(doc.cartKey, 'uid:1');
+  const next = {...doc, cartKey: 'uid:2'};
+  assert.equal(M.toLibraryChanges(next).cart_key, 'uid:2');
+  assert.equal(M.fromLibrary(timeline, {draft: M.toLibraryDraft(next)}).cartKey, 'uid:2');
+  assert.equal(M.sameContent(doc, next), false);
+  assert.equal('cart_key' in M.toLibraryChanges({...doc, cartKey: ''}), false);
+  const review = M.fromReview({job_id: 'j', duration_s: 10, catalog_cart: 'uid:3', draft: {events: []}});
+  assert.equal(review.cartKey, 'uid:3');
+  assert.equal(M.toReviewDraft({...review, cartKey: 'uid:4'}, {events: []}).catalog_cart, 'uid:4');
+});

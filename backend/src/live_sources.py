@@ -11,7 +11,7 @@ from pathlib import Path
 PLATFORMS = ("tiktok", "shopee")
 DEFAULTS = {
     "tiktok": {"enabled": True, "mode": "process", "process_name": "TikTok LIVE Studio.exe",
-               "device_id": "", "offset_ms": 0},
+               "device_id": "", "offset_ms": 0, "reverify_minutes": 30},
     "shopee": {"enabled": True, "mode": "obs", "port": 4455, "password": "",
                "input_name": "", "bindings": {}, "offset_ms": 0},
 }
@@ -57,6 +57,11 @@ class LiveSources:
                 if not math.isfinite(value) or abs(value) > 60000:
                     raise ValueError("offset_out_of_range")
                 patch["offset_ms"] = value
+            if "reverify_minutes" in patch:
+                value = patch["reverify_minutes"]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not 20 <= value <= 30:
+                    raise ValueError("reverify_minutes_out_of_range")
+                patch["reverify_minutes"] = int(value)
             if platform == "shopee":
                 if patch.get("mode", "obs") != "obs":
                     raise ValueError("shopee_requires_obs")

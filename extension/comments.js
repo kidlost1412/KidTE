@@ -523,6 +523,9 @@ function noteSendFailure(detail) {
   async function applyAppControl(control) {
     const seq = Number(control?.seq);
     if (!Number.isInteger(seq) || seq <= 0) return false;
+    // 3.11.8: như Shopee, chỉ tab giữ vai (điều khiển/quan sát) áp và xác nhận lệnh.
+    // Trước đây tab TikTok Shop bất kỳ đều "nuốt" seq rồi báo đã áp dù không áp được.
+    if (!(isController || isObserver)) return false;
     const saved = await chrome.storage.local.get("liveReControlSeq");
     if (seq <= Number(saved?.liveReControlSeq || 0)) return false;
     const issuedMs = Number(control.issued_at) * 1000;
@@ -535,27 +538,43 @@ function noteSendFailure(detail) {
     // thì giữ lựa chọn của popup (vẫn ghi nhận seq + báo lý do để app hiện trạng thái thật).
     const local = await chrome.storage.local.get(["liveReAiChangedAtMs", "liveRePinChangedAtMs"]);
     const skipped = [];
+    const failed = [];
     if (typeof control.ai_enabled === "boolean") {
       if (Number(local?.liveReAiChangedAtMs || 0) > issuedMs) skipped.push("AI");
-      else await chrome.storage.local.set({ liveReAiEnabled: control.ai_enabled, liveReAiChangedAtMs: issuedMs });
+      else {
+        await chrome.storage.local.set({ liveReAiEnabled: control.ai_enabled, liveReAiChangedAtMs: issuedMs });
+        // Chờ áp thật (install) rồi mới xác nhận: bật thất bại thì báo lý do về app,
+        // không để app hiện "đã áp" trong khi AI vẫn tắt.
+        await applyEnabledShared(control.ai_enabled);
+        if (control.ai_enabled && !enabled) failed.push(`AI: ${lastAiError || "không bật được"}`);
+      }
     }
     if (typeof control.auto_pin === "boolean" && Number(local?.liveRePinChangedAtMs || 0) > issuedMs) {
       skipped.push("Tự ghim");
     } else if (typeof control.auto_pin === "boolean") {
       const current = await chrome.runtime.sendMessage({ type: "LIVE_RE_GET_STATE" }).catch(() => null);
       const pinState = current?.state || {};
+      let pinResult = null;
       if (control.auto_pin === false && pinState.running === true) {
-        await chrome.runtime.sendMessage({ type: "LIVE_RE_PAUSE" });
+        pinResult = await chrome.runtime.sendMessage({ type: "LIVE_RE_PAUSE" }).catch(e => ({ ok: false, error: String(e?.message || e) }));
       } else if (control.auto_pin === true && pinState.running !== true && Number(pinState.startedAtMs || 0) > 0) {
         // Chỉ tiếp tục phiên ghim đã có; chưa có phiên thì để tự bắt đầu theo phòng LIVE.
-        await chrome.runtime.sendMessage({ type: "LIVE_RE_RESUME" });
+        pinResult = await chrome.runtime.sendMessage({ type: "LIVE_RE_RESUME" }).catch(e => ({ ok: false, error: String(e?.message || e) }));
+      } else if (control.auto_pin === true && pinState.running !== true) {
+        failed.push("Tự ghim: chưa có phiên ghim — mở tab LIVE dashboard để tự bắt đầu");
+      }
+      if (pinResult && pinResult.ok === false) failed.push(`Tự ghim: ${pinResult.error || "tiện ích từ chối"}`);
+      else if (pinResult?.state && typeof pinResult.state.running === "boolean") {
+        liveStateCache = pinResult.state;
+        liveRunning = pinResult.state.running === true;
       }
     }
-    await chrome.storage.local.set({ liveReControlSeq: seq, liveReControlError: skipped.length
-      ? `Giữ lựa chọn mới hơn trong tiện ích (${skipped.join(", ")})` : "" });
+    const notes = [...failed];
+    if (skipped.length) notes.push(`Giữ lựa chọn mới hơn trong tiện ích (${skipped.join(", ")})`);
+    await chrome.storage.local.set({ liveReControlSeq: seq, liveReControlError: notes.join("; ").slice(0, 200) });
     // Báo app ngay (không đợi 10 giây) để công tắc ở app hết "Đang gửi…".
     sendHeartbeat().catch(() => {});
-    return !skipped.length;
+    return !notes.length;
   }
 
   async function sendHeartbeat() {
@@ -1366,8 +1385,22 @@ function noteSendFailure(detail) {
     return { ...saved, tiktok_count: context.products.length };
   }
 
+  // Gộp các lần áp cùng giá trị đang chạy (lệnh app + onChanged) để không cài AI hai lần.
+  let aiApplyInFlight = null;
+  let lastAiError = "";
+  function applyEnabledShared(value) {
+    value = Boolean(value);
+    if (aiApplyInFlight && aiApplyInFlight.value === value) return aiApplyInFlight.promise;
+    const promise = Promise.resolve(applyEnabled(value)).finally(() => {
+      if (aiApplyInFlight?.promise === promise) aiApplyInFlight = null;
+    });
+    aiApplyInFlight = { value, promise };
+    return promise;
+  }
+
   async function applyEnabled(value) {
     enabled = Boolean(value);
+    lastAiError = "";
     if (!enabled) {
       await aiRestorePromise;
       pending.length = 0;
@@ -1381,6 +1414,7 @@ function noteSendFailure(detail) {
     } catch (error) {
       enabled = false;
       aiReady = false;
+      lastAiError = clean(error?.message || error, 160);
       await chrome.storage.local.set({ liveReAiEnabled: false });
       await setStatus(`Chưa bật được AI: ${clean(error?.message || error, 180)}`, false);
     }
@@ -1389,7 +1423,10 @@ function noteSendFailure(detail) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.liveReAiEnabled) {
       // Đổi trong popup/widget/app: gửi heartbeat ngay sau khi áp để app thấy trong vài giây.
-      Promise.resolve(applyEnabled(changes.liveReAiEnabled.newValue))
+      const want = Boolean(changes.liveReAiEnabled.newValue);
+      // Đã áp xong đúng giá trị (vd. lệnh app vừa áp trong tab này) thì không cài lại.
+      const already = want === enabled && (!want || aiReady) && !aiApplyInFlight;
+      Promise.resolve(already ? null : applyEnabledShared(want))
         .finally(() => { sendHeartbeat().catch(() => {}); });
     }
     if (area === "local" && changes.liveReState) {

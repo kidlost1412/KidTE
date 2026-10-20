@@ -16,7 +16,7 @@ from audio_capture import RollingCapture
 from config import ROOT, CHAT_HOST, CHAT_PORT
 from live_sources import LiveSources
 import live_state_store
-from live_session import VideoLock
+from live_session import VideoLock, reverify_seconds
 from obs_source import ObsClient, obs_measurement
 from process_audio import ProcessCapture, studio_process
 from video_library import list_videos, load_references
@@ -272,6 +272,7 @@ def tiktok_loop(store):
     while True:
         try:
             settings = store.read()["tiktok"]
+            video_lock.reverify_s = reverify_seconds(settings.get("reverify_minutes"))
             token = settings.get('reidentify_token')
             if token != reidentify_token:
                 video_lock.reset()

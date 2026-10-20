@@ -83,6 +83,7 @@ global.chrome = {
       if (tabId === 7) {
         return { id: 7, url: "https://shop.tiktok.com/streamer/live/product/dashboard?region=us" };
       }
+      if (tabId === 5 || tabId === 6) return { id: tabId, url: "https://shop.tiktok.com/other" };
       throw new Error("No tab");
     },
     sendMessage: async (tabId, message) => ({
@@ -132,6 +133,13 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
   storage.liveReObserverAt = Date.now();
   assert.equal(await claimObserver(7), true, "stale controller must not lock the collector");
   assert.equal(storage.liveReState.controllerTabId, 0);
+  assert.equal(storage.liveReObserverTabId, 7);
+  // 3.11.8: tab khác trang không giành vai của tab LIVE dashboard còn sống...
+  assert.equal(await claimObserver(5), false, "non-dashboard tab must not take the observer role");
+  // ...nhưng tab LIVE dashboard giành vai từ tab khác trang đang giữ.
+  storage.liveReObserverTabId = 6;
+  storage.liveReObserverAt = Date.now();
+  assert.equal(await claimObserver(7), true, "dashboard tab takes the role from a non-dashboard holder");
   assert.equal(storage.liveReObserverTabId, 7);
   const snapshotResult = await runTikTokLiveApi({
     action: "snapshot",

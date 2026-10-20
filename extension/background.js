@@ -382,6 +382,42 @@ async function runTikTokLiveApi(request) {
     }
     return null;
   };
+  // room_id hợp lệ: không rỗng, không "0"/0 (TikTok trả 0 khi chưa LIVE),
+  // và không phải số đã mất chính xác (> 2^53; khi đó chỉ tin bản *_str).
+  const ROOM_KEYS = ["room_id_str", "roomIdStr", "live_room_id_str", "room_id", "roomId", "live_room_id", "liveRoomId"];
+  const roomIdText = (value) => {
+    if (value === null || value === undefined || typeof value === "object" || typeof value === "boolean") return "";
+    if (typeof value === "number" && !Number.isSafeInteger(value)) return "";
+    const text = String(value).trim();
+    if (!text || /^0+$/.test(text) || text === "null" || text === "undefined") return "";
+    return text;
+  };
+  const roomIdInfo = { raw_type: "", unsafe: false, zero: false };
+  const findRoomId = (roots) => {
+    const queue = (Array.isArray(roots) ? roots : [roots]).map((value) => ({ value, depth: 0 }));
+    const visited = new Set();
+    while (queue.length) {
+      const { value, depth } = queue.shift();
+      if (!value || typeof value !== "object" || visited.has(value)) continue;
+      visited.add(value);
+      for (const key of ROOM_KEYS) {
+        if (!(key in value)) continue;
+        const raw = value[key];
+        if (!roomIdInfo.raw_type) roomIdInfo.raw_type = raw === null ? "null" : typeof raw;
+        if (typeof raw === "number" && raw !== 0 && !Number.isSafeInteger(raw)) roomIdInfo.unsafe = true;
+        else if (raw === 0 || raw === "" || (typeof raw === "string" && /^\s*0*\s*$/.test(raw))) roomIdInfo.zero = true;
+        const text = roomIdText(raw);
+        if (text) return text;
+      }
+      if (depth >= 5) continue;
+      for (const child of Object.values(value)) {
+        if (!child || typeof child !== "object") continue;
+        if (Array.isArray(child)) { for (const item of child.slice(0, 100)) queue.push({ value: item, depth: depth + 1 }); }
+        else queue.push({ value: child, depth: depth + 1 });
+      }
+    }
+    return "";
+  };
   let roomOwner;
   let roomInfoResponse = null;
   let emptyListResponse = null;
@@ -453,19 +489,27 @@ async function runTikTokLiveApi(request) {
     let items = extractProductArray(response?.data ?? response);
     const tried = [];
     if (!items.length) {
-      const candidates = clientMethodNames().filter((name) =>
+      // Một vòng thử duy nhất, tối đa 4 lời gọi ĐỌC: ưu tiên method giỏ LIVE
+      // đã biết (giỏ thêm trước khi phát), rồi tới method đọc khác.
+      const names = clientMethodNames();
+      const preferred = ["ListLiveProductPagination", "ListTargetPlanProduct"].filter((name) => names.includes(name));
+      const generic = names.filter((name) =>
         /product/i.test(name) && /list/i.test(name) && /live/i.test(name) && READ_METHOD_RE.test(name) &&
-        !WRITE_METHOD_RE.test(name.replace(READ_METHOD_RE, "")) && name !== "ListLiveProduct"
+        !WRITE_METHOD_RE.test(name.replace(READ_METHOD_RE, "")) && name !== "ListLiveProduct" &&
+        name !== "ListLiveProductById" && !preferred.includes(name)
       );
-      for (const name of candidates.slice(0, 6)) {
+      const PAGE_ARGS = { offset: 0, count: 50, page: 1, page_size: 50, cursor: 0 };
+      for (const name of [...preferred, ...generic].slice(0, 4)) {
         tried.push(name);
         let candidate = null;
-        try { candidate = await client[name]({}); } catch { continue; }
+        try { candidate = await client[name](/Pagination/.test(name) ? { ...PAGE_ARGS } : {}); } catch { continue; }
         const found = extractProductArray(candidate?.data ?? candidate);
         if (found.length) { response = candidate; items = found; source = name; break; }
       }
     }
     if (!items.length) {
+      const bagRaw = findField([roomInfoResponse?.data], ["shopping_bag_product_count"], 1);
+      const bagCount = bagRaw === undefined ? null : asNumber(bagRaw);
       const diagnostic = {
         list_live_product_keys: keyShape(emptyListResponse),
         list_live_product_error: emptyListError,
@@ -479,11 +523,14 @@ async function runTikTokLiveApi(request) {
       const diagnosticText = [
         `ListLiveProduct({})=[${shapeText(diagnostic.list_live_product_keys)}${emptyListError ? ` lỗi:${emptyListError}` : ""}]`,
         `GetLiveRoomInfo({})=[${shapeText(diagnostic.room_info_keys)}]`,
+        `room_id=${roomIdInfo.unsafe ? "số quá lớn" : roomIdInfo.zero ? "0/rỗng (chưa LIVE?)" : (roomIdInfo.raw_type || "không có")}`,
+        `giỏ=${bagCount === null ? "?" : bagCount} SP`,
+        `đã thử=[ListLiveProduct${tried.length ? "," + tried.join(",") : ""}]`,
         `method sản phẩm=[${diagnostic.product_methods.join(",")}]`
       ].join(" · ");
       return {
         ok: false,
-        error: `Chưa quét được giỏ trước LIVE: API không trả room_id và không có danh sách sản phẩm. Chẩn đoán: ${diagnosticText}`,
+        error: `Chưa quét được giỏ trước LIVE: chưa có room_id hợp lệ và API không trả danh sách sản phẩm${bagCount ? ` (TikTok báo giỏ có ${bagCount} SP)` : ""}. Chẩn đoán: ${diagnosticText}`,
         diagnostic
       };
     }
@@ -505,23 +552,19 @@ async function runTikTokLiveApi(request) {
   }
 
   async function getRoomId() {
-    if (request?.roomId && !['send_chat','pin','unpin'].includes(request.action)) return cleanText(request.roomId);
+    if (roomIdText(request?.roomId) && !['send_chat','pin','unpin'].includes(request.action)) return roomIdText(request.roomId);
     // pin/unpin/chat: dung room da xac nhan trong 60 giay gan nhat (MAIN world
     // cua tab), khong goi GetLiveRoomInfo truoc moi lenh. Loi thi xoa cache.
     const roomCache = window.__kidteRoomCache;
-    if (["send_chat", "pin", "unpin"].includes(request?.action) && roomCache?.roomId &&
+    if (["send_chat", "pin", "unpin"].includes(request?.action) && roomIdText(roomCache?.roomId) &&
         Date.now() - Number(roomCache.at || 0) < 60000) return roomCache.roomId;
     const roomResponse = await client.GetLiveRoomInfo({});
     roomInfoResponse = roomResponse;
     roomOwner = extractRoomOwner(roomResponse?.data);
-    const nestedRoomId = findField(
-      [roomResponse?.data, roomResponse],
-      ["room_id", "roomId", "live_room_id", "liveRoomId"],
-      5
-    );
-    if (cleanText(nestedRoomId)) {
-      window.__kidteRoomCache = { roomId: cleanText(nestedRoomId), at: Date.now() };
-      return { roomId: cleanText(nestedRoomId), diagnostic: {} };
+    const nestedRoomId = findRoomId([roomResponse?.data, roomResponse]);
+    if (nestedRoomId) {
+      window.__kidteRoomCache = { roomId: nestedRoomId, at: Date.now() };
+      return { roomId: nestedRoomId, diagnostic: {} };
     }
     // TikTok bao chua co phong (LIVE da ket thuc): bo room da nho.
     window.__kidteRoomCache = null;
@@ -532,19 +575,16 @@ async function runTikTokLiveApi(request) {
     let listResponse = null;
     try { listResponse = await client.ListLiveProduct({}); } catch (error) { emptyListError = cleanText(error?.name || "error"); }
     emptyListResponse = listResponse;
-    const listRoomId = findField(
-      [listResponse?.data, listResponse],
-      ["room_id", "roomId", "live_room_id", "liveRoomId"],
-      5
-    );
+    const listRoomId = findRoomId([listResponse?.data, listResponse]);
     return {
-      roomId: cleanText(listRoomId),
+      roomId: listRoomId,
       diagnostic: {
         response_code: roomResponse?.code ?? "",
         message: cleanText(roomResponse?.message || roomResponse?.msg),
         data_keys: roomResponse?.data && typeof roomResponse.data === "object"
           ? Object.keys(roomResponse.data).slice(0, 20)
           : [],
+        room_id_type: roomIdInfo.unsafe ? "unsafe_number" : roomIdInfo.zero ? "zero" : roomIdInfo.raw_type,
         list_response_code: listResponse?.code ?? "",
         list_message: cleanText(listResponse?.message || listResponse?.msg),
         list_data_keys: listResponse?.data && typeof listResponse.data === "object"
@@ -569,9 +609,16 @@ async function runTikTokLiveApi(request) {
       error.code = cleanText(listCode);
       throw error;
     }
-    const products = Array.isArray(data.products)
-      ? data.products.map((product, index) => compactProduct(product, index + 1))
-      : [];
+    let items = Array.isArray(data.products) ? data.products : [];
+    if (!items.length && typeof client.ListLiveProductPagination === "function") {
+      // ListLiveProduct trả giỏ rỗng: thử đúng 1 lần bản phân trang trước khi báo rỗng.
+      try {
+        const paged = await client.ListLiveProductPagination({ room_id: roomId, offset: 0, count: 50, page: 1, page_size: 50, cursor: 0 });
+        const code = paged?.code;
+        if (code === 0 || code === "0" || code === undefined) items = extractProductArray(paged?.data ?? paged);
+      } catch {}
+    }
+    const products = items.map((product, index) => compactProduct(product, index + 1));
     const pinId = cleanText(
       data.introduce_id || data.pin_id || data.pinned_product_id ||
       products.find((product) => product.is_pinned)?.product_id
@@ -1490,6 +1537,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       };
       await chrome.storage.local.set({ liveReAiEnabled: false });
     } else {
+      // Listener đã return true: luôn trả lời để kênh tin không đóng im lặng.
+      sendResponse({ ok: false, error: `Loại tin không hỗ trợ: ${message.type}` });
       return;
     }
 

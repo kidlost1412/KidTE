@@ -66,6 +66,12 @@ def post_tiktok_lease(self, route, payload, flags):
     return tiktok_lease.LEASE.handle(payload)
 
 
+def post_tiktok_browser_diag(self, route, payload, flags):
+    # Nhật ký chẩn đoán captcha trình duyệt: ghi <DATA>/logs/tiktok-browser.jsonl (xoay vòng).
+    import browser_diag_log
+    return browser_diag_log.append(LOG_DIR, payload)
+
+
 def post_shopee_sync(self, route, payload, flags):
     result = self.engine.sync_shopee_catalog(payload)
     return result

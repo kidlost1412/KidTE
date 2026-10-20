@@ -31,6 +31,7 @@
         "live-widget.js",
         "schedule.js",
         "message-delivery.js",
+        "diag-log.js",
         "content.js",
         "comments.js"
       ],

@@ -107,6 +107,7 @@ OLD_POST_JSON = [
     'route == "/api/privacy/purge-ack"',
     'route == "/api/heartbeat"',
     'route == "/api/tiktok/lease"',
+    'route == "/api/diag/tiktok-browser"',
     'route == "/api/diagnostics/fix"',
     'route == "/api/support/create"',
     'route == "/api/settings"',

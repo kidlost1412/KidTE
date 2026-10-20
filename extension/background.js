@@ -1,5 +1,13 @@
 "use strict";
 
+// Nhật ký chẩn đoán captcha (diag-log.js): không bao giờ ném lỗi, không chặn luồng chính.
+let diag = {record() {}, event() {}, api() {}};
+try {
+  if (typeof importScripts === "function") importScripts("diag-log.js");
+  diag = globalThis.KidTEDiag || (typeof require === "function" ? require("./diag-log.js") : diag);
+  diag.initBackground();
+} catch (error) { console.warn("Kid TE: không bật được nhật ký chẩn đoán", error); }
+
 let receiptQueue = Promise.resolve();
 let chatIntentQueue = Promise.resolve();
 function reserveChatIntent(request, tabId) {
@@ -195,11 +203,12 @@ async function runTikTokLiveApi(request) {
   if (!rawClient) return { ok: false, error: "Không tìm thấy TikTok LIVE API client" };
   // Đếm số request thật tới TikTok trong lượt này (để background tính req/phút).
   let apiCalls = 0;
+  const apiMethods = [];
   const client = new Proxy(rawClient, {
     get(target, prop) {
       const value = target[prop];
       if (typeof value !== "function") return value;
-      return (...args) => { apiCalls += 1; return value.apply(target, args); };
+      return (...args) => { apiCalls += 1; apiMethods.push(String(prop)); return value.apply(target, args); };
     }
   });
 
@@ -720,7 +729,7 @@ async function runTikTokLiveApi(request) {
       error_code: cleanText(error?.code)
     };
   } })();
-  if (result && typeof result === "object") result.api_calls = apiCalls;
+  if (result && typeof result === "object") { result.api_calls = apiCalls; result.api_methods = apiMethods.slice(0, 12); }
   return result;
 }
 
@@ -800,6 +809,7 @@ function apiGuardRecord(tabId, result) {
     guard.pausedUntil = now + step;
     guard.reason = String(result?.error || "TikTok đòi xác minh").slice(0, 160);
     changed = true;
+    diag.event("guard_pause", {tab: tabId, ms: step, step: guard.step, reason: guard.reason});
     console.warn(`TikTok đòi xác minh trên tab ${tabId}; tạm dừng gọi tự động ${step / 1000}s`, guard.reason);
   } else if (result?.ok && guard.step && now >= guard.pausedUntil) {
     guard.step = 0;
@@ -1063,7 +1073,10 @@ async function browserLeaseAllows(tabId, force = false) {
   browserLease.tabId = tabId;
   browserLease.granted = granted;
   browserLease.checkedAt = now;
-  if (before !== granted) writeApiGuard(true).catch(() => {});
+  if (before !== granted) {
+    diag.event("lease_change", {tab: tabId, on: granted, fail_open: browserLease.failOpen === true});
+    writeApiGuard(true).catch(() => {});
+  }
   return granted;
 }
 
@@ -1109,6 +1122,7 @@ async function resolveApiOwner(tab) {
   const holder = Number(stored.liveReObserverTabId || 0);
   const fresh = Date.now() - Number(stored.liveReObserverAt || 0) <= OBSERVER_LEASE_MS;
   if (controllerTabId !== tabId && holder && holder !== tabId && fresh && await tabOnDashboard(holder)) return false;
+  if (holder !== tabId) diag.event("owner_change", {from: holder, to: tabId});
   await chrome.storage.local.set({ liveReObserverTabId: tabId, liveReObserverAt: Date.now() });
   // Đã thắng cổng nội bộ (trong profile này); còn phải giữ lease liên trình duyệt.
   return (await browserLeaseAllows(tabId)) ? true : "other_browser";
@@ -1216,9 +1230,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       const request = message.request || {};
+      const diagStartedAt = Date.now();
       const owner = await apiOwnerAllows(sender.tab, request);
       if (owner !== true) {
         const otherBrowser = owner === "other_browser";
+        diag.api({tabId, request, blocked: otherBrowser ? "other_browser" : "not_owner"});
         sendResponse({ ok: false, not_owner: true, other_browser: otherBrowser,
           error: otherBrowser ? BROWSER_LEASE_DENIED_MESSAGE
             : "Tab khác đang giữ quyền gọi TikTok (chỉ một tab LIVE được gọi)" });
@@ -1226,6 +1242,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       const blocked = apiGuardBlocked(tabId, request);
       if (blocked) {
+        diag.api({tabId, request, blocked: "guard_pause"});
         writeApiGuard().catch(() => {});
         sendResponse(blocked);
         return;
@@ -1268,6 +1285,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         error: "TikTok API không trả kết quả"
       };
       apiGuardRecord(tabId, result);
+      diag.api({tabId, request, result, startedAt: diagStartedAt});
       if (durableChat) {
         if (result.ok) result.sent_at_ms = Date.now();
         await completeChatIntent(request, result);

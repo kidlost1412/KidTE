@@ -72,3 +72,13 @@ test('cart picker labels, live first, delete text', async () => {
   assert.match(del.title, /@shopA/);
   assert.match(del.text, /3 sản phẩm/);
 });
+
+test('restore previous cart version text', async () => {
+  const m = await import('../../src/web/app/pages/product-list-model.js');
+  const r = m.restoreCartText({key: 'default', name: 'Mặc định', history_count: 2, history_at: '2026-10-21T14:05:09+07:00'});
+  assert.match(r.title, /Mặc định/);
+  assert.match(r.text, /lúc 2026-10-21 14:05/);
+  assert.match(r.text, /còn 2 bản trước/);
+  assert.match(r.text, /bấm "Khôi phục bản trước" lần nữa/);
+  assert.doesNotMatch(m.restoreCartText({key: 'k'}).text, /lúc/);
+});

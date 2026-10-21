@@ -257,9 +257,14 @@ $("#scan-catalog").addEventListener("click", async () => {
     const saved = Number(response.product_count || 0);
     const fromTikTok = Number(response.tiktok_count ?? response.received_count ?? saved);
     if (saved <= 0) throw new Error("Kid TE chưa lưu được sản phẩm nào");
-    box.textContent = fromTikTok > saved
-      ? `TikTok trả ${fromTikTok} SKU · đã lưu ${saved} (${fromTikTok - saved} SKU bị loại theo danh sách loại khỏi AI).`
-      : `Đã lưu ${saved} SKU lấy thẳng từ TikTok · có thể phân tích video khi chưa LIVE.`;
+    const cartName = String(response.cart_name || "").trim();
+    const where = cartName ? ` vào giỏ «${cartName}»` : "";
+    box.textContent = (fromTikTok > saved
+      ? `TikTok trả ${fromTikTok} SKU · đã lưu ${saved}${where} (${fromTikTok - saved} SKU bị loại theo danh sách loại khỏi AI).`
+      : `Đã lưu ${saved} SKU lấy thẳng từ TikTok${where} · có thể phân tích video khi chưa LIVE.`) +
+      (response.cart_created && cartName
+        ? " Đây là GIỎ MỚI vì chưa rõ tài khoản và sản phẩm khác hẳn các giỏ đã có — các giỏ cũ giữ nguyên (đổi tên/xoá ở trang Sản phẩm của app)."
+        : "");
     box.className = "ok";
   } catch (error) {
     box.textContent = `Chưa quét được: ${error.message}`;

@@ -49,7 +49,7 @@ let browser;
             return Promise.resolve({ ok: true, state: { running: false, startedAtMs: 0, pausedElapsedMs: 0 } });
           }
           if (message.type === "LIVE_RE_SCAN_CATALOG") {
-            return Promise.resolve({ ok: true, product_count: 41 });
+            return Promise.resolve({ ok: true, product_count: 41, cart_name: "Giỏ quét lúc 14:05 21/10", cart_created: true });
           }
           const elapsedMs = Number(message.elapsedMs || 0);
           return Promise.resolve({
@@ -84,6 +84,9 @@ let browser;
   await page.locator("#scan-catalog").click();
   await page.waitForTimeout(50);
   assert.match(await page.locator("#catalog-status").innerText(), /Đã lưu 41 SKU/);
+  // 3.11.13: báo rõ giỏ đã lưu; quét không rõ chủ mà khác hẳn -> giỏ mới, giỏ cũ giữ nguyên.
+  assert.match(await page.locator("#catalog-status").innerText(), /vào giỏ «Giỏ quét lúc 14:05 21\/10»/);
+  assert.match(await page.locator("#catalog-status").innerText(), /GIỎ MỚI.*giỏ cũ giữ nguyên/);
 
   await page.locator("#jump-time").fill("7:60");
   await page.locator("#jump").click();

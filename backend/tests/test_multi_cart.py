@@ -62,15 +62,20 @@ def test_same_account_matched_by_sec_uid_when_user_id_missing(env):
     assert len(store.carts_state()["carts"]) == 1
 
 
-def test_legacy_payload_without_host_goes_to_active_cart(env):
+def test_payload_without_host_updates_active_cart_only_when_same_products(env):
     store = server_module.LiveCatalogStore()
     store.sync(_snap("111", ["a1"]))
-    store.sync(_snap("222", ["b1"]))
+    store.sync(_snap("222", ["b1", "b2", "b3", "b4", "b5"]))
     store.select("uid:222")
-    out = store.sync(_snap("", ["b2"]))
-    assert out["cart_key"] == "uid:222"
+    # Không rõ chủ nhưng trùng >= 80% sản phẩm: cùng giỏ -> cập nhật giỏ đang hoạt động.
+    out = store.sync(_snap("", ["b1", "b2", "b3", "b4", "b5", "b6"]))
+    assert out["cart_key"] == "uid:222" and out["cart_created"] is False
+    assert _ids(store.snapshot) == ["b1", "b2", "b3", "b4", "b5", "b6"]
+    # Không rõ chủ và khác hẳn: KHÔNG đè giỏ đang hoạt động, tạo giỏ mới.
+    out = store.sync(_snap("", ["z1"]))
+    assert out["cart_key"].startswith("scan:") and out["cart_created"] is True
+    assert _ids(store.cart_snapshot("uid:222")) == ["b1", "b2", "b3", "b4", "b5", "b6"]
     assert _ids(store.cart_snapshot("uid:111")) == ["a1"]
-    assert _ids(store.snapshot) == ["b2"]
 
 
 def test_live_account_wins_over_ui_selection(env):
@@ -215,8 +220,147 @@ def test_prelive_scan_same_account_still_blocked_and_names_account(env):
     out = engine.sync({**_snap("111", ["x"]), "profile_id": "prof-B"}, user_initiated=True)
     assert out["ok"] is False and out["skipped"] == "live_active"
     assert "@shop_mot" in out["error"] and "đang LIVE" in out["error"]
-    # Cùng trình duyệt (cùng profile), không có host: coi là cùng tài khoản -> chặn như cũ.
-    out = engine.sync({**_snap("", ["x"]), "profile_id": "prof-A"}, user_initiated=True)
+    # Cùng trình duyệt (cùng profile), không có host, cùng sản phẩm: cùng tài khoản -> chặn như cũ.
+    out = engine.sync({**_snap("", ["a1"]), "profile_id": "prof-A"}, user_initiated=True)
     assert out["ok"] is False and out["skipped"] == "live_active"
     assert "@shop_mot" in out["error"]
+    # Không có host, sản phẩm khác hẳn: không đè giỏ LIVE, lưu sang giỏ mới.
+    out = engine.sync({**_snap("", ["x"]), "profile_id": "prof-A"}, user_initiated=True)
+    assert out["ok"] is True and out["cart_key"].startswith("scan:") and out["cart_created"] is True
     assert _ids(engine.catalog.cart_snapshot("uid:111")) == ["a1"]
+    assert engine.catalog.active_key() == "uid:111"  # AI vẫn dùng giỏ LIVE
+
+
+# ---- 1.15.26: mất dữ liệu giỏ (chủ shop 21/10) ----
+def _ids_n(prefix, n):
+    return [f"{prefix}{i:02d}" for i in range(1, n + 1)]
+
+
+def test_second_tab_scan_without_host_never_overwrites_first_tab_cart(env):
+    """Tab 1 quét 20, xoá 1 còn 19; tab 2 (tài khoản khác, trước LIVE, không host) quét 39."""
+    engine = _engine()
+    tab1 = _ids_n("p", 20)
+    out = engine.sync(_snap("", tab1), user_initiated=True)
+    assert out["cart_key"] == "default" and out["product_count"] == 20
+    assert out["cart_name"] == "Mặc định"
+    engine.trash_listings({"product_ids": ["p20"]})
+    assert len(engine.catalog.cart_snapshot("default")["products"]) == 19
+    # Tab 2: 39 sản phẩm, gồm cả 19 sản phẩm của tab 1 (trường hợp xấu nhất) + 20 khác.
+    tab2 = tab1[:19] + _ids_n("q", 20)
+    out = engine.sync(_snap("", tab2), user_initiated=True)
+    assert out["ok"] is True and "skipped" not in out
+    assert out["cart_key"].startswith("scan:") and out["cart_created"] is True
+    assert out["cart_name"].startswith("Giỏ quét lúc ")
+    assert out["product_count"] == 39
+    # Giỏ 19 còn nguyên.
+    assert _ids(engine.catalog.cart_snapshot("default")) == tab1[:19]
+    assert len(engine.catalog.cart_snapshot(out["cart_key"])["products"]) == 39
+    # Trang Sản phẩm chuyển sang giỏ vừa quét; giỏ cũ vẫn còn trong danh sách.
+    assert engine.catalog.active_key() == out["cart_key"]
+    counts = {c["key"]: c["product_count"] for c in engine.catalog.carts_state()["carts"]}
+    assert counts == {"default": 19, out["cart_key"]: 39}
+    # Không ghi đè -> không có lịch sử.
+    assert engine.catalog.cart_history("default") == []
+    # Mở lại từ đĩa: đủ 2 giỏ.
+    again = server_module.LiveCatalogStore()
+    assert len(again.cart_snapshot("default")["products"]) == 19
+    assert len(again.cart_snapshot(out["cart_key"])["products"]) == 39
+
+
+def test_second_tab_disjoint_products_also_gets_own_cart(env):
+    engine = _engine()
+    engine.sync(_snap("", _ids_n("p", 19)), user_initiated=True)
+    out = engine.sync(_snap("", _ids_n("q", 39)), user_initiated=True)
+    assert out["cart_key"].startswith("scan:")
+    assert _ids(engine.catalog.cart_snapshot("default")) == _ids_n("p", 19)
+    # Tab 1 quét lại: về đúng giỏ của nó (dù giỏ đang chọn là giỏ của tab 2).
+    out = engine.sync(_snap("", _ids_n("p", 20)), user_initiated=True)
+    assert out["cart_key"] == "default"
+    assert len(engine.catalog.cart_snapshot("default")["products"]) == 20
+    assert len(engine.catalog.carts_state()["carts"]) == 2
+
+
+def test_rescan_same_cart_updates_it_and_keeps_history(env):
+    engine = _engine()
+    first = engine.sync(_snap("", _ids_n("p", 20)), user_initiated=True)
+    # Quét lại cùng tab, TikTok thêm 2 SP: trùng 20/22 >= 80% -> cập nhật đúng giỏ đó.
+    out = engine.sync(_snap("", _ids_n("p", 22)), user_initiated=True)
+    assert out["cart_key"] == first["cart_key"] == "default" and "cart_created" not in out
+    assert len(engine.catalog.carts_state()["carts"]) == 1
+    assert _ids(engine.catalog.cart_snapshot("default")) == _ids_n("p", 22)
+    hist = engine.catalog.cart_history("default")
+    assert len(hist) == 1 and hist[0]["reason"] == "manual_scan" and hist[0]["product_count"] == 20
+    # Quét lại y hệt: không đổi -> không thêm lịch sử.
+    engine.sync(_snap("", _ids_n("p", 22)), user_initiated=True)
+    assert len(engine.catalog.cart_history("default")) == 1
+    # Đồng bộ tự động (không phải quét tay) không ghi lịch sử.
+    engine.sync(_snap("", _ids_n("p", 21)))
+    assert len(engine.catalog.cart_history("default")) == 1
+    row = engine.catalog.carts_state()["carts"][0]
+    assert row["history_count"] == 1 and row["history_at"]
+
+
+def test_restore_previous_version_and_undo(env):
+    store = server_module.LiveCatalogStore()
+    store.sync(_snap("111", ["a1", "a2"]))
+    store.sync(_snap("111", ["a3"]), user_initiated=True)  # có host: ghi đè giỏ của chính tài khoản
+    assert _ids(store.cart_snapshot("uid:111")) == ["a3"]
+    state = store.restore_previous("uid:111")
+    assert _ids(store.cart_snapshot("uid:111")) == ["a1", "a2"]
+    assert state["carts"][0]["history_count"] == 1  # bản ["a3"] được giữ để hoàn tác
+    # Lịch sử bền qua khởi động lại; bấm lại = hoàn tác.
+    again = server_module.LiveCatalogStore()
+    again.restore_previous("uid:111")
+    assert _ids(again.cart_snapshot("uid:111")) == ["a3"]
+    with pytest.raises(ValueError, match="cart_not_found"):
+        again.restore_previous("uid:999")
+
+
+def test_restore_previous_errors(env):
+    store = server_module.LiveCatalogStore()
+    store.sync(_snap("111", ["a1"], room="7300"))
+    store.sync(_snap("222", ["b1"]))
+    with pytest.raises(ValueError, match="cart_history_empty"):
+        store.restore_previous("uid:222")
+    store.sync(_snap("111", ["a2"], room="7300"), user_initiated=True)
+    with pytest.raises(ValueError, match="cart_is_live"):
+        store.restore_previous("uid:111")
+
+
+def test_history_keeps_last_ten(env):
+    store = server_module.LiveCatalogStore()
+    for n in range(13):
+        store.sync(_snap("111", [f"v{n}"]), user_initiated=True)
+    assert len(store.cart_history("uid:111")) == 10
+    data = json.loads((env / "live_carts_history.json").read_text(encoding="utf-8"))
+    assert [e["snapshot"]["products"][0]["product_id"] for e in data["carts"]["uid:111"]] == \
+        [f"v{n}" for n in range(11, 1, -1)]
+
+
+def test_corrupt_history_file_is_kept_aside(env):
+    (env / "live_carts_history.json").write_text("{hong", encoding="utf-8")
+    store = server_module.LiveCatalogStore()
+    assert store.cart_history("x") == []
+    assert (env / "live_carts_history.json.corrupt").read_text(encoding="utf-8") == "{hong"
+
+
+def test_live_sync_without_host_stays_in_its_room_cart(env):
+    store = server_module.LiveCatalogStore()
+    store.sync(_snap("111", ["a1"], room="7300"))
+    store.sync(_snap("", ["p1"]))  # giỏ khác (không rõ chủ)
+    # live_context của bình luận không có host nhưng cùng room: đúng giỏ của room đó.
+    out = store.sync(_snap("", ["a1", "a9"], room="7300"))
+    assert out["cart_key"] == "uid:111"
+    assert _ids(store.cart_snapshot("uid:111")) == ["a1", "a9"]
+
+
+def test_system_route_restore(env):
+    import engine_system
+    store = server_module.LiveCatalogStore()
+    store.sync(_snap("111", ["a1"]))
+    store.sync(_snap("111", ["a2"]), user_initiated=True)
+    fake = types.SimpleNamespace(catalog=store, workspace=types.SimpleNamespace(_touch=lambda *a: None))
+    owner = next(c for c in vars(engine_system).values()
+                 if isinstance(c, type) and "system_post" in vars(c))
+    state = owner.system_post(fake, "carts/restore", {"key": "uid:111"})
+    assert state["ok"] is True and _ids(store.cart_snapshot("uid:111")) == ["a1"]

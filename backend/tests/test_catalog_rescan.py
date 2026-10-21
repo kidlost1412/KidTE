@@ -46,10 +46,16 @@ def test_user_rescan_restores_locally_removed_products(tmp_path, monkeypatch):
 
 def test_user_rescan_skipped_by_active_live_reports_error(tmp_path, monkeypatch):
     _fake, sync = _engine(tmp_path, monkeypatch)
-    live = _tiktok(5); live["room_id"] = "room1"
+    live = _tiktok(37); live["room_id"] = "room1"
     sync(live)
-    result = sync(_tiktok(), user_initiated=True)
+    # Cùng giỏ (trùng >= 80% sản phẩm), không rõ chủ: không đè phiên LIVE, báo lỗi.
+    result = sync(_tiktok(36), user_initiated=True)
     assert result["ok"] is False and result["skipped"] == "live_active" and result["error"]
+    # Giỏ khác hẳn (1.15.26): không bị chặn, lưu sang giỏ mới, giỏ LIVE giữ nguyên.
+    other = {"phase": "prelive", "products": [{"product_id": f"x{i}", "title": "x", "bag_index": i} for i in range(5)]}
+    result = sync(other, user_initiated=True)
+    assert result["ok"] is True and result["cart_created"] is True
+    assert _fake.catalog.snapshot["product_count"] == 37
 
 
 def test_route_passes_user_initiated(tmp_path, monkeypatch):

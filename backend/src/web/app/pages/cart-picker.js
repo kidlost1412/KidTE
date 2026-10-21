@@ -3,7 +3,7 @@ import {h, clear} from '../core/dom.js';
 import {request, friendlyError} from '../core/api.js';
 import {btn, select} from '../ui/kit.js';
 import {toast, confirmDialog, promptDialog} from '../ui/overlays.js';
-import {cartOptions, cartLockNote, deleteCartText} from './product-list-model.js';
+import {cartOptions, cartLockNote, deleteCartText, restoreCartText} from './product-list-model.js';
 
 export function loadCarts() { return request('/api/system/carts'); }
 
@@ -32,6 +32,11 @@ export function cartBar({onChange} = {}) {
       btn('Đổi tên', {size: 'sm', kind: 'ghost', icon: 'edit', onClick: async () => {
         const name = await promptDialog({title: 'Đổi tên giỏ', text: 'Để trống để dùng lại tên tài khoản LIVE.', label: 'Tên giỏ', value: current.custom_name ? current.name : ''});
         if (name !== null && name !== undefined) post('rename', {key: current.key, name: String(name).trim()}, 'Đã đổi tên giỏ.');
+      }}),
+      btn('Khôi phục bản trước', {size: 'sm', kind: 'ghost', icon: 'undo', disabled: current.live || !(Number(current.history_count) > 0),
+        title: current.history_count ? '' : 'Chưa có bản trước (chỉ có sau khi quét tay ghi đè giỏ này).', onClick: async () => {
+        const {title, text} = restoreCartText(current);
+        if (await confirmDialog({title, text, confirm: 'Khôi phục'})) post('restore', {key: current.key}, 'Đã khôi phục bản trước của giỏ.');
       }}),
       btn('Xoá giỏ', {size: 'sm', kind: 'ghost', icon: 'trash', disabled: current.live, onClick: async () => {
         const {title, text} = deleteCartText(current);

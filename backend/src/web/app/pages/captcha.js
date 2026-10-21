@@ -16,6 +16,7 @@ function healthCard(m) {
   return h('div', {class: 'col gap-2', style: {padding: '14px', borderRadius: '10px', border: '2px solid ' + (TONE_VAR[m.tone] || 'var(--border)')}},
     h('div', {style: {fontSize: '1.4rem', fontWeight: '700', color: TONE_VAR[m.tone]}}, m.label),
     m.sub ? h('div', {class: 'fs-sm muted'}, m.sub) : null,
+    m.note ? h('div', {class: 'fs-sm muted'}, m.note) : null,
     m.result ? h('div', {class: 'fs-sm'}, 'Lần giải gần nhất: ' + m.result) : null,
     m.stats.length ? h('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: '10px'}},
       m.stats.map(x => h('div', {}, h('div', {class: 'fs-sm muted'}, x.name), h('div', {}, x.value)))) : null);

@@ -12,6 +12,10 @@ LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| (\w+)\s*\| [^|]
 RES_RE = re.compile(r"\((\d+x\d+)\)")
 HEARTBEAT_LIMIT_S = 120
 SOLVING_WINDOW_S = 60
+ERROR_NOTE_TTL_S = 30 * 60   # a one-off error stays only as a small note this long
+REPEAT_ERRORS = 3            # this many errors with no success in between = ongoing
+REPEAT_WINDOW_S = 10 * 60
+HTTP_RE = re.compile(r"HTTP (\d{3})")
 
 LABELS = {
     "not_installed": "Chưa cài bộ giải",
@@ -38,6 +42,21 @@ START_REASONS = {
     "captcha_app_closing": "Kid TE đang đóng",
     "captcha_start_failed": "Windows không mở được tiến trình bộ giải",
 }
+
+
+def explain_error(raw):
+    """Plain Vietnamese meaning of a solver/SadCaptcha error line."""
+    found = HTTP_RE.search(raw or "")
+    code = found.group(1) if found else ""
+    if code in ("401", "403"):
+        return f"SadCaptcha từ chối ({code}): key sai hoặc hết hạn"
+    if code == "400":
+        return "SadCaptcha từ chối ảnh (400): ảnh gửi lên không hợp lệ (thường do nhận nhầm vùng), không phải lỗi key"
+    if code:
+        return f"SadCaptcha báo lỗi {code}"
+    return (raw or "")[:80]
+
+
 EMPTY = {k: None for k in (
     "last_heartbeat_at", "last_scan_resolution", "last_detect_at", "last_detect_type",
     "last_api_ok_at", "last_api_error", "last_api_error_at", "last_drag_at", "last_gone_at",
@@ -46,7 +65,7 @@ EMPTY = {k: None for k in (
 
 def parse_log(text: str, today: str | None = None) -> dict:
     """Tolerant parser: lines that do not match the log format are ignored."""
-    out = dict(EMPTY, attempts_today=0)
+    out = dict(EMPTY, attempts_today=0, api_error_times=[])
     for raw in (text or "").splitlines():
         match = LINE_RE.match(raw.rstrip("\r"))
         if not match:
@@ -65,10 +84,12 @@ def parse_log(text: str, today: str | None = None) -> dict:
                 out["attempts_today"] += 1
         elif "got response for" in msg:
             out["last_api_ok_at"] = at
+            out["api_error_times"] = []
         elif "answer unavailable" in msg or "unexpected exception" in msg:
             detail = msg.split("unavailable:", 1)[-1] if "unavailable" in msg else msg
             out["last_api_error"] = detail.split("; retrying")[0].strip()[:200]
             out["last_api_error_at"] = at
+            out["api_error_times"] = (out["api_error_times"] + [at])[-20:]
         elif "dragged puzzle slider" in msg or "clicked confirm button" in msg:
             out["last_drag_at"] = at
         elif "no longer visible after drag" in msg:
@@ -146,8 +167,20 @@ def derive(*, available, configured, key_rejected, running, start_error, info,
                 and (ended is None or ended < detect)):
             state = "solving"
         elif _newer(info.get("last_api_error_at"), info.get("last_api_ok_at")):
-            state, detail = "service_error", (info.get("last_api_error") or "")[:80]
+            raw = info.get("last_api_error") or ""
+            recent = [t for t in (_ts(x) for x in info.get("api_error_times") or [])
+                      if t and 0 <= (now - t).total_seconds() <= REPEAT_WINDOW_S]
+            auth = HTTP_RE.search(raw) and HTTP_RE.search(raw).group(1) in ("401", "403")
+            if (auth or len(recent) >= REPEAT_ERRORS) and recent:
+                state, detail = "service_error", explain_error(raw)
     label = LABELS[state]
     if detail and state in {"start_failed", "service_error"}:
         label += ": " + detail
-    return {"state": state, "label": label, "tone": TONES[state], "detail": detail}
+    # Small secondary line: the latest error, only while it is recent and nothing succeeded after it.
+    note = ""
+    err_at = _ts(info.get("last_api_error_at"))
+    if (state not in {"service_error"} and err_at and info.get("last_api_error")
+            and _newer(info.get("last_api_error_at"), info.get("last_api_ok_at"))
+            and 0 <= (now - err_at).total_seconds() <= ERROR_NOTE_TTL_S):
+        note = f"Lần trước: {explain_error(info['last_api_error'])} lúc {info['last_api_error_at'][11:16]}"
+    return {"state": state, "label": label, "tone": TONES[state], "detail": detail, "note": note}

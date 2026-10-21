@@ -36,7 +36,7 @@ def health(tmp_path, log=None, now=NOW, *, key=True, running=True, available=Tru
     ("ready.log", datetime(2026, 10, 5, 10, 5, 0), {}, "unresponsive"),
     ("manual.log", NOW, {}, "manual_required"),
     ("solving.log", datetime(2026, 10, 5, 10, 0, 50), {}, "solving"),
-    ("service_error.log", datetime(2026, 10, 5, 10, 0, 50), {}, "service_error"),
+    ("service_error.log", datetime(2026, 10, 5, 10, 0, 50), {}, "ready"),
     ("dragged.log", NOW, {}, "ready"),
     ("ready.log", NOW, {}, "ready"),
 ])
@@ -60,9 +60,59 @@ def test_key_rejected_beats_start_failed(tmp_path):
     assert health(tmp_path, running=False, rejected=True)["state"] == "key_rejected"
 
 
+PFX = "2026-10-05 {} | {} | tiktok_live_studio_captcha_solver.solver | "
+
+
+def write_log(tmp_path, rows):
+    target = tmp_path / LOG / "ttls-captcha-solver.log"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("\n".join(PFX.format(t, lvl) + m for t, lvl, m in rows) + "\n", encoding="utf-8")
+
+
+E400 = "shapes answer unavailable: SadCaptcha shapes HTTP 400: Bad Request; retrying in 10 seconds"
+SCAN = "scanning screen for puzzle/shapes captcha (2560x1440)"
+
+
+def test_single_400_then_scans_is_ready_with_note(tmp_path):
+    write_log(tmp_path, [("10:00:11", "WARNING ", E400)] + [(f"10:{m:02d}:00", "INFO    ", SCAN) for m in (1, 2, 3)])
+    result = health(tmp_path, now=datetime(2026, 10, 5, 10, 3, 30))
+    assert result["state"] == "ready" and result["label"] == "Sẵn sàng"
+    assert result["note"].startswith("Lần trước: SadCaptcha từ chối ảnh (400)") and result["note"].endswith("lúc 10:00")
+    assert "không phải lỗi key" in result["note"]
+
+
+def test_old_error_note_hidden_after_30_minutes(tmp_path):
+    write_log(tmp_path, [("10:00:11", "WARNING ", E400), ("10:40:00", "INFO    ", SCAN)])
+    assert health(tmp_path, now=datetime(2026, 10, 5, 10, 40, 30))["note"] == ""
+
+
+def test_success_clears_note(tmp_path):
+    write_log(tmp_path, [("10:00:11", "WARNING ", E400), ("10:00:20", "INFO    ", "got response for shapes"),
+                         ("10:00:50", "INFO    ", SCAN)])
+    result = health(tmp_path, now=datetime(2026, 10, 5, 10, 1, 0))
+    assert result["state"] == "ready" and result["note"] == ""
+
+
+def test_repeated_400_is_service_error(tmp_path):
+    write_log(tmp_path, [(f"10:00:{s:02d}", "WARNING ", E400) for s in (10, 20, 30)] + [("10:00:40", "INFO    ", SCAN)])
+    result = health(tmp_path, now=datetime(2026, 10, 5, 10, 0, 50))
+    assert result["state"] == "service_error" and "ảnh gửi lên không hợp lệ" in result["label"]
+
+
+def test_401_in_log_is_service_error_key_wrong(tmp_path):
+    write_log(tmp_path, [("10:00:11", "WARNING ", E400.replace("400: Bad Request", "401: Unauthorized")),
+                         ("10:00:40", "INFO    ", SCAN)])
+    result = health(tmp_path, now=datetime(2026, 10, 5, 10, 0, 50))
+    assert result["state"] == "service_error" and "key sai hoặc hết hạn" in result["label"]
+
+
+def test_solver_stopped_beats_old_error(tmp_path):
+    write_log(tmp_path, [("10:00:11", "WARNING ", E400), ("10:00:40", "INFO    ", SCAN)])
+    assert health(tmp_path, running=False, now=datetime(2026, 10, 5, 10, 0, 50))["state"] == "not_running"
+
+
 def test_service_error_details(tmp_path):
     result = health(tmp_path, "service_error.log", datetime(2026, 10, 5, 10, 0, 50))
-    assert result["label"].startswith("Lỗi dịch vụ giải: SadCaptcha shapes HTTP 400")
     assert result["last_api_error_at"] == "2026-10-05 10:00:11"
     assert result["attempts_today"] == 1
 

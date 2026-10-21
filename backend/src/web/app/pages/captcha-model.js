@@ -21,10 +21,10 @@ export function healthModel(state, now = new Date()) {
   const sub = state.running
     ? `PID ${state.pid} · ${state.admin ? 'quyền Administrator' : 'đang xác minh quyền Admin'}`
     : (h.detail && h.state !== 'start_failed' ? h.detail : '');
-  const error = h.last_api_error ? `${h.last_api_error.slice(0, 80)} (${hhmm(h.last_api_error_at)})` : 'Không có';
+  const error = h.note ? h.note.replace('Lần trước: ', '') : h.last_api_error && h.state === 'service_error' ? `${h.last_api_error.slice(0, 80)} (${hhmm(h.last_api_error_at)})` : 'Không có';
   return {
     tone: h.tone, label: h.label, state: h.state, sub,
-    result: h.last_result_text || '',
+    result: h.last_result_text || '', note: h.note || '',
     stats: [
       {name: 'Quét lần cuối', value: ago(h.last_heartbeat_at, now) + (h.last_scan_resolution ? ` · ${h.last_scan_resolution}` : '')},
       {name: 'Lần giải gần nhất', value: h.last_detect_at ? `${ago(h.last_detect_at, now)}${h.last_detect_type ? ' · ' + h.last_detect_type : ''}` : dash},

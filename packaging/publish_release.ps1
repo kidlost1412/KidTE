@@ -10,10 +10,11 @@
      (never overwritten on a version tag).
   4. Replaces kidte-catalog-v2.json on the release <CatalogTag> (default updates-beta-<Series>; CREATED as a
      prerelease when it does not exist yet, e.g. the first updates-beta-p4). Upload new, delete old, rename.
-  5. Re-downloads everything anonymously and verifies sha256.
+  5. Re-downloads everything anonymously (public URLs, not API) and verifies sha256.
 
-  Idempotent: safe to re-run after a partial failure. The GitHub token comes from `git credential fill`
-  for github.com and is never printed. -WhatIf prints the plan only (no token, no writes).
+  Idempotent: safe to re-run after a partial failure. All api.github.com calls are authenticated (token from
+  `git credential fill` for github.com, never printed); only public file downloads are anonymous.
+  Run from a worktree with -RepoPath <main checkout> to publish that checkout's HEAD and PhatHanh folder. -WhatIf prints the plan only (no token, no writes).
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File D:\KidTE-NguonMa\packaging\publish_release.ps1 -Version 1.15.0 -Series p4 -CatalogTag updates-beta-p4 -WhatIf
@@ -73,21 +74,51 @@ function Get-Token {
     return $script:Token
 }
 
-function Invoke-Gh([string]$method, [string]$url, $body = $null, [switch]$Anonymous) {
-    $headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'kidte-publish' }
-    if (-not $Anonymous) { $headers.Authorization = "Bearer $(Get-Token)" }
+# Moi loi goi api.github.com / uploads.github.com deu dung token (ho muc 5000/gio, khong phai 60/gio theo IP).
+# Chi cac lan TAI tep qua browser_download_url (Download-Anonymous) la an danh.
+function Get-HttpStatus($err) {
+    if ($err.Exception.Response) { try { return [int]$err.Exception.Response.StatusCode } catch { } }
+    return 0
+}
+
+function Get-RateLimitMessage($err) {
+    $status = Get-HttpStatus $err
+    $remaining = $null; $reset = $null
+    try {
+        $h = $err.Exception.Response.Headers
+        $remaining = $h['X-RateLimit-Remaining']
+        $reset = $h['X-RateLimit-Reset']
+        if (-not $reset -and $h['Retry-After']) { $reset = [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + [int]$h['Retry-After']) }
+    } catch { }
+    $isLimit = ($status -eq 429) -or ($status -eq 403 -and ($remaining -eq '0' -or "$($err.Exception.Message) $($err.ErrorDetails.Message)" -match '(?i)rate limit'))
+    if (-not $isLimit) { return $null }
+    $when = 'chua ro gio mo lai (thu lai sau ~1 gio)'
+    if ($reset -and "$reset" -match '^\d+$') {
+        $local = [DateTimeOffset]::FromUnixTimeSeconds([long]"$reset").ToLocalTime()
+        $when = 'mo lai luc ' + $local.ToString('HH:mm:ss dd/MM/yyyy')
+    }
+    return "GitHub bao het luot goi API (HTTP $status). $when. Chay lai dung lenh nay la an toan: script bo qua phan da lam xong."
+}
+
+function Invoke-Gh([string]$method, [string]$url, $body = $null) {
+    $headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'kidte-publish'; Authorization = "Bearer $(Get-Token)" }
     $args2 = @{ Method = $method; Uri = $url; Headers = $headers }
     if ($null -ne $body) {
         $args2.Body = ($body | ConvertTo-Json -Depth 6)
         $args2.ContentType = 'application/json'
     }
-    Invoke-RestMethod @args2
+    try { Invoke-RestMethod @args2 }
+    catch {
+        $msg = Get-RateLimitMessage $_
+        if ($msg) { Fail $msg }
+        throw
+    }
 }
 
 function Get-ReleaseByTag([string]$tag) {
-    try { return Invoke-Gh 'GET' "$Api/releases/tags/$tag" -Anonymous }
+    try { return Invoke-Gh 'GET' "$Api/releases/tags/$tag" }
     catch {
-        if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { return $null }
+        if ((Get-HttpStatus $_) -eq 404) { return $null }
         throw
     }
 }
@@ -100,7 +131,12 @@ function Download-Anonymous([string]$url, [string]$dest) {
 function Upload-Asset($release, [string]$path, [string]$name) {
     $url = "https://uploads.github.com/repos/$Repo/releases/$($release.id)/assets?name=$([uri]::EscapeDataString($name))"
     $headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'kidte-publish'; Authorization = "Bearer $(Get-Token)" }
-    Invoke-RestMethod -Method Post -Uri $url -Headers $headers -InFile $path -ContentType 'application/octet-stream' -TimeoutSec 3600
+    try { Invoke-RestMethod -Method Post -Uri $url -Headers $headers -InFile $path -ContentType 'application/octet-stream' -TimeoutSec 3600 }
+    catch {
+        $msg = Get-RateLimitMessage $_
+        if ($msg) { Fail $msg }
+        throw
+    }
 }
 
 # ------------------------------------------------------------------ 1. kiem tra cuc bo

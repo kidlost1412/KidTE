@@ -121,6 +121,18 @@ export function cartLockNote(state) {
   return `Đang LIVE: AI, tự ghim và trang này dùng giỏ ${live ? live.name : state.live}.`;
 }
 
+/** Hộp xác nhận "Khôi phục bản trước" của một giỏ (bản trước khi quét tay ghi đè). */
+export function restoreCartText(cart) {
+  const name = (cart && (cart.name || cart.key)) || '';
+  const count = Number(cart && cart.history_count) || 0;
+  const at = String((cart && cart.history_at) || '').replace('T', ' ').slice(0, 16);
+  return {
+    title: `Khôi phục bản trước của giỏ ${name}?`,
+    text: `Giỏ quay về danh sách sản phẩm đã lưu${at ? ` lúc ${at}` : ''} (còn ${count} bản trước). ` +
+      'Bản hiện tại được giữ lại: bấm "Khôi phục bản trước" lần nữa để quay lại.',
+  };
+}
+
 /** Hộp xác nhận xoá giỏ. */
 export function deleteCartText(cart) {
   const name = (cart && (cart.name || cart.key)) || '';

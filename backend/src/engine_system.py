@@ -211,12 +211,14 @@ class EngineSystemMixin:
 
     def system_post(self, path, payload):
         parts = [part for part in path.split("/") if part]
-        if len(parts) == 2 and parts[0] == "carts" and parts[1] in ("select", "rename", "delete"):
+        if len(parts) == 2 and parts[0] == "carts" and parts[1] in ("select", "rename", "delete", "restore"):
             key = clean(payload.get("key"), 200)
             if parts[1] == "select":
                 result = self.catalog.select(key)
             elif parts[1] == "rename":
                 result = self.catalog.rename(key, payload.get("name"))
+            elif parts[1] == "restore":
+                result = self.catalog.restore_previous(key)
             else:
                 result = self.catalog.delete(key)
             self.workspace._touch("products", "catalog", "dashboard")

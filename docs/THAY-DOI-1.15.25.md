@@ -2,8 +2,14 @@
 
 ## Cập nhật
 
-- Cập nhật app trong Cài đặt → Cập nhật, rồi khởi động lại app.
-- Tiện ích TikTok/Shopee không đổi (gói tiện ích 1.0.14), không cần tải lại tiện ích.
+- Cập nhật app và gói tiện ích trong Cài đặt → Cập nhật, rồi khởi động lại app.
+- Tải lại tiện ích TikTok tại `chrome://extensions` (TikTok 3.11.13, gói tiện ích 1.0.15). Tiện ích Shopee không đổi.
+
+## Giỏ hàng
+
+- Sửa lỗi quét giỏ ở tab khác (chưa LIVE, TikTok không báo tài khoản) ghi đè mất giỏ cũ: giờ app khớp giỏ theo sản phẩm (trùng từ 80% trở lên thì cập nhật giỏ đó), khác hẳn thì tạo giỏ mới, giỏ cũ giữ nguyên.
+- Trang Sản phẩm có nút "Khôi phục bản trước": trả giỏ về bản trước lần quét ghi đè gần nhất (mỗi giỏ giữ tối đa 10 bản).
+- Popup tiện ích báo rõ đã lưu vào giỏ nào; nếu là giỏ mới thì ghi rõ, có thể đổi tên/xoá ở trang Sản phẩm.
 
 ## Bộ giải CAPTCHA
 

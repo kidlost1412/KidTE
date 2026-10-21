@@ -401,6 +401,7 @@ class ComboTests(unittest.TestCase):
             "clean": lambda v, n: str(v or "")[:n],
             "now_iso": lambda: "now",
             "atomic_json": lambda path, data: path.write_text(json.dumps(data)),
+            "product_cover_sources": __import__("media_assets").product_cover_sources,
         }
         exec(
             compile(ast.Module(body=[cls], type_ignores=[]), "server.py", "exec"),

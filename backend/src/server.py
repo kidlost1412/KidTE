@@ -85,7 +85,7 @@ from workspace import WorkspaceStore
 import prompt_view
 from learning import Learner, LearningStore, MAX_STYLE_CHARS, style_text as _persona_style_text
 from ai_context import task_block as _task_block
-from media_assets import ProductImageCache, VideoAssetManager
+from media_assets import ProductImageCache, VideoAssetManager, product_cover_sources
 from swallowed import note as _note_swallowed
 from knowledge import (
     KnowledgeBase, clean, fold, general_knowledge_hint, has_explicit_product_reference, is_approvable,
@@ -404,6 +404,7 @@ class LiveCatalogStore:
                            for key, cart in data["carts"].items()
                            if clean(key, 200) and isinstance(cart, dict)}
             self._selected = clean(data.get("selected"), 200)
+            self._load_legacy_image_sources()
             return
         if data is not None:
             # File hỏng: giữ nguyên một bản để cứu tay, rồi dựng lại từ bản sao cũ.
@@ -424,7 +425,24 @@ class LiveCatalogStore:
         self._carts = {key: {"name": "", "host": {}, "created_at": clean(legacy.get("synced_at"), 60) or now_iso(),
                              "migrated_from": "live_products_current.json", "snapshot": legacy}}
         self._selected = key
+        self._load_legacy_image_sources()
         self._save()
+
+    def _load_legacy_image_sources(self):
+        """Seed old carts from the last API response before another sync replaces it."""
+        try:
+            raw = json.loads(Path(LIVE_RAW_CATALOG_PATH).read_text(encoding="utf-8"))
+            covers = product_cover_sources(raw.get("raw_api_data"))
+        except (OSError, ValueError, AttributeError):
+            return
+        for cart in self._carts.values():
+            images = dict(cart.get("image_sources") or {})
+            for product in (cart.get("snapshot") or {}).get("products") or []:
+                pid = str(product.get("product_id") or "") if isinstance(product, dict) else ""
+                if pid in covers:
+                    images.setdefault(pid, covers[pid])
+            if images:
+                cart["image_sources"] = images
 
     @staticmethod
     def _clean_cart(cart):
@@ -533,6 +551,17 @@ class LiveCatalogStore:
         with self._lock:
             return {key: {str(p.get("product_id")) for p in (c["snapshot"].get("products") or [])
                           if isinstance(p, dict)} for key, c in self._carts.items()}
+
+    def product_image_sources(self):
+        """Covers from every cart remain available when another account syncs."""
+        with self._lock:
+            sources = {}
+            for cart in sorted(self._carts.values(),
+                               key=lambda c: str(c.get("images_synced_at") or ""), reverse=True):
+                for pid, urls in (cart.get("image_sources") or {}).items():
+                    sources.setdefault(pid, []).extend(u for u in urls
+                                                       if u not in sources.get(pid, []))
+            return sources
 
     @staticmethod
     def _display_name(key, cart):
@@ -672,11 +701,20 @@ class LiveCatalogStore:
                 cart["host"] = merged
                 changed = True
             cart["snapshot"] = compact
+            raw_data = snapshot.get("raw_api_data") or {}
+            covers = product_cover_sources(raw_data)
+            # Ordinary comment syncs carry no covers. Preserve the last known URLs.
+            images = {**(cart.get("image_sources") or {}), **covers}
+            ids = {str(p.get("product_id")) for p in products if isinstance(p, dict)}
+            images = {pid: urls for pid, urls in images.items() if pid in ids}
+            if images != (cart.get("image_sources") or {}):
+                cart["image_sources"] = images
+                cart["images_synced_at"] = compact["synced_at"]
+                changed = True
             if not self._selected:
                 self._selected = key
             if changed:
                 self._save()
-            raw_data = snapshot.get("raw_api_data") or {}
             if raw_data:
                 atomic_json(LIVE_RAW_CATALOG_PATH, {"schema_version": 1, "synced_at": compact["synced_at"],
                                                     "room_id": incoming_room, "cart_key": key,
@@ -1086,17 +1124,13 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         return short[:72]
 
     def _product_image_sources(self):
-        sources = {}
+        catalog = getattr(self, "catalog", None)
+        sources = catalog.product_image_sources() if hasattr(catalog, "product_image_sources") else {}
         try:
             raw = json.loads(Path(LIVE_RAW_CATALOG_PATH).read_text(encoding="utf-8"))
-            for product in ((raw.get("raw_api_data") or {}).get("products") or []):
-                cover = product.get("cover") or {}
-                urls = cover.get("url_list") or cover.get("thumb_url_list") or []
-                if isinstance(urls, str):
-                    urls = [urls]
-                pid = str(product.get("product_id") or "")
-                if pid and urls:
-                    sources.setdefault(pid, []).extend(str(u) for u in urls[:2])
+            # Compatibility with carts saved before cover URLs were stored per cart.
+            for pid, urls in product_cover_sources(raw.get("raw_api_data")).items():
+                sources.setdefault(pid, urls)
         except (OSError, json.JSONDecodeError, AttributeError, TypeError):
             pass
         website = {clean(r.get("san_pham_id"), 80): str(r.get("featured_image_url") or "")
@@ -2433,13 +2467,15 @@ class Handler(BaseHTTPRequestHandler):
         if int(size) > cap:
             self.close_connection = True
 
-    def send_json(self, status, data):
+    def send_json(self, status, data, *, cache_control=None):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         try:
             self.send_response(status)
             self.cors()
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            if cache_control:
+                self.send_header("Cache-Control", cache_control)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)

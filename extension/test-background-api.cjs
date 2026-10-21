@@ -374,8 +374,8 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
     client.ListLiveProduct = async (payload) => {
       assert.equal(payload.room_id, undefined, "prelive must not invent room_id");
       if (listShape === "product_list") return { code: 0, data: { product_list: [
-        { product_id: "a1", title: "Sp A", format_price: "10₫" }, { product_id: "a2", title: "Sp B" }] } };
-      if (listShape === "nested") return { code: 0, data: { sections: [{ live_products: [{ base: { product_id: "n1", title: "Lồng" } }] }] } };
+        { product_id: "a1", title: "Sp A", format_price: "10₫", cover: {url_list: ["https://img.example/a1"]} }, { product_id: "a2", title: "Sp B" }] } };
+      if (listShape === "nested") return { code: 0, data: { sections: [{ live_products: [{ base: { product_id: "n1", title: "Lồng", cover: {url_list: ["https://img.example/n1"]} } }] }] } };
       return { code: 0, message: "success", data: { total: 0, has_more: false } };
     };
     for (const shape of ["product_list", "nested"]) {
@@ -386,6 +386,12 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
       assert.equal(pre.snapshot.phase, "prelive");
       assert.ok(pre.snapshot.products.length >= 1);
       assert.equal(pre.snapshot.host.user_id, "777");
+      assert.deepEqual(pre.snapshot.raw_api_data, {}, "ordinary snapshots stay compact");
+      const withImages = await runTikTokLiveApi({ action: "snapshot", includeCatalogRaw: true });
+      const rawProduct = withImages.snapshot.raw_api_data.products[0];
+      assert.equal((rawProduct.cover || rawProduct.base.cover).url_list[0],
+        shape === "nested" ? "https://img.example/n1" : "https://img.example/a1",
+        "manual prelive scan must retain API covers");
     }
     // Không có sản phẩm: thử method đọc khác, rồi báo lỗi có chẩn đoán.
     listShape = "empty";
@@ -426,7 +432,7 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
     // ListLiveProduct({}) trả products: [] ; giỏ thật nằm ở ListLiveProductPagination.
     const saved = { room: client.GetLiveRoomInfo, list: client.ListLiveProduct };
     const calls2 = [];
-    let pagedProducts = [{ product_id: "g1", title: "Kích Rễ Cực Mạnh TC01" }, { product_id: "g2", title: "BO TRI ONE" }];
+    let pagedProducts = [{ product_id: "g1", title: "Kích Rễ Cực Mạnh TC01", cover: {url_list: ["https://img.example/g1"]} }, { product_id: "g2", title: "BO TRI ONE" }];
     client.ListLiveProduct = async (payload) => { calls2.push(["list", payload]); return { code: 0, message: "success",
       data: { products: [], introduce_id: "", server_time: "1", lucky_bag_info: {}, card_type: 0 } }; };
     client.ListLiveProductPagination = async (payload) => { calls2.push(["paged", payload]);
@@ -436,11 +442,12 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
       calls2.length = 0;
       client.GetLiveRoomInfo = async () => ({ code: 0, message: "success", data: { room_id: rawRoom,
         create_timestamp: 0, user_count: 0, live_gmv: "0", shopping_bag_product_count: 2 } });
-      const pre = await runTikTokLiveApi({ action: "snapshot", roomId: "0" });
+      const pre = await runTikTokLiveApi({ action: "snapshot", roomId: "0", includeCatalogRaw: true });
       assert.equal(pre.ok, true, `room_id=${JSON.stringify(rawRoom)} must fall back to prelive cart`);
       assert.equal(pre.snapshot.phase, "prelive");
       assert.equal(pre.snapshot.room_id, "");
       assert.deepEqual(pre.snapshot.products.map((p) => p.product_id), ["g1", "g2"]);
+      assert.equal(pre.snapshot.raw_api_data.products[0].cover.url_list[0], "https://img.example/g1");
       assert.ok(!calls2.some(([, p]) => p && p.room_id !== undefined), "never call with room_id 0");
       assert.ok(calls2.length <= 5, "one bounded round");
     }
@@ -465,10 +472,12 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
     assert.equal(big.snapshot.products[0].product_id, "L1");
     // Đang LIVE nhưng ListLiveProduct({room_id}) trả rỗng: thử phân trang đúng 1 lần.
     client.ListLiveProduct = async () => ({ code: 0, data: { products: [] } });
-    pagedProducts = [{ product_id: "P9", title: "Y" }];
+    pagedProducts = [{ product_id: "P9", title: "Y", cover: {url_list: ["https://img.example/P9"]} }];
     calls2.length = 0;
-    const livePaged = await runTikTokLiveApi({ action: "snapshot" });
+    const livePaged = await runTikTokLiveApi({ action: "snapshot", includeCatalogRaw: true });
     assert.equal(livePaged.snapshot.products[0].product_id, "P9");
+    assert.equal(livePaged.snapshot.raw_api_data.products[0].cover.url_list[0], "https://img.example/P9",
+      "LIVE pagination fallback must keep the covers from the actual product response");
     assert.equal(calls2.filter(([n]) => n === "paged").length, 1);
     delete client.ListLiveProductPagination; delete client.ListTargetPlanProduct;
     client.GetLiveRoomInfo = saved.room; client.ListLiveProduct = saved.list;

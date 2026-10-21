@@ -317,14 +317,53 @@ def normalize_image(data: bytes, max_side=PRODUCT_THUMB_MAX) -> bytes:
     return buffer.getvalue()
 
 
+def product_cover_sources(raw_data):
+    """Keep only usable cover URLs, rather than the full TikTok API response."""
+    sources = {}
+    products = raw_data.get("products") if isinstance(raw_data, dict) else None
+    for product in products if isinstance(products, list) else []:
+        if not isinstance(product, dict):
+            continue
+        base = product.get("base") or product.get("product") or {}
+        base = base if isinstance(base, dict) else {}
+        cover = product.get("cover") or base.get("cover")
+        if not isinstance(cover, dict):
+            continue
+        urls = []
+        for field in ("url_list", "thumb_url_list"):
+            values = cover.get(field) or []
+            if isinstance(values, str):
+                values = [values]
+            if isinstance(values, list):
+                urls.extend(u for u in values if isinstance(u, str)
+                            and u.startswith(("http://", "https://")))
+        pid = str(product.get("product_id") or product.get("productId")
+                  or base.get("product_id") or base.get("productId") or "")
+        if pid and urls:
+            sources[pid] = list(dict.fromkeys(urls))[:4]
+    return sources
+
+
 class ProductImageCache:
     """Ảnh sản phẩm lưu trên máy: ảnh gian hàng TikTok, rồi ảnh website."""
 
     def __init__(self, cache_root: Path):
         self.root = Path(cache_root) / "products"
         self._lock = threading.Lock()
-        self._failed: dict[str, float] = {}
+        self._failed: dict[str, tuple[tuple[str, ...], float]] = {}
         self._pending: set[str] = set()
+
+    RETRY_SECONDS = 30
+
+    @staticmethod
+    def _urls(urls):
+        return tuple(dict.fromkeys(u for u in urls if isinstance(u, str)
+                                   and u.startswith(("http://", "https://"))))
+
+    def _retry_blocked(self, product_id, urls):
+        failed = self._failed.get(product_id)
+        return bool(failed and failed[0] == self._urls(urls)
+                    and time.monotonic() - failed[1] < self.RETRY_SECONDS)
 
     def _path(self, product_id: str) -> Path:
         safe = "".join(ch for ch in str(product_id) if ch.isalnum() or ch in "-_")[:120]
@@ -344,27 +383,35 @@ class ProductImageCache:
         path = self._path(product_id)
         if path.is_file():
             return path
-        if time.time() - self._failed.get(product_id, 0) < 600:
+        urls = self._urls(urls)
+        # A request before the cart supplies covers must not poison later requests.
+        if not urls:
             return None
-        for url in [u for u in urls if u and str(u).startswith(("http://", "https://"))]:
+        with self._lock:
+            if self._retry_blocked(product_id, urls):
+                return None
+        for url in urls:
             try:
                 data = normalize_image(_download(url))
             except Exception:  # noqa: BLE001 - thử nguồn tiếp theo
                 continue
             _atomic_bytes(path, data)
-            self._failed.pop(product_id, None)
+            with self._lock:
+                self._failed.pop(product_id, None)
             return path
-        self._failed[product_id] = time.time()
+        with self._lock:
+            if not path.is_file():
+                self._failed[product_id] = (urls, time.monotonic())
         return None
 
     def prefetch(self, sources: dict[str, list[str]]):
         """Tải nền những ảnh còn thiếu; không chặn request đang phục vụ."""
-        missing = {pid: urls for pid, urls in sources.items()
-                   if urls and not self.cached(pid) and pid not in self._pending
-                   and time.time() - self._failed.get(pid, 0) >= 600}
-        if not missing:
-            return 0
         with self._lock:
+            missing = {pid: list(urls) for pid, urls in sources.items()
+                       if urls and not self.cached(pid) and pid not in self._pending
+                       and not self._retry_blocked(pid, urls)}
+            if not missing:
+                return 0
             self._pending.update(missing)
 
         def run():

@@ -132,7 +132,7 @@ def get_profile_thumb_prefix(self, route, parsed):
         path = self.engine.profile_thumb_path(unquote(route.rsplit("/", 1)[-1]))
         self.send_cacheable_file(path, "image/jpeg")
     except ValueError as exc:
-        self.send_json(404, {"ok": False, "error": str(exc)})
+        self.send_json(404, {"ok": False, "error": str(exc)}, cache_control="no-store")
 
 
 def get_product_thumb_prefix(self, route, parsed):
@@ -147,7 +147,7 @@ def get_product_thumb_prefix(self, route, parsed):
                 "image/png" if suffix == ".png" else "image/jpeg")
         self.send_cacheable_file(path, mime)
     except ValueError as exc:
-        self.send_json(404, {"ok": False, "error": str(exc)})
+        self.send_json(404, {"ok": False, "error": str(exc)}, cache_control="no-store")
 
 
 def get_mapping(self, route, parsed):

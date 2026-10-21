@@ -536,6 +536,12 @@ async function runTikTokLiveApi(request) {
     }
     if (roomOwner === undefined) roomOwner = extractRoomOwner(roomInfoResponse?.data) || null;
     const products = items.map((product, index) => compactProduct(product, index + 1));
+    let rawApiData = {};
+    if (request?.includeCatalogRaw === true) {
+      // Các API trước LIVE có thể trả product_list hoặc mảng lồng.
+      // Backend cần products chuẩn hoá để lấy cover từ danh sách thực tế.
+      try { rawApiData = JSON.parse(JSON.stringify({ products: items })); } catch {}
+    }
     return {
       ok: true,
       snapshot: {
@@ -546,7 +552,7 @@ async function runTikTokLiveApi(request) {
         products,
         pin_id: "",
         response_code: asNumber(response?.code),
-        raw_api_data: {}
+        raw_api_data: rawApiData
       }
     };
   }
@@ -636,7 +642,7 @@ async function runTikTokLiveApi(request) {
     }
     let rawApiData = {};
     if (request?.includeCatalogRaw === true) {
-      try { rawApiData = JSON.parse(JSON.stringify(data)); } catch {}
+      try { rawApiData = JSON.parse(JSON.stringify({ ...data, products: items })); } catch {}
     }
     return {
       room_id: roomId,

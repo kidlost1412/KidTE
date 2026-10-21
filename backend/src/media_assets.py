@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -351,7 +352,7 @@ class ProductImageCache:
         self.root = Path(cache_root) / "products"
         self._lock = threading.Lock()
         self._failed: dict[str, tuple[tuple[str, ...], float]] = {}
-        self._pending: set[str] = set()
+        self._pending: dict[str, tuple[str, ...]] = {}
 
     RETRY_SECONDS = 30
 
@@ -402,25 +403,50 @@ class ProductImageCache:
         with self._lock:
             if not path.is_file():
                 self._failed[product_id] = (urls, time.monotonic())
-        return None
+        return path if path.is_file() else None
 
     def prefetch(self, sources: dict[str, list[str]]):
         """Tải nền những ảnh còn thiếu; không chặn request đang phục vụ."""
         with self._lock:
-            missing = {pid: list(urls) for pid, urls in sources.items()
-                       if urls and not self.cached(pid) and pid not in self._pending
-                       and not self._retry_blocked(pid, urls)}
+            missing = {}
+            for pid, values in sources.items():
+                urls = self._urls(values)
+                try:
+                    cached = self.cached(pid)
+                except ValueError:
+                    continue  # malformed IDs must not strand valid entries already selected
+                if not urls or cached or self._retry_blocked(pid, urls):
+                    continue
+                if pid not in self._pending:
+                    missing[pid] = urls
+                # Keep a refreshed signed URL even when the old request is queued/running.
+                self._pending[pid] = urls
             if not missing:
                 return 0
-            self._pending.update(missing)
 
         def run():
-            for pid, urls in missing.items():
-                try:
-                    self.fetch(pid, urls)
-                finally:
+            for pid in missing:
+                while True:
                     with self._lock:
-                        self._pending.discard(pid)
+                        urls = self._pending[pid]
+                    try:
+                        self.fetch(pid, urls)
+                    except Exception as exc:  # one local write failure must not strand the batch
+                        logging.getLogger(__name__).warning(
+                            "Product image prefetch failed for %s (%s)", pid, type(exc).__name__)
+                    finally:
+                        with self._lock:
+                            finished = self._pending.get(pid) == urls
+                            if finished:
+                                self._pending.pop(pid, None)
+                    if finished:
+                        break
 
-        threading.Thread(target=run, name="product-images", daemon=True).start()
+        try:
+            threading.Thread(target=run, name="product-images", daemon=True).start()
+        except Exception:
+            with self._lock:
+                for pid in missing:
+                    self._pending.pop(pid, None)
+            raise
         return len(missing)

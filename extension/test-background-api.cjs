@@ -484,6 +484,68 @@ const { runTikTokLiveApi, chooseControllerTab, claimObserver } = require("./back
   }
 
   {
+    // Strict image regressions: every normalized product must retain its actual
+    // API cover through prelive/nested/pagination and renewed signature scans.
+    const saved = { room: client.GetLiveRoomInfo, list: client.ListLiveProduct,
+      paged: client.ListLiveProductPagination };
+    try {
+      const products = Array.from({ length: 75 }, (_, index) => {
+        const body = { productId: `strict-${index}`, title: `Product ${index}`,
+          cover: { url_list: [`https://images.example.test/${index}?signature=old`],
+            thumb_url_list: [`https://images.example.test/${index}/thumb`] } };
+        return index % 3 === 0 ? { base: body } : index % 3 === 1 ? { product: body } : body;
+      });
+      const bodyOf = product => product.base || product.product || product;
+      const shapes = [
+        list => ({ products: list }),
+        list => ({ product_list: list }),
+        list => ({ sections: [{ live_products: list }] }),
+        list => list,
+      ];
+      for (const live of [false, true]) {
+        for (const shape of shapes) {
+          client.GetLiveRoomInfo = async () => ({ code: 0, data: {
+            room_id: live ? 'strict-room' : '0',
+            anchor_info: { user: { id: 'strict-owner' } },
+          } });
+          client.ListLiveProduct = async () => ({ code: 0, data: live ? { products: [] } : shape(products) });
+          client.ListLiveProductPagination = async () => ({ code: 0, data: shape(products) });
+          const result = await runTikTokLiveApi({ action: 'snapshot', includeCatalogRaw: true });
+          assert.equal(result.ok, true);
+          assert.equal(result.snapshot.products.length, 75, 'scan must not truncate its real response at 50');
+          assert.deepEqual(result.snapshot.products.map(product => product.product_id),
+            products.map(product => bodyOf(product).productId));
+          assert.deepEqual(result.snapshot.raw_api_data.products, products,
+            'raw canonical products must match the response that produced compact products');
+          for (let index = 0; index < 75; index++) {
+            assert.deepEqual(bodyOf(result.snapshot.raw_api_data.products[index]).cover,
+              bodyOf(products[index]).cover);
+          }
+          // Updating API objects after the call cannot mutate an existing snapshot.
+          const firstCover = bodyOf(products[0]).cover;
+          const oldUrl = firstCover.url_list[0];
+          firstCover.url_list[0] = oldUrl.replace('signature=old', 'signature=new');
+          assert.equal(bodyOf(result.snapshot.raw_api_data.products[0]).cover.url_list[0], oldUrl);
+          const refreshed = await runTikTokLiveApi({ action: 'snapshot', includeCatalogRaw: true });
+          assert.equal(bodyOf(refreshed.snapshot.raw_api_data.products[0]).cover.url_list[0],
+            firstCover.url_list[0], 'new manual scan must carry renewed signed URL immediately');
+          firstCover.url_list[0] = oldUrl;
+          for (const flag of [undefined, false, 'true', 1]) {
+            const compact = await runTikTokLiveApi({ action: 'snapshot', includeCatalogRaw: flag });
+            assert.equal(compact.ok, true);
+            assert.deepEqual(compact.snapshot.raw_api_data, {}, 'background scans remain compact');
+          }
+        }
+      }
+    } finally {
+      client.GetLiveRoomInfo = saved.room;
+      client.ListLiveProduct = saved.list;
+      if (saved.paged) client.ListLiveProductPagination = saved.paged;
+      else delete client.ListLiveProductPagination;
+    }
+  }
+
+  {
     // Listener return true phải luôn trả lời, kể cả loại tin lạ.
     const reply = await new Promise((resolve) => {
       assert.equal(messageListener({ type: "LIVE_RE_UNKNOWN_X" }, {}, resolve), true);

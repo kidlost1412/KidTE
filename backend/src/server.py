@@ -404,7 +404,8 @@ class LiveCatalogStore:
                            for key, cart in data["carts"].items()
                            if clean(key, 200) and isinstance(cart, dict)}
             self._selected = clean(data.get("selected"), 200)
-            self._load_legacy_image_sources()
+            if self._load_legacy_image_sources():
+                self._save()
             return
         if data is not None:
             # File hỏng: giữ nguyên một bản để cứu tay, rồi dựng lại từ bản sao cũ.
@@ -434,15 +435,18 @@ class LiveCatalogStore:
             raw = json.loads(Path(LIVE_RAW_CATALOG_PATH).read_text(encoding="utf-8"))
             covers = product_cover_sources(raw.get("raw_api_data"))
         except (OSError, ValueError, AttributeError):
-            return
+            return False
+        changed = False
         for cart in self._carts.values():
             images = dict(cart.get("image_sources") or {})
             for product in (cart.get("snapshot") or {}).get("products") or []:
                 pid = str(product.get("product_id") or "") if isinstance(product, dict) else ""
                 if pid in covers:
                     images.setdefault(pid, covers[pid])
-            if images:
+            if images != (cart.get("image_sources") or {}):
                 cart["image_sources"] = images
+                changed = True
+        return changed
 
     @staticmethod
     def _clean_cart(cart):
@@ -556,11 +560,17 @@ class LiveCatalogStore:
         """Covers from every cart remain available when another account syncs."""
         with self._lock:
             sources = {}
-            for cart in sorted(self._carts.values(),
-                               key=lambda c: str(c.get("images_synced_at") or ""), reverse=True):
+            candidates = []
+            for cart in self._carts.values():
+                ids = {str(p.get("product_id")) for p in cart["snapshot"].get("products") or []
+                       if isinstance(p, dict)}
+                revisions = cart.get("image_revisions") or {}
                 for pid, urls in (cart.get("image_sources") or {}).items():
-                    sources.setdefault(pid, []).extend(u for u in urls
-                                                       if u not in sources.get(pid, []))
+                    if pid in ids:
+                        candidates.append((int(revisions.get(pid) or 0),
+                                           str(cart.get("images_synced_at") or ""), pid, urls))
+            for _, _, pid, urls in sorted(candidates, key=lambda row: row[:2], reverse=True):
+                sources.setdefault(pid, []).extend(u for u in urls if u not in sources.get(pid, []))
             return sources
 
     @staticmethod
@@ -704,12 +714,20 @@ class LiveCatalogStore:
             raw_data = snapshot.get("raw_api_data") or {}
             covers = product_cover_sources(raw_data)
             # Ordinary comment syncs carry no covers. Preserve the last known URLs.
-            images = {**(cart.get("image_sources") or {}), **covers}
+            previous_images = cart.get("image_sources") or {}
+            images = {**previous_images, **covers}
             ids = {str(p.get("product_id")) for p in products if isinstance(p, dict)}
             images = {pid: urls for pid, urls in images.items() if pid in ids}
-            if images != (cart.get("image_sources") or {}):
+            if images != previous_images:
                 cart["image_sources"] = images
                 cart["images_synced_at"] = compact["synced_at"]
+                cart["images_revision"] = max(
+                    (int(c.get("images_revision") or 0) for c in self._carts.values()), default=0) + 1
+                previous_revisions = cart.get("image_revisions") or {}
+                cart["image_revisions"] = {
+                    pid: (cart["images_revision"] if urls != previous_images.get(pid)
+                          else int(previous_revisions.get(pid) or 0))
+                    for pid, urls in images.items()}
                 changed = True
             if not self._selected:
                 self._selected = key
@@ -1125,14 +1143,16 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
 
     def _product_image_sources(self):
         catalog = getattr(self, "catalog", None)
-        sources = catalog.product_image_sources() if hasattr(catalog, "product_image_sources") else {}
-        try:
-            raw = json.loads(Path(LIVE_RAW_CATALOG_PATH).read_text(encoding="utf-8"))
-            # Compatibility with carts saved before cover URLs were stored per cart.
-            for pid, urls in product_cover_sources(raw.get("raw_api_data")).items():
-                sources.setdefault(pid, urls)
-        except (OSError, json.JSONDecodeError, AttributeError, TypeError):
-            pass
+        if hasattr(catalog, "product_image_sources"):
+            # The store already migrated legacy covers, filtered to surviving listings.
+            sources = catalog.product_image_sources()
+        else:
+            sources = {}
+            try:
+                raw = json.loads(Path(LIVE_RAW_CATALOG_PATH).read_text(encoding="utf-8"))
+                sources = product_cover_sources(raw.get("raw_api_data"))
+            except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+                pass
         website = {clean(r.get("san_pham_id"), 80): str(r.get("featured_image_url") or "")
                    for r in self.knowledge.all_records()}
         for pid, profile_id in self.knowledge.mapping_assignments().items():

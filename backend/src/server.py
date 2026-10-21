@@ -1232,7 +1232,8 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         cached = self.product_images.cached(product_id)
         if cached:
             return cached
-        fetched = self.product_images.fetch(
+        # Chống trùng theo pid + chờ có hạn (≤ REQUEST_WAIT_SECONDS); link lỗi theo lùi thời gian.
+        fetched = self.product_images.fetch_waiting(
             product_id, self._product_image_sources().get(product_id, []))
         if not fetched:
             raise ValueError("product_image_not_found")

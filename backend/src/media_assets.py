@@ -351,20 +351,38 @@ class ProductImageCache:
     def __init__(self, cache_root: Path):
         self.root = Path(cache_root) / "products"
         self._lock = threading.Lock()
-        self._failed: dict[str, tuple[tuple[str, ...], float]] = {}
+        # pid -> (bộ URL lỗi, lúc lỗi, số lần lỗi liên tiếp với đúng bộ URL đó)
+        self._failed: dict[str, tuple[tuple[str, ...], float, int]] = {}
         self._pending: dict[str, tuple[str, ...]] = {}
+        self._requests: dict[str, threading.Event] = {}
+        self._slots = threading.BoundedSemaphore(self.MAX_PARALLEL_DOWNLOADS)
 
+    # Link chết (403/404 chữ ký hết hạn) không được dội CDN mỗi lần UI tải trang:
+    # lùi luỹ tiến theo bộ URL; bộ URL đổi (link ký mới) thì thử ngay.
     RETRY_SECONDS = 30
+    RETRY_BACKOFF = (RETRY_SECONDS, 120, 600, 1800)
+    MAX_PARALLEL_DOWNLOADS = 4   # tổng lượt tải ảnh cùng lúc (prefetch + request)
+    PREFETCH_BATCH = 32          # số sản phẩm mới tối đa mỗi lần prefetch
+    REQUEST_WAIT_SECONDS = 8.0   # thời gian tối đa một request /thumb chờ tải
 
     @staticmethod
     def _urls(urls):
         return tuple(dict.fromkeys(u for u in urls if isinstance(u, str)
                                    and u.startswith(("http://", "https://"))))
 
+    def _retry_delay(self, streak):
+        steps = self.RETRY_BACKOFF
+        return steps[min(max(int(streak), 1), len(steps)) - 1]
+
     def _retry_blocked(self, product_id, urls):
         failed = self._failed.get(product_id)
         return bool(failed and failed[0] == self._urls(urls)
-                    and time.monotonic() - failed[1] < self.RETRY_SECONDS)
+                    and time.monotonic() - failed[1] < self._retry_delay(failed[2]))
+
+    def _record_failure(self, product_id, urls):
+        previous = self._failed.get(product_id)
+        streak = previous[2] + 1 if previous and previous[0] == urls else 1
+        self._failed[product_id] = (urls, time.monotonic(), streak)
 
     def _path(self, product_id: str) -> Path:
         safe = "".join(ch for ch in str(product_id) if ch.isalnum() or ch in "-_")[:120]
@@ -393,7 +411,9 @@ class ProductImageCache:
                 return None
         for url in urls:
             try:
-                data = normalize_image(_download(url))
+                with self._slots:
+                    raw = _download(url)
+                data = normalize_image(raw)
             except Exception:  # noqa: BLE001 - thử nguồn tiếp theo
                 continue
             _atomic_bytes(path, data)
@@ -402,8 +422,51 @@ class ProductImageCache:
             return path
         with self._lock:
             if not path.is_file():
-                self._failed[product_id] = (urls, time.monotonic())
+                self._record_failure(product_id, urls)
         return path if path.is_file() else None
+
+    def fetch_waiting(self, product_id: str, urls: list[str], timeout: float | None = None) -> Path | None:
+        """Cho request /thumb: mỗi sản phẩm chỉ một lượt tải, chờ tối đa ``timeout`` giây.
+
+        Lượt tải chạy ở luồng nền; quá hạn chờ thì trả None (UI hiện ảnh chờ, không
+        cache) và ảnh vẫn được lưu khi tải xong. Tôn trọng lùi thời gian của link lỗi.
+        """
+        path = self._path(product_id)
+        if path.is_file():
+            return path
+        urls = self._urls(urls)
+        if not urls:
+            return None
+        timeout = self.REQUEST_WAIT_SECONDS if timeout is None else max(0.0, float(timeout))
+        with self._lock:
+            if self._retry_blocked(product_id, urls):
+                return None
+            done = self._requests.get(product_id)
+            start = done is None
+            if start:
+                done = self._requests[product_id] = threading.Event()
+        if start:
+            def run():
+                try:
+                    self.fetch(product_id, urls)
+                except Exception as exc:  # noqa: BLE001 - request chỉ cần biết có ảnh hay chưa
+                    logging.getLogger(__name__).warning(
+                        "Product image request failed for %s (%s)", product_id, type(exc).__name__)
+                finally:
+                    with self._lock:
+                        if self._requests.get(product_id) is done:
+                            self._requests.pop(product_id, None)
+                    done.set()
+
+            try:
+                threading.Thread(target=run, name="product-image-request", daemon=True).start()
+            except Exception:
+                with self._lock:
+                    self._requests.pop(product_id, None)
+                done.set()
+                raise
+        done.wait(timeout)
+        return self.cached(product_id)
 
     def prefetch(self, sources: dict[str, list[str]]):
         """Tải nền những ảnh còn thiếu; không chặn request đang phục vụ."""
@@ -415,12 +478,16 @@ class ProductImageCache:
                     cached = self.cached(pid)
                 except ValueError:
                     continue  # malformed IDs must not strand valid entries already selected
-                if not urls or cached or self._retry_blocked(pid, urls):
+                if (not urls or cached or self._retry_blocked(pid, urls)
+                        or pid in self._requests):
                     continue
-                if pid not in self._pending:
+                if pid in self._pending:
+                    # Keep a refreshed signed URL even when the old request is queued/running.
+                    self._pending[pid] = urls
+                elif len(missing) < self.PREFETCH_BATCH:
+                    # Phần vượt hạn mức để lần tải trang sau (không đánh dấu pending).
                     missing[pid] = urls
-                # Keep a refreshed signed URL even when the old request is queued/running.
-                self._pending[pid] = urls
+                    self._pending[pid] = urls
             if not missing:
                 return 0
 

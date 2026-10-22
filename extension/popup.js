@@ -244,6 +244,84 @@ $("#diag-log").addEventListener("change", (event) => {
   Promise.resolve(chrome.storage.local.set({ liveReDiagEnabled: event.target.checked })).catch((error) => console.warn("Kid TE diag", error));
 });
 
+function defaultCartName(now = new Date()) {
+  const two = (n) => String(n).padStart(2, "0");
+  return `Giỏ ${two(now.getHours())}:${two(now.getMinutes())} ${two(now.getDate())}/${two(now.getMonth() + 1)}`;
+}
+
+// Danh sách giỏ cho "Lưu vào" + dòng "Buổi LIVE đang dùng giỏ «…»".
+// Đang LIVE mà AI dùng giỏ của tài khoản khác: cảnh báo nổi bật, không tự đổi giỏ.
+function liveMismatchText(response) {
+  if (!response?.live_mismatch) return "";
+  const live = (response.carts || []).find((c) => c.key === response.live) || {};
+  const why = response.active_source === "video" ? " (theo video trong Studio)" : "";
+  return `Đang LIVE ${response.live_name || live.name || response.live} nhưng AI đang dùng giỏ «${response.active_name || response.active}»${why}`;
+}
+
+// Dòng "Buổi LIVE đang dùng giỏ «…»": nói rõ khi giỏ lấy theo video đang phát trong Studio.
+function activeCartNote(response) {
+  if (!response?.active_name) return "";
+  const why = response.active_source === "video" ? " (theo video trong Studio)" : "";
+  return `Buổi LIVE đang dùng giỏ «${response.active_name}»${why}`;
+}
+
+function renderCartWarning(response) {
+  const box = $("#live-cart-warn");
+  if (!box) return;
+  const text = liveMismatchText(response);
+  box.hidden = !text;
+  $("#live-cart-warn-text").textContent = text;
+  // Giỏ theo video Studio: nút "Dùng giỏ của tài khoản LIVE" không đổi được -> ẩn (đổi giỏ trong Studio).
+  const button = $("#use-live-cart");
+  if (button) button.hidden = response?.active_source === "video";
+}
+
+$("#use-live-cart")?.addEventListener("click", async () => {
+  const response = await chrome.runtime.sendMessage({ type: "LIVE_RE_LIST_CARTS", useLive: true }).catch(() => null);
+  if (response?.ok) await loadCartChoices().catch(() => {});
+});
+
+async function loadCartChoices() {
+  const nameBox = $("#cart-name");
+  // Để trống = Kid TE đặt tên theo tài khoản TikTok (nếu biết), không thì "Giỏ HH:mm dd/mm".
+  if (nameBox) nameBox.placeholder = `@tài khoản hoặc ${defaultCartName()}`;
+  const select = $("#cart-target");
+  if (!select) return;
+  const response = await chrome.runtime.sendMessage({ type: "LIVE_RE_LIST_CARTS" }).catch(() => null);
+  if (!response?.ok) return;
+  renderCartWarning(response);
+  const chosen = select.value;
+  select.textContent = "";
+  const add = (value, label) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  };
+  add("new", "Giỏ mới");
+  for (const cart of response.carts || []) {
+    add(String(cart.key), `Ghi đè «${cart.name}» (${Number(cart.product_count || 0)} SP)`);
+  }
+  select.value = [...select.options].some((o) => o.value === chosen) ? chosen : "new";
+  const note = $("#live-cart-note");
+  if (note) note.textContent = activeCartNote(response);
+}
+loadCartChoices().catch(() => {});
+
+async function scanCatalog(options) {
+  const response = await chrome.runtime.sendMessage({ type: "LIVE_RE_SCAN_CATALOG", ...options });
+  if (response?.needs_confirm && !options.confirmed) {
+    const name = String(response.cart_name || "");
+    const ok = globalThis.confirm(
+      `Ghi đè giỏ «${name}»?
+Hiện có ${Number(response.old_count || 0)} sản phẩm → thay bằng ${Number(response.new_count || 0)} sản phẩm vừa quét.
+Bản cũ được giữ trong lịch sử (trang Sản phẩm → "Khôi phục bản trước").`);
+    if (!ok) return { ok: false, cancelled: true };
+    return scanCatalog({ ...options, confirmed: true });
+  }
+  return response;
+}
+
 $("#scan-catalog").addEventListener("click", async () => {
   if (busy) return;
   busy = true;
@@ -252,20 +330,24 @@ $("#scan-catalog").addEventListener("click", async () => {
   box.className = "";
   box.textContent = "Đang đọc Product ID và thứ tự giỏ từ TikTok…";
   try {
-    const response = await chrome.runtime.sendMessage({ type: "LIVE_RE_SCAN_CATALOG" });
+    const cartTarget = String($("#cart-target")?.value || "new");
+    const cartName = String($("#cart-name")?.value || "").trim();
+    const response = await scanCatalog({ cartTarget, cartName, confirmed: false });
+    if (response?.cancelled) {
+      box.textContent = "Đã huỷ, giỏ cũ giữ nguyên.";
+      return;
+    }
     if (!response?.ok) throw new Error(response?.error || "Không quét được giỏ");
     const saved = Number(response.product_count || 0);
     const fromTikTok = Number(response.tiktok_count ?? response.received_count ?? saved);
     if (saved <= 0) throw new Error("Kid TE chưa lưu được sản phẩm nào");
-    const cartName = String(response.cart_name || "").trim();
-    const where = cartName ? ` vào giỏ «${cartName}»` : "";
-    box.textContent = (fromTikTok > saved
-      ? `TikTok trả ${fromTikTok} SKU · đã lưu ${saved}${where} (${fromTikTok - saved} SKU bị loại theo danh sách loại khỏi AI).`
-      : `Đã lưu ${saved} SKU lấy thẳng từ TikTok${where} · có thể phân tích video khi chưa LIVE.`) +
-      (response.cart_created && cartName
-        ? " Đây là GIỎ MỚI vì chưa rõ tài khoản và sản phẩm khác hẳn các giỏ đã có — các giỏ cũ giữ nguyên (đổi tên/xoá ở trang Sản phẩm của app)."
-        : "");
+    const savedName = String(response.cart_name || "").trim();
+    box.textContent = `Đã lưu ${saved} sản phẩm vào giỏ «${savedName}».` +
+      (fromTikTok > saved ? ` (TikTok trả ${fromTikTok}, ${fromTikTok - saved} bị loại khỏi AI.)` : "") +
+      (response.active_cart_name ? ` Buổi LIVE đang dùng giỏ «${response.active_cart_name}».` : "");
     box.className = "ok";
+    $("#cart-name").value = "";
+    loadCartChoices().catch(() => {});
   } catch (error) {
     box.textContent = `Chưa quét được: ${error.message}`;
     box.className = "bad";

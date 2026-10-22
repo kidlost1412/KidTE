@@ -132,6 +132,7 @@ OLD_POST_JSON = [
     'route == "/api/shopee/reply"',
     'route == "/api/shopee/delivery"',
     'route.endswith("/observe")',
+    'route == "/api/catalog/carts"',
     'route.endswith("catalog/sync")',
     'route.endswith("reply/ack")',
     'route.endswith("reply/delivery")',

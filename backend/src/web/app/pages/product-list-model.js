@@ -114,11 +114,52 @@ export function cartOptions(state) {
     .map(c => [c.key, cartLabel(c)]);
 }
 
-/** Đang LIVE thì giỏ hoạt động bị khoá theo tài khoản LIVE (chọn trên UI chỉ có hiệu lực khi hết LIVE). */
+/** Giỏ hiện trong ô chọn = giỏ danh sách đang hiển thị (active); thiếu thì selected, rồi giỏ đầu. */
+export function pickerCartKey(state) {
+  const carts = (state && state.carts) || [];
+  const has = key => key && carts.some(c => c.key === key);
+  if (has(state && state.active)) return state.active;
+  if (has(state && state.selected)) return state.selected;
+  return carts.length ? carts[0].key : '';
+}
+
+/** Giỏ AI + tự ghim đang dùng: giỏ chủ shop chọn; chưa chọn thì giỏ của tài khoản đang LIVE. */
 export function cartLockNote(state) {
-  if (!state || !state.live) return '';
-  const live = (state.carts || []).find(c => c.key === state.live);
-  return `Đang LIVE: AI, tự ghim và trang này dùng giỏ ${live ? live.name : state.live}.`;
+  if (!state || !(state.carts || []).length) return '';
+  const key = state.active || state.live;
+  const active = (state.carts || []).find(c => c.key === key);
+  const name = state.active_name || (active ? active.name : key);
+  if (!name) return '';
+  const why = state.active_source === 'video' ? ' (theo video trong Studio)'
+    : state.selected_explicit ? ' (giỏ anh/chị đã chọn)'
+    : state.live ? ' (giỏ của tài khoản đang LIVE)' : '';
+  return `Buổi LIVE đang dùng giỏ «${name}»${why}.`;
+}
+
+/**
+ * Cảnh báo khi đang LIVE mà AI dùng giỏ không thuộc tài khoản đang LIVE (chủ shop đã chọn giỏ khác).
+ * Trả null nếu không lệch. Không tự đổi giỏ: chỉ gợi ý nút "Dùng giỏ của tài khoản LIVE".
+ */
+export function liveMismatchWarning(state) {
+  if (!state || !state.live || !state.active || state.active === state.live) return null;
+  const carts = state.carts || [];
+  const live = carts.find(c => c.key === state.live) || {};
+  const active = carts.find(c => c.key === state.active) || {};
+  const liveName = live.unique_id ? '@' + live.unique_id : (state.live_name || live.name || state.live);
+  const activeName = state.active_name || active.name || state.active;
+  if (state.active_source === 'video') {
+    // Giỏ lấy theo video đang phát: bỏ chọn trên trang này không đổi được -> không có nút.
+    return {
+      title: `Đang LIVE ${liveName} nhưng AI đang dùng giỏ «${activeName}» (theo video trong Studio)`,
+      text: 'AI tư vấn và tự ghim theo giỏ đã chọn trong Studio cho video đang phát. Muốn đổi, mở video trong Studio và chọn lại giỏ.',
+      action: '',
+    };
+  }
+  return {
+    title: `Đang LIVE ${liveName} nhưng AI đang dùng giỏ «${activeName}»`,
+    text: 'AI tư vấn và tự ghim theo giỏ đang chọn. Nếu đây không phải giỏ của buổi LIVE này, bấm nút bên cạnh.',
+    action: 'Dùng giỏ của tài khoản LIVE',
+  };
 }
 
 /** Hộp xác nhận "Khôi phục bản trước" của một giỏ (bản trước khi quét tay ghi đè). */

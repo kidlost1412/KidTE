@@ -114,10 +114,32 @@ def post_observe(self, route, payload, flags):
     return result
 
 
+def post_catalog_carts(self, route, payload, flags):
+    """Tiện ích (đã ghép đôi) đọc danh sách giỏ cho popup quét tay.
+
+    Ghi duy nhất: use_live=true (chủ shop bấm "Dùng giỏ của tài khoản LIVE") = bỏ chọn giỏ,
+    AI quay về giỏ của tài khoản đang LIVE.
+    """
+    if payload.get("use_live") is True:
+        self.engine.catalog.select("")
+        self.engine.workspace._touch("products", "catalog", "dashboard")
+    state = self.engine.catalog.carts_state()
+    return {"ok": True, "active": state.get("active", ""), "active_name": state.get("active_name", ""),
+            "live": state.get("live", ""), "live_name": state.get("live_name", ""),
+            "live_mismatch": bool(state.get("live_mismatch")),
+            "active_source": state.get("active_source", ""),
+            "carts": [{key: row.get(key) for key in ("key", "name", "product_count", "live", "active", "synced_at")}
+                      for row in state.get("carts") or []]}
+
+
 def post_route_endswith_catalog_sync(self, route, payload, flags):
     context = payload.get("live_context", payload)
     if payload.get("user_initiated") is True:
-        return self.engine.sync_catalog(context, user_initiated=True)
+        # Tiện ích cũ không gửi cart_target -> giỏ mới (không bao giờ ghi đè ngầm).
+        return self.engine.sync_catalog(context, user_initiated=True,
+                                        cart_target=clean(payload.get("cart_target"), 200) or "new",
+                                        cart_name=clean(payload.get("cart_name"), 80),
+                                        confirmed=payload.get("confirmed") is True)
     result = self.engine.sync_catalog(context)
     return result
 

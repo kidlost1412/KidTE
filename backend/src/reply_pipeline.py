@@ -293,7 +293,9 @@ class ReplyPipelineMixin:
 
     def _current_facts(self, platform, room_id, stored):
         if platform == 'tiktok':
-            snapshot = self.catalog.snapshot or {}
+            # Cùng danh mục AI đã dùng lúc soạn (giỏ video Studio / chủ shop chọn).
+            snapshot = (self.catalog.ai_catalog() if hasattr(self.catalog, 'ai_catalog')
+                        else self.catalog.snapshot) or {}
             rows = {clean(i.get('product_id'), 160): i for i in snapshot.get('products', [])
                     if isinstance(i, dict)}
             pin_id = clean(snapshot.get('pin_id'), 160)

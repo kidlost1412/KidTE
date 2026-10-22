@@ -167,3 +167,4 @@ footer{padding:10px 22px 14px;background:var(--surface);border-top:1px solid var
 /* SAKURA GENERATED END */
 .src-locked{color:#0a7d3c;font-weight:600}.src-uncertain{color:#a15c00;font-weight:600}.src-stale{color:#b42318;font-weight:600}
 .pin-confirmed{color:#0a7d3c}.pin-unconfirmed{color:#a15c00}
+.cart-warn:not([hidden]){display:grid;gap:6px;margin:6px 0;padding:8px;border:2px solid #d93025;border-radius:8px;background:#fdecea;color:#8a1c14}

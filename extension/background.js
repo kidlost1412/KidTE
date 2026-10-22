@@ -1311,10 +1311,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!String(message?.type || "").startsWith("LIVE_RE_")) return undefined;
 
   (async () => {
+    if (message.type === "LIVE_RE_LIST_CARTS") {
+      // Popup quét tay: danh sách giỏ (route chỉ-đọc, có kiểm ghép đôi ở backend).
+      try {
+        const response = await fetch("http://127.0.0.1:8793/api/catalog/carts", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          // use_live: chủ shop bấm "Dùng giỏ của tài khoản LIVE" trong popup (ghi duy nhất của route này).
+          body: JSON.stringify(message.useLive === true ? { use_live: true } : {}),
+          signal: globalThis.AbortSignal?.timeout?.(5000)
+        });
+        const result = await response.json().catch(() => ({}));
+        sendResponse(response.ok ? result : { ok: false, error: result?.error || `AI local HTTP ${response.status}` });
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
     if (message.type === "LIVE_RE_SCAN_CATALOG") {
       const tabId = await chooseControllerTab();
       const result = await chrome.tabs.sendMessage(tabId, {
-        type: "LIVE_RE_SCAN_CATALOG_PAGE"
+        type: "LIVE_RE_SCAN_CATALOG_PAGE",
+        cartTarget: String(message.cartTarget || "new"),
+        cartName: String(message.cartName || ""),
+        confirmed: message.confirmed === true
       });
       sendResponse(result || { ok: false, error: "Tab TikTok chưa trả dữ liệu giỏ" });
       return;

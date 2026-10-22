@@ -133,6 +133,7 @@ export function mountLibrary(ctx, host, {autoUpload = false} = {}) {
   let jobs = [];
   let videos = null;
   let catalog = {byId: {}, products: []};
+  let cartCatalogs = {};  // catalog_cart của từng video -> danh mục giỏ đó (kiểm "không có trong giỏ" đúng giỏ)
   let loadError = null;
   let uploads = [];
   const fileInput = h('input', {type: 'file', accept: ACCEPT, hidden: true, onChange: () => { pick(fileInput.files[0]); fileInput.value = ''; }});
@@ -198,7 +199,7 @@ export function mountLibrary(ctx, host, {autoUpload = false} = {}) {
       h('div', {class: 'row between', style: {margin: '6px 0 12px'}},
         h('h2', {class: 'fs-lg fw-7'}, `Thư viện · ${videos.length} video`),
         published ? h('span', {class: 'fs-xs muted'}, `${published} video phát hành từ phân tích AI`) : null),
-      videos.length ? h('div', {class: 'vlib-grid'}, videos.map(row => videoCard(row, ctx, catalog, liveId, loadAll)))
+      videos.length ? h('div', {class: 'vlib-grid'}, videos.map(row => videoCard(row, ctx, cartCatalogs[(row.timeline || {}).catalog_cart || ''] || catalog, liveId, loadAll)))
         : empty('Thư viện chưa có video', 'Tải video phát lại đầu tiên để AI tạo lịch ghim.', {iconName: 'film', action: btn('Tải video mới', {kind: 'primary', icon: 'upload', onClick: choose})}));
   }
 
@@ -223,6 +224,11 @@ export function mountLibrary(ctx, host, {autoUpload = false} = {}) {
       const [list, cat] = await Promise.all([request('/api/workspace/videos?limit=100'), loadCatalog().catch(() => ({byId: {}, products: []}))]);
       videos = list.items || [];
       catalog = cat;
+      // Video đã chọn giỏ trong Studio: kiểm theo giỏ đó; giỏ đã xoá (lỗi) -> giỏ đang hoạt động.
+      const carts = [...new Set(videos.map(row => (row.timeline || {}).catalog_cart).filter(Boolean))];
+      const loaded = await Promise.all(carts.map(cart => loadCatalog({cart}).catch(() => null)));
+      cartCatalogs = {};
+      carts.forEach((cart, i) => { if (loaded[i]) cartCatalogs[cart] = loaded[i]; });
     } catch (e) { loadError = e; }
     renderGrid(true);
   }

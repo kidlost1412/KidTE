@@ -359,6 +359,9 @@ def _is_room_host(live_context, user_id, sec_uid, unique_id):
                 or (unique_id and host["unique_id"] and unique_id.casefold() == host["unique_id"].casefold()))
 
 
+_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")  # thư mục video an toàn
+
+
 class LiveCatalogStore:
     """Nhiều giỏ sản phẩm, mỗi tài khoản LIVE một giỏ (live_carts.json).
 
@@ -375,15 +378,17 @@ class LiveCatalogStore:
     DEFAULT_CART = "default"
     LIVE_ACTIVE_SECONDS = 600
     DELETED_KEEP = 20
-    # Quét không rõ chủ (trước LIVE TikTok không trả host): chỉ cập nhật một giỏ có
-    # sẵn khi tập product_id trùng ít nhất chừng này (Jaccard); khác hẳn -> giỏ mới.
-    MATCH_RATIO = 0.8
     HISTORY_KEEP = 10
 
     def __init__(self):
         self._lock = threading.RLock()
         self._carts = {}
         self._selected = ""
+        # True = chủ shop chủ động chọn giỏ (trang Sản phẩm / quét tay): AI, tự ghim dùng giỏ này
+        # kể cả khi LIVE. False = tự đặt -> đang LIVE thì theo giỏ của tài khoản LIVE.
+        self._selected_explicit = False
+        # Giỏ Studio chọn cho video đang khoá (do engine cấp): đang LIVE thì ưu tiên nhất.
+        self._session_cart_provider = None
         self._history = {}
         self._load()
         self._load_history()
@@ -469,6 +474,7 @@ class LiveCatalogStore:
                            for key, cart in data["carts"].items()
                            if clean(key, 200) and isinstance(cart, dict)}
             self._selected = clean(data.get("selected"), 200)
+            self._selected_explicit = data.get("selected_explicit") is True
             if self._load_legacy_image_sources():
                 self._save()
             return
@@ -520,7 +526,8 @@ class LiveCatalogStore:
         return {**cart, "name": clean(cart.get("name"), 80), "host": host, "snapshot": snap}
 
     def _save(self):
-        atomic_json(self.carts_path, {"schema_version": 1, "selected": self._selected, "carts": self._carts})
+        atomic_json(self.carts_path, {"schema_version": 1, "selected": self._selected,
+                                      "selected_explicit": self._selected_explicit, "carts": self._carts})
         active = self._carts.get(self.active_key())
         if active is not None:
             atomic_json(LIVE_CATALOG_PATH, active.get("snapshot") or {})
@@ -534,19 +541,63 @@ class LiveCatalogStore:
                 if c["snapshot"].get("room_id") and self._is_live(c["snapshot"])]
         return max(live)[1] if live else ""
 
-    def active_key(self):
+    def set_session_cart_provider(self, provider):
+        """provider() -> khoá giỏ (catalog_cart) của timeline video đang khoá, "" nếu không có."""
+        self._session_cart_provider = provider
+
+    def _session_cart(self):
+        provider = self._session_cart_provider
+        if provider is None:
+            return ""
+        try:
+            key = clean(provider(), 200)
+        except Exception:
+            logging.getLogger("kid-te.core").warning("session cart provider failed", exc_info=True)
+            return ""
+        return key if key in self._carts else ""  # giỏ đã xoá -> bỏ qua
+
+    def _active(self):
+        """(khoá, nguồn) của giỏ AI + tự ghim đang dùng. Thứ tự khi LIVE: giỏ Studio chọn
+        cho video đang khoá ("video") -> giỏ chủ shop chọn ("selected") -> giỏ của tài
+        khoản đang LIVE ("live"). Ngoài LIVE: giỏ chủ shop chọn, rồi giỏ đầu ("default")."""
         with self._lock:
             live = self.live_key()
             if live:
-                return live
+                video = self._session_cart()
+                if video:
+                    return video, "video"
+            if self._selected_explicit and self._selected in self._carts:
+                return self._selected, "selected"  # chủ shop đã chọn giỏ cho buổi LIVE
+            if live:
+                return live, "live"
             if self._selected in self._carts:
-                return self._selected
-            return next(iter(self._carts), self.DEFAULT_CART)
+                return self._selected, "default"
+            return next(iter(self._carts), self.DEFAULT_CART), "default"
 
-    @staticmethod
-    def _product_ids(snapshot):
-        return {str(p.get("product_id")) for p in (snapshot or {}).get("products") or []
-                if isinstance(p, dict) and str(p.get("product_id") or "").strip()}
+    def active_key(self):
+        return self._active()[0]
+
+    def ai_catalog(self, synced=None):
+        """Danh mục AI dùng cho một bình luận TikTok.
+
+        Có giỏ ưu tiên (video Studio / chủ shop chọn) -> danh mục giỏ đó, room_id/pin_id
+        lấy từ phiên LIVE thật (pin chỉ giữ khi sản phẩm có trong giỏ). Không có -> giữ
+        nguyên danh mục vừa đồng bộ của phòng đó (hai tài khoản LIVE cùng lúc vẫn đúng).
+        """
+        with self._lock:
+            key, source = self._active()
+            if source not in ("video", "selected") or key not in self._carts:
+                return synced if isinstance(synced, dict) else self._view(self._snapshot)
+            view = self._view(self._carts[key]["snapshot"])
+            room = synced if isinstance(synced, dict) and synced.get("room_id") else None
+            if room is None and self.live_key():
+                room = self._carts[self.live_key()]["snapshot"]
+            if room:
+                ids = {str(p.get("product_id")) for p in view["products"] if isinstance(p, dict)}
+                pin = clean(room.get("pin_id"), 160)
+                view.update(room_id=clean(room.get("room_id"), 160), pin_id=pin if pin in ids else "")
+            view.update(cart_key=key, cart_source=source)
+            return view
 
     def _new_scan_key(self):
         base = "scan:" + datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -555,51 +606,20 @@ class LiveCatalogStore:
             key, n = f"{base}-{n}", n + 1
         return key
 
-    def _unowned_key(self, incoming_room, profile_id, incoming_ids=frozenset()):
-        """Giỏ cho payload không rõ chủ phòng, KHÔNG BAO GIỜ đè giỏ của nguồn khác.
+    def _unique_name(self, name):
+        """Tên giỏ quét tay; trùng tên giỏ khác thì thêm hậu tố " (2)", " (3)"..."""
+        name = clean(name, 70).strip() or "Giỏ " + datetime.now().strftime("%H:%M %d/%m")
+        taken = {self._display_name(k, c).casefold() for k, c in self._carts.items()}
+        result, n = name, 2
+        while result.casefold() in taken:
+            result, n = f"{name} ({n})", n + 1
+        return result
 
-        Trước LIVE TikTok không trả host nên mọi lần quét đều rơi vào giỏ đang hoạt
-        động: tab tài khoản 2 quét 39 SP đã đè mất giỏ 19 SP của tab 1 (chủ shop 21/10).
-        Giờ: cùng phòng LIVE -> giỏ của phòng đó; giỏ đích rỗng -> ghi; tập product_id
-        trùng >= MATCH_RATIO với một giỏ -> cập nhật giỏ đó; khác hẳn -> giỏ mới.
-        """
-        if incoming_room:
-            same_room = [(str(c["snapshot"].get("synced_at") or ""), key) for key, c in self._carts.items()
-                         if clean(c["snapshot"].get("room_id"), 160) == incoming_room]
-            if same_room:
-                return max(same_room)[1]
-        base = self._legacy_unowned_key(incoming_room, profile_id)
-        current = self._product_ids((self._carts.get(base) or {}).get("snapshot"))
-        if not current or not incoming_ids:
-            return base
-
-        def overlap(ids):
-            return len(ids & incoming_ids) / len(ids | incoming_ids) if ids else 0.0
-
-        if overlap(current) >= self.MATCH_RATIO:
-            return base
-        best = max(((overlap(self._product_ids(c["snapshot"])), key) for key, c in self._carts.items()
-                    if key != base), default=(0.0, ""))
-        if best[0] >= self.MATCH_RATIO:
-            return best[1]
-        return self._new_scan_key()
-
-    def _legacy_unowned_key(self, incoming_room, profile_id):
-        """Giỏ ứng viên cho payload không rõ chủ phòng (giỏ trước LIVE thường thiếu host).
-
-        Trước đây luôn rơi về giỏ đang hoạt động = giỏ của tài khoản đang LIVE, nên
-        quét trước LIVE ở trình duyệt khác (tài khoản khác) bị guard live_active chặn.
-        Giờ: đang có giỏ LIVE do profile trình duyệt KHÁC ghi -> giỏ riêng của profile
-        này. Cùng profile (hoặc giỏ LIVE cũ chưa ghi profile) -> như cũ.
-        """
-        active = self.active_key()
-        live = self.live_key()
-        if incoming_room or not profile_id or not live or active != live:
-            return active
-        live_profile = clean(self._carts[live]["snapshot"].get("profile_id"), 80)
-        if live_profile and live_profile != profile_id:
-            return f"profile:{profile_id}"
-        return active
+    def _room_key(self, incoming_room):
+        """Giỏ của một phòng LIVE (đồng bộ tự động không có host)."""
+        same_room = [(str(c["snapshot"].get("synced_at") or ""), key) for key, c in self._carts.items()
+                     if clean(c["snapshot"].get("room_id"), 160) == incoming_room]
+        return max(same_room)[1] if same_room else f"room:{incoming_room}"
 
     def _resolve_key(self, host):
         """Giỏ của chủ phòng này. So user_id trước, rồi sec_uid, rồi handle."""
@@ -705,7 +725,7 @@ class LiveCatalogStore:
 
     def carts_state(self):
         with self._lock:
-            active, live = self.active_key(), self.live_key()
+            (active, source), live = self._active(), self.live_key()
             rows = []
             for key, cart in self._carts.items():
                 snap = self._view(cart["snapshot"])
@@ -718,17 +738,33 @@ class LiveCatalogStore:
                              "synced_at": clean(snap.get("synced_at"), 60),
                              "phase": clean(snap.get("phase"), 20), "live": key == live,
                              "active": key == active, "selected": key == self._selected,
+                             "manual": key.startswith("scan:"),
                              "history_count": len(self._history.get(key) or []),
                              "history_at": clean(((self._history.get(key) or [{}])[0]).get("saved_at"), 60)})
-            return {"ok": True, "active": active, "selected": self._selected, "live": live, "carts": rows}
+            return {"ok": True, "active": active, "active_name": self._display_name(active, self._carts.get(active) or {})
+                    if active in self._carts else "", "selected": self._selected,
+                    "selected_explicit": bool(self._selected_explicit and self._selected in self._carts),
+                    "live": live, "live_name": self._display_name(live, self._carts[live]) if live else "",
+                    # video = theo giỏ Studio chọn cho video đang phát; selected = chủ shop chọn;
+                    # live = giỏ của tài khoản đang LIVE; default = ngoài LIVE.
+                    "active_source": source,
+                    # Đang LIVE mà giỏ AI thực sự dùng khác giỏ tài khoản LIVE: UI cảnh báo, KHÔNG tự đổi giỏ.
+                    "live_mismatch": bool(live and active != live), "carts": rows}
 
     def select(self, key):
+        """Chủ shop chọn giỏ: AI/tự ghim dùng giỏ này (kể cả khi LIVE). key rỗng = bỏ chọn,
+        quay về giỏ của tài khoản đang LIVE."""
         with self._lock:
             key = clean(key, 200)
+            if not key:
+                if self._selected_explicit:
+                    self._selected_explicit = False
+                    self._save()
+                return self.carts_state()
             if key not in self._carts:
                 raise ValueError("cart_not_found")
-            if key != self._selected:
-                self._selected = key
+            if key != self._selected or not self._selected_explicit:
+                self._selected, self._selected_explicit = key, True
                 self._save()
             return self.carts_state()
 
@@ -759,16 +795,19 @@ class LiveCatalogStore:
             del self._carts[key]
             if self._selected == key:
                 self._selected = next(iter(self._carts), "")
+                self._selected_explicit = False
             self._save()
             return self.carts_state()
 
     # ---- ghi danh mục --------------------------------------------------
-    def sync(self, snapshot, user_initiated=False):
-        """Đồng bộ danh mục vào giỏ của chủ phòng, KHÔNG BAO GIỜ để payload rỗng xoá dữ liệu.
+    def sync(self, snapshot, user_initiated=False, cart_target="", cart_name="", confirmed=False):
+        """Đồng bộ danh mục, KHÔNG BAO GIỜ để payload rỗng xoá dữ liệu.
 
-        Trước đây mỗi bình luận đều gọi hàm này; một snapshot lỗi là đủ để ghi
-        đè danh mục thành 0 sản phẩm và AI mất sạch giá tới lần đồng bộ sau.
-        Giỏ của tài khoản khác không bị đụng tới.
+        Quét tay (user_initiated): "lấy ở đâu lưu ở đó" — cart_target "new"/rỗng (tiện ích
+        cũ) LUÔN tạo giỏ mới tên cart_name; cart_target = key -> ghi đè đúng giỏ đó (bản
+        trước vào lịch sử), giỏ đang có sản phẩm cần confirmed=True. Không so khớp.
+        Tự động: có host -> giỏ của tài khoản; không host mà có room -> giỏ của room;
+        không cả hai -> bỏ qua (không ghi đè giỏ nào, không tạo giỏ rác).
         """
         snapshot = snapshot if isinstance(snapshot, dict) else {}
         # Sản phẩm chủ shop loại khỏi AI: bỏ ngay từ cửa, mọi đường trả lời đều không thấy.
@@ -783,8 +822,25 @@ class LiveCatalogStore:
         with self._lock:
             # Quyết định bỏ qua và ghi nằm cùng một khoá (tránh 2 sync đè sai).
             profile_id = clean(snapshot.get("profile_id"), 80)
-            key = self._resolve_key(host) or self._unowned_key(
-                incoming_room, profile_id, frozenset(self._product_ids(snapshot)))
+            target = clean(cart_target, 200)
+            new_name = ""
+            if user_initiated and target in ("", "new"):
+                key, new_name = self._new_scan_key(), self._unique_name(
+                    cart_name or (("@" + clean(host.get("unique_id"), 60)) if clean(host.get("unique_id"), 60)
+                                  else clean(host.get("nickname"), 60)))
+            elif user_initiated:
+                if target not in self._carts:
+                    raise ValueError("cart_not_found")
+                key = target
+            else:
+                key = self._resolve_key(host) or (self._room_key(incoming_room) if incoming_room else "")
+                if not key:
+                    logging.getLogger("kid-te.core").info(
+                        "catalog auto-sync skipped: no host and no room (%d products)", len(products))
+                    view = self._view(self._snapshot)
+                    view.setdefault("synced_at", "")
+                    view.update(skipped="no_owner")
+                    return view
             cart = self._carts.get(key)
             current = dict((cart or {}).get("snapshot") or {})
             current_owner = clean(current.get("owner_key"), 200)
@@ -810,6 +866,13 @@ class LiveCatalogStore:
                 kept = self._view(current)
                 kept.update(skipped="live_active", cart_key=key)
                 return kept
+            if (user_initiated and cart is not None and not confirmed and products
+                    and current.get("products")):
+                # Ghi đè có chủ đích: tiện ích hỏi lại kèm số sản phẩm cũ/mới.
+                kept = self._view(current)
+                kept.update(skipped="confirm_overwrite", cart_key=key, needs_confirm=True,
+                            old_count=kept["product_count"], new_count=len(products))
+                return kept
             filtered = self._view(current)
             if not products and filtered.get("products") and (
                     not incoming_room or current.get("room_id") == incoming_room):
@@ -822,10 +885,16 @@ class LiveCatalogStore:
                 # Quét tay ghi đè giỏ: giữ bản trước để "Khôi phục bản trước".
                 self._write_history()
             if cart is None:
-                cart = self._carts[key] = {"name": "", "host": {}, "created_at": compact["synced_at"], "snapshot": {}}
+                cart = self._carts[key] = {"name": new_name, "host": {}, "created_at": compact["synced_at"],
+                                           "snapshot": {}}
+                if new_name:
+                    cart["manual"] = True
             known = {field: clean(host.get(field), 240 if field == "sec_uid" else 160)
                      for field in ("user_id", "sec_uid", "unique_id", "nickname")}
             merged = {**cart.get("host", {}), **{k: v for k, v in known.items() if v}}
+            if user_initiated:
+                # Giỏ quét tay không gắn host: đồng bộ tự động lúc LIVE không được rơi vào nó.
+                merged = cart.get("host", {})
             if merged != cart.get("host"):
                 cart["host"] = merged
                 changed = True
@@ -848,7 +917,8 @@ class LiveCatalogStore:
                           else int(previous_revisions.get(pid) or 0))
                     for pid, urls in images.items()}
                 changed = True
-            if not self._selected:
+            if not self._selected and (not user_initiated or len(self._carts) == 1):
+                # Quét tay chỉ LƯU giỏ: chỉ tự đặt khi đây là giỏ duy nhất (chưa có gì để giữ).
                 self._selected = key
             if changed:
                 self._save()
@@ -1091,6 +1161,9 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         self.metrics = metrics_store or MetricsStore(LOG_DIR / "metrics")
         self.video_position = VideoPositionStore()
         self.video_positions = {"tiktok": self.video_position, "shopee": VideoPositionStore()}
+        if hasattr(self.catalog, "set_session_cart_provider"):
+            # Đang LIVE: AI + tự ghim theo giỏ Studio chọn cho video đang khoá.
+            self.catalog.set_session_cart_provider(self._locked_video_cart)
         self.live_sources = LiveSources(ROOT / "data" / "machine" / "live_sources.json")
         self.platform_heartbeats = {}
         # B3: ghép tiện ích lần đầu theo từng sàn (ID unpacked khác nhau mỗi máy).
@@ -1358,6 +1431,34 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
             raise ValueError("product_image_not_found")
         return fetched
 
+    def _locked_video_cart(self):
+        """catalog_cart trong timeline của video TikTok đang khoá (locked/uncertain, chưa cũ).
+
+        Đọc thẳng timeline.json (cache theo mtime): hàm này được gọi mỗi lần lấy giỏ đang dùng.
+        """
+        import video_library
+        position = self.video_positions["tiktok"].current()
+        video_id = clean(position.get("video_id"), 80)
+        if (not video_id or not _VIDEO_ID_RE.match(video_id) or ".." in video_id
+                or not (position.get("available") or position.get("state") == "uncertain")
+                or position.get("reason") == "stale"):
+            return ""
+        path = Path(video_library.VIDEO_DIR) / video_id / "timeline.json"
+        try:
+            stamp = path.stat().st_mtime_ns
+        except OSError:
+            return ""
+        cached = getattr(self, "_video_cart_cache", None)
+        if cached and cached[0] == (str(path), stamp):
+            return cached[1]
+        try:
+            timeline = json.loads(path.read_text(encoding="utf-8-sig"))
+            cart = clean(timeline.get("catalog_cart"), 200) if isinstance(timeline, dict) else ""
+        except (OSError, ValueError):
+            cart = ""
+        self._video_cart_cache = ((str(path), stamp), cart)
+        return cart
+
     def video_catalog(self, cart=""):
         """Danh mục cho Studio video: một chỗ có đủ ảnh, giá, giỏ, hồ sơ.
 
@@ -1466,7 +1567,7 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
         )
         return result
 
-    def sync_catalog(self, snapshot, user_initiated=False):
+    def sync_catalog(self, snapshot, user_initiated=False, cart_target="", cart_name="", confirmed=False):
         incoming = [p for p in ((snapshot or {}).get("products") or []) if isinstance(p, dict)]             if isinstance(snapshot, dict) else []
         restored = []
         if user_initiated and incoming:
@@ -1479,11 +1580,18 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
                 if pid and pid in removed:
                     product_blocklist.set_removed(removed[pid], False)
                     restored.append(pid)
-        saved = self.catalog.sync(snapshot, user_initiated=True) if user_initiated else self.catalog.sync(snapshot)
+        if user_initiated:
+            saved = self.catalog.sync(snapshot, user_initiated=True, cart_target=cart_target,
+                                      cart_name=cart_name, confirmed=confirmed)
+        else:
+            saved = self.catalog.sync(snapshot)
         cart_key = saved.get("cart_key", "")
-        if user_initiated and cart_key and not saved.get("skipped") and hasattr(self.catalog, "select"):
-            # Chủ shop vừa bấm quét ở tài khoản này: trang Sản phẩm chuyển sang giỏ đó.
-            self.catalog.select(cart_key)
+        if saved.get("needs_confirm"):
+            return {"ok": False, "needs_confirm": True, "cart_key": cart_key,
+                    "cart_name": self.catalog.cart_name(cart_key),
+                    "old_count": saved.get("old_count", 0), "new_count": saved.get("new_count", 0),
+                    "error": "confirm_overwrite"}
+        # Quét tay chỉ LƯU giỏ, không tự chọn (dù đang LIVE hay không): chủ shop chọn trên trang Sản phẩm.
         self.workspace._touch("products", "catalog", "dashboard")
         result = {"ok": True, "product_count": saved["product_count"], "synced_at": saved["synced_at"],
                   "phase": saved.get("phase", ""), "received_count": len(incoming)}
@@ -1493,6 +1601,8 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
                 result["cart_created"] = True
             if hasattr(self.catalog, "cart_name"):
                 result["cart_name"] = self.catalog.cart_name(cart_key)
+        if hasattr(self.catalog, "carts_state"):
+            result["active_cart_name"] = self.catalog.carts_state().get("active_name", "")
         if restored:
             result["restored_ids"] = restored
         if saved.get("skipped"):
@@ -2115,6 +2225,9 @@ class ReplyEngine(EngineStatusMixin, EngineCatalogMixin, ReplyPipelineMixin, Eng
                 "requires_ack": False,
             })
         live = self.catalog.sync(payload.get("live_context"))
+        if hasattr(self.catalog, "ai_catalog"):
+            # Giỏ video Studio / chủ shop chọn thắng giỏ vừa đồng bộ của tài khoản LIVE.
+            live = self.catalog.ai_catalog(live)
         received_at = payload.get('received_at_ms', time.time() * 1000)
         if (not isinstance(received_at, (int, float)) or isinstance(received_at, bool)
                 or not math.isfinite(received_at)):

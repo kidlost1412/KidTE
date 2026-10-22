@@ -106,7 +106,8 @@ def classify(exc, host="máy chủ"):
     elif any(isinstance(i, ssl.SSLError) for i in chain):
         code = "tls_error"
     elif "ProxyError" in names or any(
-            "proxy" in str(i).lower() and "tunnel" in str(i).lower() for i in chain):
+            "tunnel connection failed" in str(i).lower()  # http.client: proxy refused CONNECT
+            or ("proxy" in str(i).lower() and "tunnel" in str(i).lower()) for i in chain):
         code = "proxy"
     elif any(isinstance(i, socket.gaierror) for i in chain) or any(
             "getaddrinfo" in str(i) or "Name or service not known" in str(i) for i in chain):

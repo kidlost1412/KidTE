@@ -250,6 +250,26 @@ function defaultCartName(now = new Date()) {
 }
 
 // Danh sách giỏ cho "Lưu vào" + dòng "Buổi LIVE đang dùng giỏ «…»".
+// Đang LIVE mà AI dùng giỏ của tài khoản khác: cảnh báo nổi bật, không tự đổi giỏ.
+function liveMismatchText(response) {
+  if (!response?.live_mismatch) return "";
+  const live = (response.carts || []).find((c) => c.key === response.live) || {};
+  return `Đang LIVE ${response.live_name || live.name || response.live} nhưng AI đang dùng giỏ «${response.active_name || response.active}»`;
+}
+
+function renderCartWarning(response) {
+  const box = $("#live-cart-warn");
+  if (!box) return;
+  const text = liveMismatchText(response);
+  box.hidden = !text;
+  $("#live-cart-warn-text").textContent = text;
+}
+
+$("#use-live-cart")?.addEventListener("click", async () => {
+  const response = await chrome.runtime.sendMessage({ type: "LIVE_RE_LIST_CARTS", useLive: true }).catch(() => null);
+  if (response?.ok) await loadCartChoices().catch(() => {});
+});
+
 async function loadCartChoices() {
   const nameBox = $("#cart-name");
   // Để trống = Kid TE đặt tên theo tài khoản TikTok (nếu biết), không thì "Giỏ HH:mm dd/mm".
@@ -258,6 +278,7 @@ async function loadCartChoices() {
   if (!select) return;
   const response = await chrome.runtime.sendMessage({ type: "LIVE_RE_LIST_CARTS" }).catch(() => null);
   if (!response?.ok) return;
+  renderCartWarning(response);
   const chosen = select.value;
   select.textContent = "";
   const add = (value, label) => {

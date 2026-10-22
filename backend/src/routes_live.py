@@ -115,10 +115,18 @@ def post_observe(self, route, payload, flags):
 
 
 def post_catalog_carts(self, route, payload, flags):
-    """Tiện ích (đã ghép đôi) đọc danh sách giỏ cho popup quét tay. Chỉ đọc."""
+    """Tiện ích (đã ghép đôi) đọc danh sách giỏ cho popup quét tay.
+
+    Ghi duy nhất: use_live=true (chủ shop bấm "Dùng giỏ của tài khoản LIVE") = bỏ chọn giỏ,
+    AI quay về giỏ của tài khoản đang LIVE.
+    """
+    if payload.get("use_live") is True:
+        self.engine.catalog.select("")
+        self.engine.workspace._touch("products", "catalog", "dashboard")
     state = self.engine.catalog.carts_state()
     return {"ok": True, "active": state.get("active", ""), "active_name": state.get("active_name", ""),
-            "live": state.get("live", ""),
+            "live": state.get("live", ""), "live_name": state.get("live_name", ""),
+            "live_mismatch": bool(state.get("live_mismatch")),
             "carts": [{key: row.get(key) for key in ("key", "name", "product_count", "live", "active", "synced_at")}
                       for row in state.get("carts") or []]}
 

@@ -360,3 +360,62 @@ def test_manual_scan_name_defaults_to_account(env):
     out = _scan(engine, _snap("111", ["a1"], unique_id="shopA"))
     assert out["cart_name"] == "@shopA" and out["cart_key"].startswith("scan:")
     assert _scan(engine, _snap("111", ["a2"], unique_id="shopA"))["cart_name"] == "@shopA (2)"
+
+
+# ---- 1.15.26: đổi giỏ trên trang Sản phẩm phải hiện ngay sản phẩm của giỏ đó ----
+def _mapping_engine():
+    """Engine giả đủ để chạy ReplyEngine.mapping_state (danh sách trang Sản phẩm/Studio)."""
+    fake = _engine()
+    fake.knowledge = types.SimpleNamespace(
+        all_records=lambda: [], hidden_ids=lambda: set(), mapping_assignments=lambda: {},
+        approved_product_codes=lambda: set(), mappable_records=lambda: [],
+        mapping_history_count=lambda: 0)
+    fake._product_image_sources = lambda: {}
+    fake._prefetch_mapping_images = lambda sources: None
+    fake._pinned_product_ids = lambda: set()
+    fake._listing_image_url = lambda *a, **k: ""
+    fake._suggest_profiles = lambda *a, **k: []
+    fake.mapping_state = server_module.ReplyEngine.mapping_state.__get__(fake)
+    return fake
+
+
+def _system_post(engine, path, payload):
+    import engine_system
+    owner = next(c for c in vars(engine_system).values()
+                 if isinstance(c, type) and "system_post" in vars(c))
+    return owner.system_post(engine, path, payload)
+
+
+def test_select_then_products_and_trash_follow_selected_cart_even_when_other_is_live(env):
+    engine = _mapping_engine()
+    engine.sync(_snap("111", ["a1", "a2"]))
+    engine.sync(_snap("", ["d1"], room="7300"))  # giỏ khác (kiểu "Mặc định") đang LIVE
+    live = engine.catalog.live_key()
+    assert live and engine.catalog.active_key() == live
+    product_blocklist.set_removed_many([{"product_id": "a2", "title": "SP a2"}], True)
+    state = _system_post(engine, "carts/select", {"key": "uid:111"})
+    assert state["active"] == "uid:111" and state["selected"] == "uid:111"
+    mapping = engine.mapping_state()
+    assert [p["product_id"] for p in mapping["products"]] == ["a1"]
+    assert mapping["cart_key"] == "uid:111"
+    assert [r["product_id"] for r in engine.removed_listings()] == ["a2"]
+    assert _ids(engine.catalog.snapshot) == ["a1"]
+    # Bản sao live_products_current.json cũng là giỏ vừa chọn.
+    assert _ids(json.loads((env / "live.json").read_text(encoding="utf-8"))) == ["a1", "a2"]
+
+
+def test_live_mismatch_warning_state_and_use_live_route(env):
+    import routes_live
+    engine = _engine()
+    engine.sync(_snap("111", ["a1"]))
+    engine.sync(_snap("222", ["b1"], room="room9", unique_id="shopb"))
+    assert engine.catalog.carts_state()["live_mismatch"] is False  # chưa chọn: theo LIVE
+    engine.catalog.select("uid:111")
+    state = engine.catalog.carts_state()
+    assert state["live_mismatch"] is True and state["live_name"] == "@shopb"
+    handler = types.SimpleNamespace(engine=engine)
+    out = routes_live.post_catalog_carts(handler, "/api/catalog/carts", {}, {})  # chỉ đọc: không đổi giỏ
+    assert out["live_mismatch"] is True and engine.catalog.active_key() == "uid:111"
+    out = routes_live.post_catalog_carts(handler, "/api/catalog/carts", {"use_live": True}, {})
+    assert out["live_mismatch"] is False and out["active"] == "uid:222"
+    assert engine.catalog.carts_state()["selected_explicit"] is False

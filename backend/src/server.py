@@ -692,7 +692,9 @@ class LiveCatalogStore:
             return {"ok": True, "active": active, "active_name": self._display_name(active, self._carts.get(active) or {})
                     if active in self._carts else "", "selected": self._selected,
                     "selected_explicit": bool(self._selected_explicit and self._selected in self._carts),
-                    "live": live, "carts": rows}
+                    "live": live, "live_name": self._display_name(live, self._carts[live]) if live else "",
+                    # Đang LIVE mà AI dùng giỏ khác (chủ shop đã chọn): UI cảnh báo, KHÔNG tự đổi giỏ.
+                    "live_mismatch": bool(live and active != live), "carts": rows}
 
     def select(self, key):
         """Chủ shop chọn giỏ: AI/tự ghim dùng giỏ này (kể cả khi LIVE). key rỗng = bỏ chọn,

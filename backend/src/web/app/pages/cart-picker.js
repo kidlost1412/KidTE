@@ -1,9 +1,9 @@
 // Chọn giỏ sản phẩm theo tài khoản LIVE (trang Sản phẩm + Studio Edit).
 import {h, clear} from '../core/dom.js';
 import {request, friendlyError} from '../core/api.js';
-import {btn, select} from '../ui/kit.js';
+import {btn, select, notice} from '../ui/kit.js';
 import {toast, confirmDialog, promptDialog} from '../ui/overlays.js';
-import {cartOptions, cartLockNote, deleteCartText, restoreCartText} from './product-list-model.js';
+import {cartOptions, cartLockNote, deleteCartText, restoreCartText, liveMismatchWarning, pickerCartKey} from './product-list-model.js';
 
 export function loadCarts() { return request('/api/system/carts'); }
 
@@ -24,10 +24,15 @@ export function cartBar({onChange} = {}) {
   }
   function render() {
     if (!state || !(state.carts || []).length) { clear(host); return; }
-    const current = state.carts.find(c => c.key === state.selected) || state.carts.find(c => c.active) || state.carts[0];
+    // Ô chọn hiện đúng giỏ AI + danh sách đang dùng (active), không phải giá trị selected cũ.
+    const key = pickerCartKey(state);
+    const current = state.carts.find(c => c.key === key) || state.carts[0];
     const picker = select(cartOptions(state), current.key, {'aria-label': 'Giỏ sản phẩm', onChange: e => post('select', {key: e.target.value})});
     const note = cartLockNote(state);
+    const warn = liveMismatchWarning(state);
     clear(host,
+      warn ? h('div', {style: {flexBasis: '100%'}}, notice('danger', warn.title, warn.text,
+        btn(warn.action, {size: 'sm', kind: 'primary', onClick: () => post('select', {key: ''}, 'AI dùng giỏ của tài khoản đang LIVE.')}))) : null,
       h('strong', {class: 'fs-sm'}, 'Giỏ:'), picker,
       btn('Đổi tên', {size: 'sm', kind: 'ghost', icon: 'edit', onClick: async () => {
         const name = await promptDialog({title: 'Đổi tên giỏ', text: 'Để trống để dùng lại tên tài khoản LIVE.', label: 'Tên giỏ', value: current.custom_name ? current.name : ''});

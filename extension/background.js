@@ -1315,7 +1315,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Popup quét tay: danh sách giỏ (route chỉ-đọc, có kiểm ghép đôi ở backend).
       try {
         const response = await fetch("http://127.0.0.1:8793/api/catalog/carts", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+          method: "POST", headers: { "Content-Type": "application/json" },
+          // use_live: chủ shop bấm "Dùng giỏ của tài khoản LIVE" trong popup (ghi duy nhất của route này).
+          body: JSON.stringify(message.useLive === true ? { use_live: true } : {}),
           signal: globalThis.AbortSignal?.timeout?.(5000)
         });
         const result = await response.json().catch(() => ({}));

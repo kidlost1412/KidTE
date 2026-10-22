@@ -32,7 +32,7 @@ export function cartBar({onChange} = {}) {
     const warn = liveMismatchWarning(state);
     clear(host,
       warn ? h('div', {style: {flexBasis: '100%'}}, notice('danger', warn.title, warn.text,
-        btn(warn.action, {size: 'sm', kind: 'primary', onClick: () => post('select', {key: ''}, 'AI dùng giỏ của tài khoản đang LIVE.')}))) : null,
+        warn.action ? btn(warn.action, {size: 'sm', kind: 'primary', onClick: () => post('select', {key: ''}, 'AI dùng giỏ của tài khoản đang LIVE.')}) : null)) : null,
       h('strong', {class: 'fs-sm'}, 'Giỏ:'), picker,
       btn('Đổi tên', {size: 'sm', kind: 'ghost', icon: 'edit', onClick: async () => {
         const name = await promptDialog({title: 'Đổi tên giỏ', text: 'Để trống để dùng lại tên tài khoản LIVE.', label: 'Tên giỏ', value: current.custom_name ? current.name : ''});

@@ -127,6 +127,7 @@ def post_catalog_carts(self, route, payload, flags):
     return {"ok": True, "active": state.get("active", ""), "active_name": state.get("active_name", ""),
             "live": state.get("live", ""), "live_name": state.get("live_name", ""),
             "live_mismatch": bool(state.get("live_mismatch")),
+            "active_source": state.get("active_source", ""),
             "carts": [{key: row.get(key) for key in ("key", "name", "product_count", "live", "active", "synced_at")}
                       for row in state.get("carts") or []]}
 

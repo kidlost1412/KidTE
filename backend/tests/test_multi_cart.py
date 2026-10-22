@@ -244,7 +244,8 @@ def test_manual_scan_two_tabs_make_two_named_carts(env):
     # Cùng sản phẩm, "Giỏ mới": vẫn tạo giỏ mới, trùng tên thêm " (2)".
     third = _scan(engine, _snap("", _ids_n("p", 19)), name="Tab A")
     assert third["cart_name"] == "Tab A (2)" and third["cart_key"] not in (first["cart_key"], second["cart_key"])
-    assert engine.catalog.active_key() == third["cart_key"]  # ngoài LIVE: chọn giỏ vừa quét
+    # Quét xong chỉ LƯU: giỏ đang dùng vẫn là giỏ đầu tiên (giỏ duy nhất lúc đó).
+    assert engine.catalog.active_key() == first["cart_key"]
     again = server_module.LiveCatalogStore()
     assert {c["name"] for c in again.carts_state()["carts"]} == {"Tab A", "Tab B", "Tab A (2)"}
 
@@ -348,9 +349,14 @@ def test_ai_reads_selected_cart(env):
     """AI/tự ghim đọc catalog.snapshot: phải là giỏ chủ shop chọn, kể cả khi đang LIVE."""
     engine = _engine()
     named = _scan(engine, _snap("", ["n1", "n2"]), name="Giỏ tối nay")["cart_key"]
-    engine.sync(_snap("111", ["a1"], room="7300"))
-    assert engine.catalog.active_key() == named  # quét ngoài LIVE = đã chọn cho buổi LIVE
+    synced = engine.catalog.sync({**_snap("111", ["a1"], room="7300"), "pin_id": "a1"})
+    assert engine.catalog.active_key() == "uid:111"  # quét xong không tự chọn: theo tài khoản LIVE
+    assert engine.catalog.ai_catalog(synced) is synced  # không có giỏ ưu tiên: giữ giỏ vừa đồng bộ
+    engine.catalog.select(named)
     assert _ids(engine.catalog.snapshot) == ["n1", "n2"]
+    view = engine.catalog.ai_catalog(synced)  # đường AI của handle()
+    assert _ids(view) == ["n1", "n2"] and view["room_id"] == "7300" and view["pin_id"] == ""
+    assert view["cart_key"] == named and view["cart_source"] == "selected"
     engine.catalog.select("")
     assert _ids(engine.catalog.snapshot) == ["a1"]
 
@@ -419,3 +425,118 @@ def test_live_mismatch_warning_state_and_use_live_route(env):
     out = routes_live.post_catalog_carts(handler, "/api/catalog/carts", {"use_live": True}, {})
     assert out["live_mismatch"] is False and out["active"] == "uid:222"
     assert engine.catalog.carts_state()["selected_explicit"] is False
+
+
+# ---- 1.15.26: quét xong chỉ lưu; đang LIVE theo giỏ Studio chọn cho video đang khoá ----
+def test_manual_scan_never_changes_selected_cart(env):
+    engine = _engine()
+    engine.sync(_snap("111", ["a1"]))
+    engine.sync(_snap("222", ["b1"]))
+    assert engine.catalog.active_key() == "uid:111"  # chưa chọn tay: giỏ đầu
+    first = _scan(engine, _snap("", ["n1"]), name="Mới 1")
+    assert first["ok"] and engine.catalog.active_key() == "uid:111"
+    engine.catalog.select("uid:222")
+    second = _scan(engine, _snap("", ["n2"]), name="Mới 2")
+    assert second["ok"] and second["cart_created"]
+    state = engine.catalog.carts_state()
+    assert state["active"] == "uid:222" and state["selected"] == "uid:222" and state["selected_explicit"]
+    assert len(state["carts"]) == 4
+
+
+def _live_with_carts(engine):
+    """A = giỏ chủ shop chọn, B = giỏ Studio chọn cho video, uid:333 đang LIVE."""
+    a = _scan(engine, _snap("", ["a1", "a2"]), name="Giỏ A")["cart_key"]
+    b = _scan(engine, _snap("", ["b1", "b2", "b3"]), name="Giỏ B")["cart_key"]
+    synced = engine.catalog.sync({**_snap("333", ["l1", "b2"], room="7300", unique_id="shopl"), "pin_id": "b2"})
+    engine.catalog.select(a)
+    return a, b, synced
+
+
+def test_live_uses_locked_video_cart_over_selected(env):
+    engine = _mapping_engine()
+    a, b, synced = _live_with_carts(engine)
+    engine.catalog.set_session_cart_provider(lambda: b)
+    assert engine.catalog.active_key() == b
+    assert _ids(engine.catalog.snapshot) == ["b1", "b2", "b3"]  # tự ghim / panel / bảng điều khiển
+    view = engine.catalog.ai_catalog(synced)  # AI tư vấn
+    assert _ids(view) == ["b1", "b2", "b3"] and view["pin_id"] == "b2" and view["room_id"] == "7300"
+    assert view["cart_source"] == "video"
+    assert [p["product_id"] for p in engine.mapping_state()["products"]] == ["b1", "b2", "b3"]
+    state = engine.catalog.carts_state()
+    assert state["active"] == b and state["active_source"] == "video" and state["active_name"] == "Giỏ B"
+    assert state["live_mismatch"] is True and state["selected"] == a  # lệch theo giỏ thực sự dùng
+    # Ngoài LIVE thì giỏ của video không áp dụng.
+    engine.catalog._carts["uid:333"]["snapshot"]["synced_at"] = "2000-01-01T00:00:00+07:00"
+    assert engine.catalog.active_key() == a
+
+
+def test_live_video_cart_deleted_falls_back_to_selected_then_live(env):
+    engine = _engine()
+    a, b, synced = _live_with_carts(engine)
+    engine.catalog.set_session_cart_provider(lambda: b)
+    engine.catalog.delete(b)
+    assert engine.catalog.active_key() == a and engine.catalog.carts_state()["active_source"] == "selected"
+    assert _ids(engine.catalog.ai_catalog(synced)) == ["a1", "a2"]
+    engine.catalog.select("")
+    assert engine.catalog.active_key() == "uid:333"
+    assert engine.catalog.carts_state()["live_mismatch"] is False
+    assert engine.catalog.ai_catalog(synced) is synced
+
+
+def test_live_without_locked_video_uses_selected_or_live_account(env):
+    engine = _engine()
+    a, b, synced = _live_with_carts(engine)
+    engine.catalog.set_session_cart_provider(lambda: "")
+    assert engine.catalog.active_key() == a
+
+    def broken():
+        raise RuntimeError("x")
+    engine.catalog.set_session_cart_provider(broken)
+    assert engine.catalog.active_key() == a  # provider lỗi: không làm hỏng việc chọn giỏ
+    engine.catalog.select("")
+    assert engine.catalog.active_key() == "uid:333"
+    assert engine.catalog.carts_state()["active_source"] == "live"
+
+
+def test_engine_reads_catalog_cart_of_locked_video(env, monkeypatch):
+    import video_library
+    videos = env / "videos"
+    (videos / "vid1").mkdir(parents=True)
+    (videos / "vid1" / "timeline.json").write_text(
+        json.dumps({"video_id": "vid1", "catalog_cart": "scan:x"}), encoding="utf-8")
+    monkeypatch.setattr(video_library, "VIDEO_DIR", videos)
+    position = server_module.VideoPositionStore()
+    fake = types.SimpleNamespace(video_positions={"tiktok": position})
+    read = server_module.ReplyEngine._locked_video_cart.__get__(fake)
+    assert read() == ""  # chưa khoá video
+    position.update({"video_id": "vid1", "position_s": 3, "state": "locked"})
+    assert read() == "scan:x"
+    position.update({"video_id": "vid1", "position_s": 3, "state": "uncertain"})
+    assert read() == "scan:x"
+    position.update({"video_id": "../vid1", "position_s": 3, "state": "locked"})
+    assert read() == ""
+    position.update({"video_id": "nope", "position_s": 3, "state": "locked"})
+    assert read() == ""
+    position.update({"video_id": "vid1", "position_s": 3, "state": "locked"})
+    with position._lock:
+        position._state["monotonic"] -= 60  # nhịp cũ quá 25 giây
+    assert read() == ""
+
+
+def test_current_facts_use_same_cart_as_ai(env):
+    engine = _engine()
+    a, b, synced = _live_with_carts(engine)
+    engine.catalog.set_session_cart_provider(lambda: b)
+    engine.video_positions = {"tiktok": server_module.VideoPositionStore()}
+    engine._video_lock = server_module.ReplyEngine._video_lock.__get__(engine)
+    now = server_module.ReplyEngine._current_facts(engine, "tiktok", "7300", {"product_ids": ["b1"]})
+    assert now["pin_id"] == "b2"
+
+
+def test_carts_route_reports_active_source(env):
+    import routes_live
+    engine = _engine()
+    a, b, _ = _live_with_carts(engine)
+    engine.catalog.set_session_cart_provider(lambda: b)
+    out = routes_live.post_catalog_carts(types.SimpleNamespace(engine=engine), "/api/catalog/carts", {}, {})
+    assert out["active"] == b and out["active_source"] == "video" and out["live_mismatch"] is True

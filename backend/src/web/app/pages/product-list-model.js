@@ -130,7 +130,8 @@ export function cartLockNote(state) {
   const active = (state.carts || []).find(c => c.key === key);
   const name = state.active_name || (active ? active.name : key);
   if (!name) return '';
-  const why = state.selected_explicit ? ' (giỏ anh/chị đã chọn)'
+  const why = state.active_source === 'video' ? ' (theo video trong Studio)'
+    : state.selected_explicit ? ' (giỏ anh/chị đã chọn)'
     : state.live ? ' (giỏ của tài khoản đang LIVE)' : '';
   return `Buổi LIVE đang dùng giỏ «${name}»${why}.`;
 }
@@ -146,6 +147,14 @@ export function liveMismatchWarning(state) {
   const active = carts.find(c => c.key === state.active) || {};
   const liveName = live.unique_id ? '@' + live.unique_id : (state.live_name || live.name || state.live);
   const activeName = state.active_name || active.name || state.active;
+  if (state.active_source === 'video') {
+    // Giỏ lấy theo video đang phát: bỏ chọn trên trang này không đổi được -> không có nút.
+    return {
+      title: `Đang LIVE ${liveName} nhưng AI đang dùng giỏ «${activeName}» (theo video trong Studio)`,
+      text: 'AI tư vấn và tự ghim theo giỏ đã chọn trong Studio cho video đang phát. Muốn đổi, mở video trong Studio và chọn lại giỏ.',
+      action: '',
+    };
+  }
   return {
     title: `Đang LIVE ${liveName} nhưng AI đang dùng giỏ «${activeName}»`,
     text: 'AI tư vấn và tự ghim theo giỏ đang chọn. Nếu đây không phải giỏ của buổi LIVE này, bấm nút bên cạnh.',

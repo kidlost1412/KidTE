@@ -254,7 +254,15 @@ function defaultCartName(now = new Date()) {
 function liveMismatchText(response) {
   if (!response?.live_mismatch) return "";
   const live = (response.carts || []).find((c) => c.key === response.live) || {};
-  return `Đang LIVE ${response.live_name || live.name || response.live} nhưng AI đang dùng giỏ «${response.active_name || response.active}»`;
+  const why = response.active_source === "video" ? " (theo video trong Studio)" : "";
+  return `Đang LIVE ${response.live_name || live.name || response.live} nhưng AI đang dùng giỏ «${response.active_name || response.active}»${why}`;
+}
+
+// Dòng "Buổi LIVE đang dùng giỏ «…»": nói rõ khi giỏ lấy theo video đang phát trong Studio.
+function activeCartNote(response) {
+  if (!response?.active_name) return "";
+  const why = response.active_source === "video" ? " (theo video trong Studio)" : "";
+  return `Buổi LIVE đang dùng giỏ «${response.active_name}»${why}`;
 }
 
 function renderCartWarning(response) {
@@ -263,6 +271,9 @@ function renderCartWarning(response) {
   const text = liveMismatchText(response);
   box.hidden = !text;
   $("#live-cart-warn-text").textContent = text;
+  // Giỏ theo video Studio: nút "Dùng giỏ của tài khoản LIVE" không đổi được -> ẩn (đổi giỏ trong Studio).
+  const button = $("#use-live-cart");
+  if (button) button.hidden = response?.active_source === "video";
 }
 
 $("#use-live-cart")?.addEventListener("click", async () => {
@@ -293,7 +304,7 @@ async function loadCartChoices() {
   }
   select.value = [...select.options].some((o) => o.value === chosen) ? chosen : "new";
   const note = $("#live-cart-note");
-  if (note) note.textContent = response.active_name ? `Buổi LIVE đang dùng giỏ «${response.active_name}»` : "";
+  if (note) note.textContent = activeCartNote(response);
 }
 loadCartChoices().catch(() => {});
 

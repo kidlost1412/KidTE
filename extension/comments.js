@@ -1320,11 +1320,11 @@ function noteSendFailure(detail) {
   // Quét tay (userInitiated) KHÔNG ghép vào lượt tự động đang chạy (lượt đó có thể
   // bị cổng/guard chặn hoặc không xoá tombstone): chờ nó xong rồi tự gọi TikTok.
   let manualSyncInFlight = null;
-  function syncCatalog(includeRaw = false, userInitiated = false) {
+  function syncCatalog(includeRaw = false, userInitiated = false, target = null) {
     if (userInitiated) {
       if (!manualSyncInFlight) {
         const previous = catalogSyncInFlight ? catalogSyncInFlight.catch(() => {}) : Promise.resolve();
-        const run = previous.then(() => runCatalogSync(includeRaw, true));
+        const run = previous.then(() => runCatalogSync(includeRaw, true, target));
         const tracked = run.finally(() => {
           manualSyncInFlight = null;
           if (catalogSyncInFlight === tracked) catalogSyncInFlight = null;
@@ -1348,10 +1348,21 @@ function noteSendFailure(detail) {
         item.sale_price, item.stock, item.title].join("~")).join("|");
   }
 
-  async function pushCatalog(context, userInitiated = false) {
+  async function pushCatalog(context, userInitiated = false, target = null) {
     const payload = { live_context: context };
-    if (userInitiated) payload.user_initiated = true;
+    if (userInitiated) {
+      payload.user_initiated = true;
+      // Quét tay: "lấy ở đâu lưu ở đó" — giỏ mới (mặc định) hoặc ghi đè đúng giỏ đã chọn.
+      payload.cart_target = String(target?.cartTarget || "new");
+      payload.cart_name = String(target?.cartName || "");
+      if (target?.confirmed === true) payload.confirmed = true;
+    }
     const catalog = await chrome.runtime.sendMessage({ type: "LIVE_RE_CATALOG_SYNC", payload });
+    if (userInitiated && catalog?.needs_confirm) {
+      // Giữ đúng dữ liệu vừa quét: bấm xác nhận thì ghi chính bản này, không gọi TikTok lại.
+      pendingOverwrite = { context, cartTarget: payload.cart_target, at: Date.now() };
+      return { ...catalog, tiktok_count: context.products?.length || 0 };
+    }
     if (!catalog?.ok) throw new Error(catalog?.error || "Không đồng bộ được danh mục LIVE");
     if (userInitiated && catalog.skipped) {
       throw new Error(`Kid TE chưa ghi giỏ mới (${catalog.skipped}); danh mục cũ giữ nguyên`);
@@ -1373,7 +1384,15 @@ function noteSendFailure(detail) {
     return pushCatalog(cached.snapshot);
   }
 
-  async function runCatalogSync(includeRaw, userInitiated = false) {
+  let pendingOverwrite = null;
+  async function runCatalogSync(includeRaw, userInitiated = false, target = null) {
+    const pending = pendingOverwrite;
+    pendingOverwrite = null;
+    if (userInitiated && target?.confirmed === true && pending && pending.cartTarget === target.cartTarget &&
+        Date.now() - pending.at < 120000) {
+      const saved = await pushCatalog(pending.context, true, target);
+      return { ...saved, tiktok_count: pending.context.products.length };
+    }
     // Quet tay / cai AI / bat dau LIVE: LUON hoi TikTok (khong dung cache).
     const snapshot = await apiRequest("snapshot", { includeCatalogRaw: includeRaw, userInitiated });
     const context = snapshot.snapshot || {};
@@ -1381,7 +1400,7 @@ function noteSendFailure(detail) {
       throw new Error("TikTok trả 0 sản phẩm (có thể đang quá tải/xác minh); giữ nguyên danh mục cũ, hãy thử quét lại");
     }
     rememberLiveSnapshot(context);
-    const saved = await pushCatalog(context, userInitiated);
+    const saved = await pushCatalog(context, userInitiated, target);
     return { ...saved, tiktok_count: context.products.length };
   }
 
@@ -1528,7 +1547,11 @@ function noteSendFailure(detail) {
   // Quet chu dong truoc LIVE, doc lap voi nut Bật AI va dong ho ghim.
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "LIVE_RE_SCAN_CATALOG_PAGE") return undefined;
-    syncCatalog(true, true)
+    syncCatalog(true, true, {
+      cartTarget: String(message.cartTarget || "new"),
+      cartName: String(message.cartName || ""),
+      confirmed: message.confirmed === true
+    })
       .then((catalog) => sendResponse(catalog))
       .catch((error) => sendResponse({
         ok: false, error: clean(error?.message || error, 180)

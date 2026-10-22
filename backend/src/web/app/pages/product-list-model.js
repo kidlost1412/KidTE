@@ -114,11 +114,16 @@ export function cartOptions(state) {
     .map(c => [c.key, cartLabel(c)]);
 }
 
-/** Đang LIVE thì giỏ hoạt động bị khoá theo tài khoản LIVE (chọn trên UI chỉ có hiệu lực khi hết LIVE). */
+/** Giỏ AI + tự ghim đang dùng: giỏ chủ shop chọn; chưa chọn thì giỏ của tài khoản đang LIVE. */
 export function cartLockNote(state) {
-  if (!state || !state.live) return '';
-  const live = (state.carts || []).find(c => c.key === state.live);
-  return `Đang LIVE: AI, tự ghim và trang này dùng giỏ ${live ? live.name : state.live}.`;
+  if (!state || !(state.carts || []).length) return '';
+  const key = state.active || state.live;
+  const active = (state.carts || []).find(c => c.key === key);
+  const name = state.active_name || (active ? active.name : key);
+  if (!name) return '';
+  const why = state.selected_explicit ? ' (giỏ anh/chị đã chọn)'
+    : state.live ? ' (giỏ của tài khoản đang LIVE)' : '';
+  return `Buổi LIVE đang dùng giỏ «${name}»${why}.`;
 }
 
 /** Hộp xác nhận "Khôi phục bản trước" của một giỏ (bản trước khi quét tay ghi đè). */

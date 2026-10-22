@@ -48,8 +48,16 @@ let browser;
           if (message.type === "LIVE_RE_GET_STATE") {
             return Promise.resolve({ ok: true, state: { running: false, startedAtMs: 0, pausedElapsedMs: 0 } });
           }
+          if (message.type === "LIVE_RE_LIST_CARTS") {
+            return Promise.resolve({ ok: true, active_name: "@shopA", carts: [
+              { key: "uid:1", name: "@shopA", product_count: 19 }] });
+          }
           if (message.type === "LIVE_RE_SCAN_CATALOG") {
-            return Promise.resolve({ ok: true, product_count: 41, cart_name: "Giỏ quét lúc 14:05 21/10", cart_created: true });
+            if (message.cartTarget === "uid:1" && !message.confirmed) {
+              return Promise.resolve({ ok: false, needs_confirm: true, cart_name: "@shopA", old_count: 19, new_count: 41 });
+            }
+            return Promise.resolve({ ok: true, product_count: 41, cart_name: message.cartTarget === "new" ? message.cartName : "@shopA",
+              cart_created: message.cartTarget === "new", active_cart_name: "@shopA" });
           }
           const elapsedMs = Number(message.elapsedMs || 0);
           return Promise.resolve({
@@ -81,12 +89,30 @@ let browser;
   await page.locator('summary').filter({hasText:'Giỏ sản phẩm'}).click();
   await page.locator('summary').filter({hasText:'Điều khiển thủ công'}).click();
   assert.equal(await page.locator("#jump").innerText(), "Đến mốc");
+  // 3.11.14: quét tay "lấy ở đâu lưu ở đó": mặc định Giỏ mới với tên đã nhập.
+  assert.match(await page.locator("#cart-name").getAttribute("placeholder"), /Giỏ \d\d:\d\d \d\d\/\d\d$/);
+  assert.match(await page.locator("#live-cart-note").innerText(), /Buổi LIVE đang dùng giỏ «@shopA»/);
+  assert.equal(await page.locator("#cart-target").inputValue(), "new");
+  await page.locator("#cart-name").fill("Tab A");
   await page.locator("#scan-catalog").click();
   await page.waitForTimeout(50);
-  assert.match(await page.locator("#catalog-status").innerText(), /Đã lưu 41 SKU/);
-  // 3.11.13: báo rõ giỏ đã lưu; quét không rõ chủ mà khác hẳn -> giỏ mới, giỏ cũ giữ nguyên.
-  assert.match(await page.locator("#catalog-status").innerText(), /vào giỏ «Giỏ quét lúc 14:05 21\/10»/);
-  assert.match(await page.locator("#catalog-status").innerText(), /GIỎ MỚI.*giỏ cũ giữ nguyên/);
+  assert.match(await page.locator("#catalog-status").innerText(), /Đã lưu 41 sản phẩm vào giỏ «Tab A»/);
+  // Ghi đè có chủ đích: hỏi xác nhận kèm số cũ/mới; huỷ thì giữ nguyên.
+  let dialogText = "";
+  page.once("dialog", (dialog) => { dialogText = dialog.message(); dialog.dismiss(); });
+  await page.locator("#cart-target").selectOption("uid:1");
+  await page.locator("#scan-catalog").click();
+  await page.waitForTimeout(50);
+  assert.match(dialogText, /Ghi đè giỏ «@shopA»/);
+  assert.match(dialogText, /19 sản phẩm.*41 sản phẩm/s);
+  assert.match(await page.locator("#catalog-status").innerText(), /Đã huỷ/);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#scan-catalog").click();
+  await page.waitForTimeout(50);
+  assert.match(await page.locator("#catalog-status").innerText(), /Đã lưu 41 sản phẩm vào giỏ «@shopA»/);
+  const scans = (await page.evaluate(() => window.__sentMessages)).filter((m) => m.type === "LIVE_RE_SCAN_CATALOG");
+  assert.equal(scans.at(-1).confirmed, true);
+  assert.equal(scans.at(-1).cartTarget, "uid:1");
 
   await page.locator("#jump-time").fill("7:60");
   await page.locator("#jump").click();

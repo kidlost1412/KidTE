@@ -179,6 +179,7 @@ POST_JSON_ROUTES = [
     (exact('/api/shopee/reply'), routes_live.post_shopee_reply),
     (exact('/api/shopee/delivery'), routes_live.post_shopee_delivery),
     (suffix('/observe'), routes_live.post_observe),
+    (exact('/api/catalog/carts'), routes_live.post_catalog_carts),
     (suffix('catalog/sync'), routes_live.post_route_endswith_catalog_sync),
     (suffix('reply/ack'), routes_live.post_route_endswith_reply_ack),
     (suffix('reply/delivery'), routes_live.post_route_endswith_reply_delivery),
@@ -263,7 +264,7 @@ def post_guard(self, route, flags):
     elif not self.headers.get("Origin", "").startswith("chrome-extension://"):
         self.reject(403, "extension_origin_required")
         return False
-    if route not in {"/api/reply", "/api/reply/ack", "/api/reply/delivery", "/api/catalog/sync",
+    if route not in {"/api/reply", "/api/reply/ack", "/api/reply/delivery", "/api/catalog/sync", "/api/catalog/carts",
                          *delivery_routes,
                          *queue_routes,
                          "/api/shopee/mappings", "/api/shopee/sync", "/api/shopee/reply", "/api/shopee/delivery",

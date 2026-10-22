@@ -42,6 +42,9 @@ export function cartBar({onChange} = {}) {
         const {title, text} = deleteCartText(current);
         if (await confirmDialog({title, text, confirm: 'Xoá giỏ', tone: 'danger'})) post('delete', {key: current.key}, 'Đã xoá giỏ.');
       }}),
+      state.selected_explicit ? btn('Theo tài khoản LIVE', {size: 'sm', kind: 'ghost',
+        title: 'Bỏ chọn: AI và tự ghim dùng giỏ của tài khoản đang LIVE.',
+        onClick: () => post('select', {key: ''}, 'AI dùng giỏ của tài khoản đang LIVE.')}) : null,
       note ? h('span', {class: 'fs-xs muted'}, note) : null);
   }
   loadCarts().then(s => { state = s; render(); }).catch(() => clear(host));

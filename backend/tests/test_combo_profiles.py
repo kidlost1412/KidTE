@@ -394,6 +394,7 @@ class ComboTests(unittest.TestCase):
 
         namespace = {
             "threading": threading,
+            "logging": __import__("logging"),
             "product_blocklist": block,
             "LIVE_CATALOG_PATH": Path(self.tmp.name) / "live.json",
             "LIVE_RAW_CATALOG_PATH": Path(self.tmp.name) / "raw.json",
@@ -412,11 +413,11 @@ class ComboTests(unittest.TestCase):
             patch.object(block, "PATH", Path(self.tmp.name) / "rules.json"),
         ):
             store = namespace["LiveCatalogStore"]()
-            store.sync({"products": [self.listing], "pin_id": "sku"})
+            store.sync({"products": [self.listing], "pin_id": "sku", "host": {"user_id": "u1"}})
             block.set_removed(self.listing)
             self.assertEqual(store.snapshot["products"], [])
             self.assertEqual(store.snapshot["pin_id"], "")
-            self.assertEqual(store.sync({"products": [self.listing]})["products"], [])
+            self.assertEqual(store.sync({"products": [self.listing], "host": {"user_id": "u1"}})["products"], [])
             block.set_removed(self.listing, False)
             self.assertEqual(store.snapshot["products"], [self.listing])
 
